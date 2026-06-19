@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { storage } from "./api";
 import CsvImportModal from "./CsvImport";
+import PerformanceReport from "./PerformanceReport";
 
 /* ============================================================
    UTILITIES
@@ -4238,7 +4239,12 @@ function BackupPanel({ data, setData }) {
    MORE TAB (wraps Plans / Psychology / Vault / Backup)
    ============================================================ */
 function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
-  const tabs = ["Account", "Plans", "Psychology", "Vault", "Backup"];
+  const tabs = ["Account", "Plans", "Psychology", "Vault", "Backup", "Report"];
+
+  if (subTab === "Report") {
+    return <PerformanceReport data={data} onClose={() => setSubTab("Account")} />;
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
