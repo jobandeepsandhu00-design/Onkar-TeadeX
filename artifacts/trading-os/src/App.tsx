@@ -11,6 +11,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line
 } from "recharts";
 import { storage } from "./api";
+import CsvImportModal from "./CsvImport";
 
 /* ============================================================
    UTILITIES
@@ -3206,6 +3207,7 @@ function JournalTab({ data, setData }) {
   const [confirmId, setConfirmId] = useState(null);
   const [marketFilter, setMarketFilter] = useState("All");
   const [resultFilter, setResultFilter] = useState("All");
+  const [csvImportOpen, setCsvImportOpen] = useState(false);
 
   const trades = useMemo(() => {
     let list = [...data.trades].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -3234,12 +3236,31 @@ function JournalTab({ data, setData }) {
     return <TradeForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} onSave={save} initial={editing} setups={data.setups} strategies={data.strategies} account={data.account} />;
   }
 
+  if (csvImportOpen) {
+    return (
+      <CsvImportModal
+        onClose={() => setCsvImportOpen(false)}
+        onImport={(imported) => {
+          setData((d) => ({ ...d, trades: [...(d.trades || []), ...imported] }));
+          setCsvImportOpen(false);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       <SectionTitle sub={`${trades.length} trade${trades.length === 1 ? "" : "s"}`}
-        action={<button onClick={() => { setEditing(null); setFormOpen(true); }} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs px-3 py-2 rounded-xl">
-          <Plus size={14} /> Log Trade
-        </button>}>
+        action={
+          <div className="flex items-center gap-2">
+            <button onClick={() => setCsvImportOpen(true)} className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs px-3 py-2 rounded-xl">
+              <Upload size={13} /> Import CSV
+            </button>
+            <button onClick={() => { setEditing(null); setFormOpen(true); }} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs px-3 py-2 rounded-xl">
+              <Plus size={14} /> Log Trade
+            </button>
+          </div>
+        }>
         Trade Journal
       </SectionTitle>
 
