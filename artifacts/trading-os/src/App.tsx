@@ -740,6 +740,7 @@ const DEFAULT_DATA = () => ({
   vault: seedVault(),
   smc: seedSMC(),
   checkins: [],
+  preSession: [],
   account: { startingBalance: 1000, currency: "€" },
 });
 
@@ -2128,6 +2129,163 @@ function MorningCheckIn({ data, setData }) {
 }
 
 /* ============================================================
+   DASHBOARD — PRE-SESSION CHECKLIST (with streak tracking)
+   ============================================================ */
+const PRE_SESSION_ITEMS = [
+  { key: "news",    label: "Economic news checked",    desc: "High-impact news on ForexFactory reviewed" },
+  { key: "bias",    label: "Market bias confirmed",    desc: "HTF analysis done — direction is clear" },
+  { key: "session", label: "Session window set",       desc: "Trading hours confirmed, timer ready" },
+  { key: "risk",    label: "Risk limit confirmed",     desc: "Max loss today decided and accepted" },
+  { key: "plan",    label: "Trading plan reviewed",    desc: "Rules fresh in mind" },
+  { key: "mindset", label: "Mindset check passed",     desc: "Calm, patient, ready to wait for A+ setups" },
+];
+
+function emptyPreSession(date) {
+  return { date, items: { news: false, bias: false, session: false, risk: false, plan: false, mindset: false } };
+}
+
+function preSessionStreak(logs, todayStr) {
+  let streak = 0;
+  const dt = new Date(todayStr + "T12:00:00");
+  // only count today if all done
+  while (true) {
+    const dStr = dt.toISOString().slice(0, 10);
+    const log = logs.find((l) => l.date === dStr);
+    const allDone = log && PRE_SESSION_ITEMS.every((i) => log.items[i.key]);
+    if (!allDone) break;
+    streak++;
+    dt.setDate(dt.getDate() - 1);
+  }
+  return streak;
+}
+
+function PreSessionChecklist({ data, setData }) {
+  const today = todayISO();
+  const logs = data.preSession || [];
+  const existing = logs.find((l) => l.date === today) || null;
+  const [items, setItems] = useState((existing || emptyPreSession(today)).items);
+
+  useEffect(() => {
+    setItems((existing || emptyPreSession(today)).items);
+  }, [today]);
+
+  const toggle = (key) => {
+    const next = { ...items, [key]: !items[key] };
+    setItems(next);
+    setData((d) => {
+      const prev = d.preSession || [];
+      const record = { date: today, items: next };
+      const idx = prev.findIndex((l) => l.date === today);
+      const updated = idx >= 0 ? prev.map((l, i) => (i === idx ? record : l)) : [...prev, record];
+      return { ...d, preSession: updated };
+    });
+  };
+
+  const done = PRE_SESSION_ITEMS.filter((i) => items[i.key]).length;
+  const total = PRE_SESSION_ITEMS.length;
+  const allDone = done === total;
+  const streak = preSessionStreak(logs.map((l) => l.date === today ? { ...l, items } : l), today);
+
+  // last 7 days mini-history
+  const last7 = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today + "T12:00:00");
+    d.setDate(d.getDate() - (6 - i));
+    const dStr = d.toISOString().slice(0, 10);
+    const log = dStr === today ? { date: today, items } : logs.find((l) => l.date === dStr);
+    const complete = log && PRE_SESSION_ITEMS.every((it) => log.items[it.key]);
+    const partial = log && PRE_SESSION_ITEMS.some((it) => log.items[it.key]) && !complete;
+    return { date: dStr, complete, partial, isToday: dStr === today };
+  });
+
+  return (
+    <Card className={allDone ? "border-emerald-500/25" : "border-amber-500/20"}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className={cx("w-7 h-7 rounded-lg flex items-center justify-center", allDone ? "bg-emerald-500/15" : "bg-amber-500/15")}>
+            <ListChecks size={15} className={allDone ? "text-emerald-400" : "text-amber-400"} />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-slate-100" style={{ fontFamily: "'Sora', sans-serif" }}>Pre-Session Checklist</div>
+            <div className="text-[10px] text-slate-500">{today}</div>
+          </div>
+        </div>
+        {/* Streak badge */}
+        <div className={cx("flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold", streak > 0 ? "bg-amber-500/15 text-amber-400" : "bg-slate-800 text-slate-500")}>
+          <Flame size={13} className={streak > 0 ? "text-amber-400" : "text-slate-600"} />
+          {streak > 0 ? `${streak}-day streak` : "No streak"}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[10px] text-slate-500 font-medium">{done}/{total} complete</span>
+          <span className="text-[10px] font-semibold" style={{ color: allDone ? "#34d399" : done > 0 ? "#f59e0b" : "#475569" }}>
+            {allDone ? "Ready to trade ✓" : done > 0 ? "In progress…" : "Not started"}
+          </span>
+        </div>
+        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-500"
+            style={{ width: `${(done / total) * 100}%`, background: allDone ? "#34d399" : "#f59e0b" }}
+          />
+        </div>
+      </div>
+
+      {/* Checklist items */}
+      <div className="space-y-1.5 mb-3">
+        {PRE_SESSION_ITEMS.map(({ key, label, desc }) => {
+          const checked = items[key];
+          return (
+            <button key={key} onClick={() => toggle(key)}
+              className={cx(
+                "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition",
+                checked
+                  ? "bg-emerald-500/8 border-emerald-500/20 hover:bg-emerald-500/12"
+                  : "bg-slate-900 border-slate-800 hover:border-slate-700"
+              )}>
+              <div className={cx("w-4.5 h-4.5 rounded-full border-2 flex items-center justify-center shrink-0 transition",
+                checked ? "border-emerald-500 bg-emerald-500" : "border-slate-600")}>
+                {checked && <CheckCircle2 size={11} className="text-slate-950" strokeWidth={3} />}
+              </div>
+              <div className="min-w-0">
+                <div className={cx("text-sm font-medium leading-tight", checked ? "text-emerald-400 line-through decoration-emerald-500/40" : "text-slate-200")}>{label}</div>
+                <div className="text-[10px] text-slate-600 mt-0.5 truncate">{desc}</div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 7-day history */}
+      <div className="border-t border-slate-800 pt-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Last 7 days</span>
+        </div>
+        <div className="flex gap-1.5 justify-between">
+          {last7.map(({ date, complete, partial, isToday }) => {
+            const day = new Date(date + "T12:00:00").toLocaleString("en-US", { weekday: "narrow" });
+            return (
+              <div key={date} className="flex flex-col items-center gap-1">
+                <div className={cx("w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-bold transition",
+                  complete ? "bg-emerald-500 text-slate-950" :
+                  partial  ? "bg-amber-500/40 text-amber-300" :
+                  isToday  ? "bg-slate-800 border border-slate-600 text-slate-300" :
+                             "bg-slate-900 text-slate-700")}>
+                  {complete ? "✓" : partial ? "·" : isToday ? day : day}
+                </div>
+                <span className={cx("text-[9px]", isToday ? "text-amber-400 font-semibold" : "text-slate-600")}>{day}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/* ============================================================
    DASHBOARD — YOUR EDGE PANEL
    ============================================================ */
 function EdgeRow({ icon: Icon, label, value, sub }) {
@@ -2766,6 +2924,9 @@ function Dashboard({ data, setData, goTo }) {
           </div>
         ))}
       </div>
+
+      {/* Pre-Session Checklist */}
+      <PreSessionChecklist data={data} setData={setData} />
 
       {/* Morning Check-In */}
       <MorningCheckIn data={data} setData={setData} />
