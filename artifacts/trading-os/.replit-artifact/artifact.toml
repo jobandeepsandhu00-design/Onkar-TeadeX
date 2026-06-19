@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "SRC Trading OS"
+version = "1.0.0"
+id = "artifacts/trading-os"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25133
+
+[services.development]
+run = "pnpm --filter @workspace/trading-os run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/trading-os", "run", "build" ]
+publicDir = "artifacts/trading-os/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25133"
+BASE_PATH = "/"
