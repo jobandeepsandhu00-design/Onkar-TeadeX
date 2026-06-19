@@ -2988,6 +2988,9 @@ function Dashboard({ data, setData, goTo }) {
 
       {/* Detailed Stats */}
       <DetailedStatsPanel a={a} />
+
+      {/* Mistake Cost & Review Insights */}
+      <MistakeCostPanel trades={data.trades} />
     </div>
   );
 }
@@ -3002,8 +3005,229 @@ function emptyTrade() {
     entry: "", exit: "", sl: "", tp: "", riskPct: "", positionSize: "",
     strategyId: "", setupId: "", notes: "", attachments: [],
     session: "", entryTime: "", exitDate: "", exitTime: "", fees: "", commission: "",
-    tradeType: "Normal",
+    tradeType: "Normal", grade: "", mistakes: [], reviewNotes: "",
   };
+}
+
+/* ────── Trade review constants ────── */
+const TRADE_GRADES = ["A+", "A", "B", "C"];
+const GRADE_CONFIG: Record<string, { ring: string; bg: string; label: string; text: string }> = {
+  "A+": { ring: "border-emerald-500", bg: "bg-emerald-500/15",  text: "text-emerald-400", label: "Perfect execution"   },
+  "A":  { ring: "border-green-500",   bg: "bg-green-500/15",    text: "text-green-400",   label: "Good execution"      },
+  "B":  { ring: "border-amber-500",   bg: "bg-amber-500/15",    text: "text-amber-400",   label: "Decent, some flaws"  },
+  "C":  { ring: "border-rose-500",    bg: "bg-rose-500/15",     text: "text-rose-400",    label: "Poor execution"      },
+};
+const MISTAKE_TAGS = [
+  "FOMO entry", "Oversized", "No clear setup", "Exited early", "Moved SL",
+  "Revenge trade", "News trap", "Wrong bias", "Chased price", "Poor R:R",
+  "Entered without plan", "Held too long",
+];
+
+/* ────── Trade Review Panel ────── */
+function TradeReviewPanel({ trade, onClose, onSave }) {
+  const c = computeTrade(trade);
+  const [grade, setGrade]   = useState(trade.grade || "");
+  const [mistakes, setMistakes] = useState<string[]>(trade.mistakes || []);
+  const [reviewNotes, setReviewNotes] = useState(trade.reviewNotes || "");
+
+  const toggleMistake = (tag: string) =>
+    setMistakes((prev) => prev.includes(tag) ? prev.filter((m) => m !== tag) : [...prev, tag]);
+
+  const save = () => {
+    onSave({ ...trade, grade, mistakes, reviewNotes });
+    onClose();
+  };
+
+  const gradeConf = grade ? GRADE_CONFIG[grade] : null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
+      {/* Header */}
+      <div className="border-b border-slate-800 bg-slate-950/95 backdrop-blur px-4 py-3 flex items-center gap-3 shrink-0">
+        <button onClick={onClose} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400">
+          <ArrowLeft size={18} />
+        </button>
+        <div className="flex-1">
+          <h2 className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>Trade Review</h2>
+          <p className="text-[11px] text-slate-500">{trade.symbol} · {trade.date} · {c.result || "Open"}</p>
+        </div>
+        <button onClick={save}
+          className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm px-4 py-2 rounded-xl transition">
+          Save Review
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 pb-10 space-y-5">
+
+        {/* Trade summary strip */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
+            <div className={cx("text-sm font-bold", c.pnl === null ? "text-slate-500" : c.pnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+              {c.pnl !== null ? fmtSigned(c.pnl) : "—"}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-0.5">P/L</div>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
+            <div className={cx("text-sm font-bold", c.rMultiple === null ? "text-slate-500" : c.rMultiple >= 0 ? "text-emerald-400" : "text-rose-400")}>
+              {c.rMultiple !== null ? fmtSigned(c.rMultiple, "R") : "—"}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-0.5">R-Multiple</div>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
+            <div className="text-sm font-bold text-slate-200">{trade.session || trade.market || "—"}</div>
+            <div className="text-[10px] text-slate-500 mt-0.5">Session</div>
+          </div>
+        </div>
+
+        {/* Grade selector */}
+        <div>
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Execution Grade</div>
+          <div className="grid grid-cols-4 gap-2">
+            {TRADE_GRADES.map((g) => {
+              const cfg = GRADE_CONFIG[g];
+              const selected = grade === g;
+              return (
+                <button key={g} onClick={() => setGrade(grade === g ? "" : g)}
+                  className={cx("py-3 rounded-xl border-2 text-center transition font-bold text-lg",
+                    selected ? `${cfg.ring} ${cfg.bg} ${cfg.text}` : "border-slate-800 bg-slate-900 text-slate-500 hover:border-slate-600")}>
+                  {g}
+                  {selected && <div className="text-[9px] font-normal mt-0.5">{cfg.label}</div>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Mistake tags */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Mistake Tags</div>
+            {mistakes.length > 0 && (
+              <span className="text-[10px] text-rose-400 font-medium">{mistakes.length} tagged</span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {MISTAKE_TAGS.map((tag) => {
+              const active = mistakes.includes(tag);
+              return (
+                <button key={tag} onClick={() => toggleMistake(tag)}
+                  className={cx("px-3 py-1.5 rounded-xl border text-xs font-medium transition",
+                    active
+                      ? "bg-rose-500/15 border-rose-500/40 text-rose-400"
+                      : "bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-300")}>
+                  {active ? "✗ " : ""}{tag}
+                </button>
+              );
+            })}
+          </div>
+          {mistakes.length === 0 && (
+            <p className="text-[11px] text-slate-600 mt-2">No mistakes on this trade? Great execution 🎯</p>
+          )}
+        </div>
+
+        {/* Review notes */}
+        <div>
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Post-Trade Notes</div>
+          <textarea value={reviewNotes} onChange={(e) => setReviewNotes(e.target.value)} rows={4}
+            placeholder="What did you do well? What would you do differently next time?"
+            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 outline-none resize-none focus:border-amber-500/50" />
+        </div>
+
+        {/* Original trade notes if any */}
+        {trade.notes && (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
+            <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide mb-1">Original Trade Notes</div>
+            <p className="text-xs text-slate-400">{trade.notes}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ────── Mistake Cost Panel (analytics) ────── */
+function MistakeCostPanel({ trades }) {
+  const costMap: Record<string, { pnl: number; count: number }> = {};
+  trades.forEach((t) => {
+    const c = computeTrade(t);
+    if (!t.mistakes || !t.mistakes.length) return;
+    t.mistakes.forEach((tag: string) => {
+      if (!costMap[tag]) costMap[tag] = { pnl: 0, count: 0 };
+      costMap[tag].pnl += c.pnl || 0;
+      costMap[tag].count++;
+    });
+  });
+
+  const rows = Object.entries(costMap)
+    .sort(([, a], [, b]) => a.pnl - b.pnl) // worst first
+    .slice(0, 8);
+
+  const graded = trades.filter((t) => t.grade);
+  const gradeDist: Record<string, number> = {};
+  graded.forEach((t) => { gradeDist[t.grade] = (gradeDist[t.grade] || 0) + 1; });
+
+  if (!rows.length && !graded.length) return null;
+
+  return (
+    <Card>
+      <SectionTitle sub="Based on your post-trade reviews">Trade Review Insights</SectionTitle>
+
+      {/* Grade distribution */}
+      {graded.length > 0 && (
+        <div className="mb-4">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Execution Grades ({graded.length} reviewed)</div>
+          <div className="flex gap-2">
+            {TRADE_GRADES.map((g) => {
+              const cnt = gradeDist[g] || 0;
+              if (!cnt) return null;
+              const cfg = GRADE_CONFIG[g];
+              const pct = Math.round((cnt / graded.length) * 100);
+              return (
+                <div key={g} className={cx("flex-1 rounded-xl border px-2 py-2 text-center", cfg.ring, cfg.bg)}>
+                  <div className={cx("text-base font-bold", cfg.text)}>{g}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{cnt} · {pct}%</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Mistake cost table */}
+      {rows.length > 0 && (
+        <>
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Mistake Cost Breakdown</div>
+          <div className="space-y-2">
+            {rows.map(([tag, { pnl, count }]) => {
+              const isLoss = pnl < 0;
+              const barPct = rows.length ? Math.min(100, Math.abs(pnl) / Math.max(...rows.map(([, v]) => Math.abs(v.pnl))) * 100) : 0;
+              return (
+                <div key={tag}>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-xs text-slate-300 font-medium">{tag}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-600">{count}×</span>
+                      <span className={cx("text-xs font-semibold", isLoss ? "text-rose-400" : "text-emerald-400")}>
+                        {fmtSigned(pnl)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{ width: `${barPct}%`, background: isLoss ? "#f87171" : "#34d399" }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-slate-600 mt-3">Tag mistakes on your trades via the Review (★) button in the Journal to populate this.</p>
+        </>
+      )}
+
+      {rows.length === 0 && graded.length > 0 && (
+        <p className="text-xs text-slate-500 mt-1">No mistake tags yet. Open a trade in the Journal and tap ★ Review to tag what went wrong.</p>
+      )}
+    </Card>
+  );
 }
 
 function TradeForm({ open, onClose, onSave, initial, setups, strategies, account }) {
@@ -3370,6 +3594,7 @@ function JournalTab({ data, setData }) {
   const [marketFilter, setMarketFilter] = useState("All");
   const [resultFilter, setResultFilter] = useState("All");
   const [csvImportOpen, setCsvImportOpen] = useState(false);
+  const [reviewTrade, setReviewTrade] = useState(null);
 
   const trades = useMemo(() => {
     let list = [...data.trades].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -3408,6 +3633,15 @@ function JournalTab({ data, setData }) {
         }}
       />
     );
+  }
+
+  const saveReview = (updated) => {
+    setData((d) => ({ ...d, trades: d.trades.map((t) => (t.id === updated.id ? updated : t)) }));
+    setReviewTrade(null);
+  };
+
+  if (reviewTrade) {
+    return <TradeReviewPanel trade={reviewTrade} onClose={() => setReviewTrade(null)} onSave={saveReview} />;
   }
 
   return (
@@ -3467,13 +3701,31 @@ function JournalTab({ data, setData }) {
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <Pill tone={RESULT_TONE[c.result || "Open"]}>{c.result || "Open"}</Pill>
+                    {c.result && (
+                      <button onClick={(e) => { e.stopPropagation(); setReviewTrade(t); }}
+                        title="Review this trade"
+                        className={cx("p-1.5 rounded-lg border text-[11px] font-bold transition",
+                          t.grade
+                            ? `${GRADE_CONFIG[t.grade].bg} ${GRADE_CONFIG[t.grade].ring} ${GRADE_CONFIG[t.grade].text}`
+                            : "bg-slate-900 border-slate-700 text-slate-500 hover:text-amber-400 hover:border-amber-500/40")}>
+                        {t.grade || "★"}
+                      </button>
+                    )}
                     <button onClick={(e) => { e.stopPropagation(); setConfirmId(t.id); }} className="p-1 text-slate-600 hover:text-rose-400">
                       <Trash2 size={14} />
                     </button>
                   </div>
                 </div>
+                {/* Mistake tags */}
+                {t.mistakes && t.mistakes.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {t.mistakes.map((m) => (
+                      <span key={m} className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-rose-500/10 border border-rose-500/20 text-rose-400">{m}</span>
+                    ))}
+                  </div>
+                )}
                 <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-slate-800/70 text-center">
                   <div>
                     <div className={cx("text-sm font-semibold", c.pnl === null ? "text-slate-500" : c.pnl >= 0 ? "text-emerald-400" : "text-rose-400")}>{fmtSigned(c.pnl)}</div>
