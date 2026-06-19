@@ -2877,6 +2877,173 @@ function AIInsights({ a, account }) {
    DASHBOARD
    ============================================================ */
 /* ============================================================
+   DASHBOARD — LIVE RISK MONITOR
+   ============================================================ */
+const PAIR_CURRENCIES: Record<string, [string, string]> = {
+  EURUSD: ["EUR","USD"], GBPUSD: ["GBP","USD"], AUDUSD: ["AUD","USD"],
+  NZDUSD: ["NZD","USD"], USDCAD: ["USD","CAD"], USDCHF: ["USD","CHF"],
+  USDJPY: ["USD","JPY"], EURJPY: ["EUR","JPY"], GBPJPY: ["GBP","JPY"],
+  AUDJPY: ["AUD","JPY"], NZDJPY: ["NZD","JPY"], CADJPY: ["CAD","JPY"],
+  EURGBP: ["EUR","GBP"], XAUUSD: ["XAU","USD"], XAGUSD: ["XAG","USD"],
+  EURAUD: ["EUR","AUD"], GBPAUD: ["GBP","AUD"], GBPCAD: ["GBP","CAD"],
+  EURCAD: ["EUR","CAD"], AUDCAD: ["AUD","CAD"], AUDNZD: ["AUD","NZD"],
+  GBPNZD: ["GBP","NZD"], EURNZD: ["EUR","NZD"], CHFJPY: ["CHF","JPY"],
+  AUDCHF: ["AUD","CHF"], GBPCHF: ["GBP","CHF"], EURCHF: ["EUR","CHF"],
+};
+
+function OpenRiskTracker({ data, a, acc }) {
+  const cur = acc.currency || "€";
+  const startBal = parseFloat(acc.startingBalance) || 1000;
+  const openTrades = (data.trades || []).filter((t) => !t.exit && t.symbol);
+
+  // Total open risk
+  const totalRiskPct = openTrades.reduce((s, t) => s + (parseFloat(t.riskPct) || 0), 0);
+  const totalRiskAmt = (totalRiskPct / 100) * startBal;
+
+  // Daily loss limit from master plan
+  const maxDailyLossStr = data.plans?.master?.maxDailyLoss || "";
+  const maxDailyLossPct = parseFloat(maxDailyLossStr) || null;
+  const maxDailyLossAmt = maxDailyLossPct !== null ? (maxDailyLossPct / 100) * startBal : null;
+  const dayLossAmt = Math.max(0, -((a.dayPnl) || 0));
+  const dayLossPct = startBal > 0 ? (dayLossAmt / startBal) * 100 : 0;
+  const dayLossUsedPct = maxDailyLossPct ? Math.min(100, (dayLossPct / maxDailyLossPct) * 100) : 0;
+  const isAtLimit   = !!maxDailyLossPct && dayLossPct >= maxDailyLossPct;
+  const isNearLimit = !!maxDailyLossPct && !isAtLimit && dayLossPct >= maxDailyLossPct * 0.75;
+
+  // Currency correlation detection
+  const currencyExposure: Record<string, string[]> = {};
+  openTrades.forEach((t) => {
+    const sym = (t.symbol || "").toUpperCase().replace("/", "");
+    const pair = PAIR_CURRENCIES[sym];
+    if (!pair) return;
+    const [base, quote] = pair;
+    const isLong = t.side === "Buy";
+    if (!currencyExposure[base]) currencyExposure[base] = [];
+    if (!currencyExposure[quote]) currencyExposure[quote] = [];
+    currencyExposure[base].push(isLong ? "Long" : "Short");
+    currencyExposure[quote].push(isLong ? "Short" : "Long");
+  });
+  const correlationWarnings: string[] = [];
+  Object.entries(currencyExposure).forEach(([ccy, dirs]) => {
+    const longs  = dirs.filter((d) => d === "Long").length;
+    const shorts = dirs.filter((d) => d === "Short").length;
+    if (longs  >= 2) correlationWarnings.push(`${longs}× Long ${ccy}`);
+    if (shorts >= 2) correlationWarnings.push(`${shorts}× Short ${ccy}`);
+  });
+
+  if (openTrades.length === 0 && maxDailyLossPct === null) return null;
+
+  return (
+    <Card className={isAtLimit ? "border-rose-500/40" : isNearLimit ? "border-amber-500/30" : "border-slate-700/60"}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className={cx("w-7 h-7 rounded-lg flex items-center justify-center",
+            isAtLimit ? "bg-rose-500/20" : "bg-sky-500/15")}>
+            <ShieldAlert size={14} className={isAtLimit ? "text-rose-400" : "text-sky-400"} />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-slate-100" style={{ fontFamily: "'Sora', sans-serif" }}>Live Risk Monitor</div>
+            <div className="text-[10px] text-slate-500">{openTrades.length} open position{openTrades.length !== 1 ? "s" : ""}</div>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className={cx("text-sm font-bold",
+            totalRiskPct === 0 ? "text-slate-500" :
+            totalRiskPct > 5  ? "text-rose-400" :
+            totalRiskPct > 3  ? "text-amber-400" : "text-slate-200")}>
+            {totalRiskPct > 0 ? totalRiskPct.toFixed(1) + "% at risk" : "—"}
+          </div>
+          {totalRiskAmt > 0 && <div className="text-[9px] text-slate-600">{cur}{totalRiskAmt.toFixed(2)} exposed</div>}
+        </div>
+      </div>
+
+      {/* Daily loss limit bar */}
+      {maxDailyLossPct !== null && (
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] text-slate-500 font-medium">Daily Loss Limit</span>
+            <span className={cx("text-[10px] font-semibold",
+              isAtLimit ? "text-rose-400" : isNearLimit ? "text-amber-400" : "text-slate-400")}>
+              {cur}{dayLossAmt.toFixed(2)} used · limit {cur}{maxDailyLossAmt!.toFixed(2)} ({maxDailyLossPct}%)
+            </span>
+          </div>
+          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${dayLossUsedPct}%`, background: isAtLimit ? "#f43f5e" : isNearLimit ? "#f59e0b" : "#475569" }} />
+          </div>
+          {isAtLimit   && <p className="text-[10px] text-rose-400 font-semibold mt-1.5">⛔ Daily loss limit hit — stop trading for today.</p>}
+          {isNearLimit && <p className="text-[10px] text-amber-400 mt-1.5">⚠ Approaching daily loss limit — be very selective.</p>}
+        </div>
+      )}
+
+      {/* Open positions */}
+      {openTrades.length > 0 && (
+        <div className="space-y-1.5 mb-3">
+          {openTrades.map((t) => {
+            const rPct = parseFloat(t.riskPct) || null;
+            const rAmt = rPct !== null ? (rPct / 100) * startBal : null;
+            const isHigh = rPct !== null && rPct > 3;
+            return (
+              <div key={t.id}
+                className={cx("flex items-center justify-between rounded-xl px-3 py-2 border",
+                  isHigh ? "bg-rose-500/5 border-rose-500/15" : "bg-slate-900 border-slate-800")}>
+                <div className="flex items-center gap-2 min-w-0">
+                  {t.side === "Buy"
+                    ? <TrendingUp  size={13} className="text-emerald-400 shrink-0" />
+                    : <TrendingDown size={13} className="text-rose-400 shrink-0" />}
+                  <span className="text-xs font-semibold text-slate-200">{t.symbol}</span>
+                  <span className={cx("text-[10px] font-medium", t.side === "Buy" ? "text-emerald-500" : "text-rose-500")}>{t.side}</span>
+                  {t.entry && <span className="text-[10px] text-slate-600 truncate">@ {t.entry}</span>}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {rPct !== null ? (
+                    <>
+                      <span className={cx("text-xs font-bold", isHigh ? "text-rose-400" : rPct > 2 ? "text-amber-400" : "text-slate-300")}>
+                        {rPct.toFixed(1)}%
+                      </span>
+                      {rAmt !== null && <span className="text-[10px] text-slate-600">{cur}{rAmt.toFixed(0)}</span>}
+                    </>
+                  ) : (
+                    <span className="text-[10px] text-slate-600 italic">no risk%</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {/* Total row */}
+          {totalRiskAmt > 0 && (
+            <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-800/50 mt-1">
+              <span className="text-[11px] text-slate-500 font-medium">Total exposed</span>
+              <span className={cx("text-[11px] font-bold",
+                totalRiskPct > 5 ? "text-rose-400" : totalRiskPct > 3 ? "text-amber-400" : "text-slate-300")}>
+                {cur}{totalRiskAmt.toFixed(2)} · {totalRiskPct.toFixed(1)}%
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Correlation warnings */}
+      {correlationWarnings.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-slate-800">
+          <span className="text-[9px] text-slate-500 font-semibold uppercase tracking-wide">Corr:</span>
+          {correlationWarnings.map((w, i) => (
+            <span key={i} className="px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-400 font-medium">
+              ⚠ {w}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {openTrades.length === 0 && (
+        <p className="text-[11px] text-slate-600 mt-1">Open a trade in the Journal without an exit price to track it here.</p>
+      )}
+    </Card>
+  );
+}
+
+/* ============================================================
    DASHBOARD — WEEKLY ACCOUNTABILITY SUMMARY
    ============================================================ */
 function WeeklySummary({ data, a, cur, goTo }) {
@@ -3104,6 +3271,9 @@ function Dashboard({ data, setData, goTo }) {
 
       {/* Trading Rules */}
       <TradingRulesPanel />
+
+      {/* Live Risk Monitor */}
+      <OpenRiskTracker data={data} a={a} acc={acc} />
 
       {/* Position Size Calculator */}
       <Card>
