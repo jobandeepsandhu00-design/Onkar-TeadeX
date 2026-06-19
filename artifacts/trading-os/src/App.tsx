@@ -2876,6 +2876,165 @@ function AIInsights({ a, account }) {
 /* ============================================================
    DASHBOARD
    ============================================================ */
+/* ============================================================
+   DASHBOARD — WEEKLY ACCOUNTABILITY SUMMARY
+   ============================================================ */
+function WeeklySummary({ data, a, cur, goTo }) {
+  const today = todayISO();
+  const nowDate = new Date(today + "T12:00:00");
+  const dow = nowDate.getDay(); // 0=Sun, 1=Mon…
+  const daysSinceMon = (dow + 6) % 7;
+  const monDate = new Date(nowDate); monDate.setDate(nowDate.getDate() - daysSinceMon);
+  const sunDate = new Date(monDate); sunDate.setDate(monDate.getDate() + 6);
+  const weekStart = monDate.toISOString().slice(0, 10);
+  const weekEnd   = sunDate.toISOString().slice(0, 10);
+  const isSunday  = dow === 0;
+
+  const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const weekLabel = `${fmt(monDate)} – ${fmt(sunDate)}`;
+
+  // This week's closed trades
+  const weekTrades = a.closedTrades.filter((t) => t.date >= weekStart && t.date <= today);
+  const weekWins   = weekTrades.filter((t) => t.c.result === "Win").length;
+  const weekPnl    = weekTrades.reduce((s, t) => s + (t.c.pnl || 0), 0);
+  const weekWR     = weekTrades.length ? (weekWins / weekTrades.length) * 100 : null;
+
+  // Best / worst trade this week
+  const byPnl   = [...weekTrades].sort((a, b) => (b.c.pnl || 0) - (a.c.pnl || 0));
+  const bestT   = byPnl[0] || null;
+  const worstT  = byPnl[byPnl.length - 1] || null;
+
+  // Prep streak (consecutive days Mon→today with all 6 items done)
+  const logs = data.preSession || [];
+  let prepDays = 0;
+  for (let i = 0; i <= daysSinceMon; i++) {
+    const d = new Date(monDate); d.setDate(monDate.getDate() + i);
+    const dStr = d.toISOString().slice(0, 10);
+    if (dStr > today) break;
+    const log = logs.find((l) => l.date === dStr);
+    const allDone = log && PRE_SESSION_ITEMS.every((it) => log.items[it.key]);
+    if (allDone) prepDays++;
+  }
+  const tradingDays = daysSinceMon + (dow === 0 ? 0 : 1); // Mon-Fri days elapsed
+
+  // Top mistake this week
+  const mistakeCounts: Record<string, number> = {};
+  weekTrades.forEach((t) => {
+    (t.mistakes || []).forEach((m: string) => {
+      mistakeCounts[m] = (mistakeCounts[m] || 0) + 1;
+    });
+  });
+  const topMistake = Object.entries(mistakeCounts).sort(([, a], [, b]) => b - a)[0] || null;
+
+  // Grade distribution this week
+  const gradeCount: Record<string, number> = {};
+  weekTrades.forEach((t) => { if (t.grade) gradeCount[t.grade] = (gradeCount[t.grade] || 0) + 1; });
+  const reviewedCount = Object.values(gradeCount).reduce((s, v) => s + v, 0);
+
+  // Tone based on P/L and win rate
+  const isGreenWeek = weekPnl > 0;
+  const weekStatus =
+    weekTrades.length === 0 ? "No trades yet this week" :
+    isSunday && isGreenWeek ? "Green week — well done! 🏆" :
+    isSunday && !isGreenWeek ? "Tough week. Review & reset 💪" :
+    isGreenWeek ? "Positive week so far 📈" : "In the red — stay disciplined 🔒";
+
+  return (
+    <Card className={isGreenWeek && weekTrades.length > 0 ? "border-emerald-500/20" : "border-slate-700/60"}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className={cx("w-7 h-7 rounded-lg flex items-center justify-center",
+            isGreenWeek && weekTrades.length > 0 ? "bg-emerald-500/15" : "bg-slate-800")}>
+            <CalendarDays size={14} className={isGreenWeek && weekTrades.length > 0 ? "text-emerald-400" : "text-slate-400"} />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-slate-100" style={{ fontFamily: "'Sora', sans-serif" }}>
+              Weekly Summary
+            </div>
+            <div className="text-[10px] text-slate-500">{weekLabel}</div>
+          </div>
+        </div>
+        {isSunday && <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">Review Day</span>}
+      </div>
+
+      {/* Status line */}
+      <p className="text-xs text-slate-400 mb-3">{weekStatus}</p>
+
+      {/* Stat row */}
+      <div className="grid grid-cols-4 gap-2 mb-3">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-2 text-center">
+          <div className={cx("text-sm font-bold", weekPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+            {weekTrades.length ? fmtSigned(weekPnl, cur) : "—"}
+          </div>
+          <div className="text-[9px] text-slate-600 mt-0.5">Week P/L</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-2 text-center">
+          <div className="text-sm font-bold text-slate-200">{weekTrades.length}</div>
+          <div className="text-[9px] text-slate-600 mt-0.5">Trades</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-2 text-center">
+          <div className={cx("text-sm font-bold", weekWR === null ? "text-slate-500" : weekWR >= 50 ? "text-emerald-400" : "text-rose-400")}>
+            {weekWR !== null ? fmtPct(weekWR) : "—"}
+          </div>
+          <div className="text-[9px] text-slate-600 mt-0.5">Win Rate</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-2 text-center">
+          <div className={cx("text-sm font-bold", prepDays === tradingDays ? "text-amber-400" : "text-slate-400")}>
+            {prepDays}/{tradingDays}
+          </div>
+          <div className="text-[9px] text-slate-600 mt-0.5">Prep Days</div>
+        </div>
+      </div>
+
+      {/* Best / worst trade */}
+      {(bestT || worstT) && (
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {bestT && (
+            <div className="bg-emerald-500/8 border border-emerald-500/15 rounded-xl px-2.5 py-2">
+              <div className="text-[9px] text-slate-500 uppercase font-semibold mb-0.5">Best Trade</div>
+              <div className="text-xs font-bold text-emerald-400">{fmtSigned(bestT.c.pnl, cur)}</div>
+              <div className="text-[10px] text-slate-500">{bestT.symbol} · {bestT.date}</div>
+            </div>
+          )}
+          {worstT && worstT.id !== bestT?.id && (
+            <div className="bg-rose-500/8 border border-rose-500/15 rounded-xl px-2.5 py-2">
+              <div className="text-[9px] text-slate-500 uppercase font-semibold mb-0.5">Worst Trade</div>
+              <div className="text-xs font-bold text-rose-400">{fmtSigned(worstT.c.pnl, cur)}</div>
+              <div className="text-[10px] text-slate-500">{worstT.symbol} · {worstT.date}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Top mistake + review progress */}
+      <div className="flex items-center justify-between pt-2.5 border-t border-slate-800">
+        <div className="flex items-center gap-2">
+          {topMistake ? (
+            <div>
+              <span className="text-[9px] text-slate-500 uppercase font-semibold">Top Mistake </span>
+              <span className="text-[10px] text-rose-400 font-medium">{topMistake[0]}</span>
+              <span className="text-[10px] text-slate-600"> ×{topMistake[1]}</span>
+            </div>
+          ) : weekTrades.length > 0 ? (
+            <span className="text-[10px] text-slate-500">No mistakes tagged this week 🎯</span>
+          ) : (
+            <span className="text-[10px] text-slate-600">Log trades to build your weekly summary</span>
+          )}
+        </div>
+        {reviewedCount > 0 ? (
+          <span className="text-[10px] text-slate-500">{reviewedCount} reviewed</span>
+        ) : weekTrades.length > 0 ? (
+          <button onClick={() => goTo("journal")}
+            className="text-[10px] text-amber-400 font-medium hover:underline">
+            Review trades →
+          </button>
+        ) : null}
+      </div>
+    </Card>
+  );
+}
+
 function Dashboard({ data, setData, goTo }) {
   const a = useMemo(() => computeAnalytics(data), [data.trades, data.strategies, data.setups]);
   const acc = data.account || { startingBalance: 1000, currency: "€" };
@@ -2924,6 +3083,9 @@ function Dashboard({ data, setData, goTo }) {
           </div>
         ))}
       </div>
+
+      {/* Weekly Accountability Summary */}
+      <WeeklySummary data={data} a={a} cur={cur} goTo={goTo} />
 
       {/* Pre-Session Checklist */}
       <PreSessionChecklist data={data} setData={setData} />
