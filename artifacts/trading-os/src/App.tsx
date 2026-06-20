@@ -5001,6 +5001,43 @@ function ActiveTradeMonitor({ data, acc }: any) {
 }
 
 function LiveMarketTicker() {
+  // ── state & refs ──────────────────────────────────────────────
+  const [paused, setPaused] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Track drag so we don't fire a click after a drag
+  const drag = useRef({ active: false, startX: 0, scrollLeft: 0, moved: false });
+
+  // ── mouse drag (desktop) ───────────────────────────────────────
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (!paused) return;
+    drag.current = { active: true, startX: e.clientX, scrollLeft: scrollRef.current?.scrollLeft ?? 0, moved: false };
+  };
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!drag.current.active) return;
+    const dx = drag.current.startX - e.clientX;
+    if (Math.abs(dx) > 4) drag.current.moved = true;
+    if (scrollRef.current) scrollRef.current.scrollLeft = drag.current.scrollLeft + dx;
+  };
+  const onMouseUp = () => { drag.current.active = false; };
+
+  // ── touch swipe (mobile) ───────────────────────────────────────
+  const touch = useRef({ startX: 0, scrollLeft: 0 });
+  const onTouchStart = (e: React.TouchEvent) => {
+    touch.current = { startX: e.touches[0].clientX, scrollLeft: scrollRef.current?.scrollLeft ?? 0 };
+    // Auto-pause on touch so the user can scroll immediately
+    if (!paused) setPaused(true);
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    const dx = touch.current.startX - e.touches[0].clientX;
+    if (scrollRef.current) scrollRef.current.scrollLeft = touch.current.scrollLeft + dx;
+  };
+
+  // ── click = toggle pause/resume (only if not a drag) ──────────
+  const onClick = () => {
+    if (drag.current.moved) { drag.current.moved = false; return; }
+    setPaused((p) => !p);
+  };
+
   // Priority pairs first — Gold and GBP/JPY are highlighted
   const TICKERS = [
     { sym: "XAUUSD",  label: "GOLD",     priority: true  },
@@ -5063,10 +5100,20 @@ function LiveMarketTicker() {
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800/50">
         <div className="flex items-center gap-2">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Live Markets</span>
+          {paused
+            ? <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
+            : <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          }
+          <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
+            {paused ? "Paused" : "Live Markets"}
+          </span>
           {!loading && items.length > 0 && (
             <span className="text-[10px] text-slate-700">{items.length} pairs</span>
+          )}
+          {!loading && items.length > 0 && (
+            <span className="text-[10px] text-slate-600 italic">
+              {paused ? "tap to resume · drag to browse" : "tap to pause"}
+            </span>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -5075,7 +5122,8 @@ function LiveMarketTicker() {
               {refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </span>
           )}
-          <button onClick={fetchAll} className="text-slate-600 hover:text-amber-400 transition" title="Refresh">
+          <button onClick={(e) => { e.stopPropagation(); fetchAll(); }}
+            className="text-slate-600 hover:text-amber-400 transition" title="Refresh">
             <RefreshCw size={11} />
           </button>
         </div>
@@ -5091,12 +5139,32 @@ function LiveMarketTicker() {
       ) : items.length === 0 ? (
         <div className="text-center py-3 text-[11px] text-slate-600">Unable to load market prices</div>
       ) : (
-        <div className="overflow-hidden py-2">
+        /* Outer wrapper switches between clip (scrolling) and scroll (manual) */
+        <div
+          ref={scrollRef}
+          className="py-2"
+          style={{
+            overflowX: paused ? "auto" : "hidden",
+            scrollbarWidth: "none",           /* Firefox */
+            cursor: paused ? "grab" : "pointer",
+            WebkitOverflowScrolling: "touch",
+          }}
+          onClick={onClick}
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={onMouseUp}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+        >
           <div
-            className="flex whitespace-nowrap"
-            style={{ animation: `otx-ticker ${animDur}s linear infinite`, width: "max-content" }}
+            className="flex whitespace-nowrap select-none"
+            style={{
+              animation: paused ? "none" : `otx-ticker ${animDur}s linear infinite`,
+              width: "max-content",
+            }}
           >
-            {[...items, ...items].map(({ sym, label, priority }, idx) => {
+            {(paused ? items : [...items, ...items]).map(({ sym, label, priority }, idx) => {
               const d = prices[sym];
               if (!d) return null;
               const { dec } = getPipInfo(sym);
