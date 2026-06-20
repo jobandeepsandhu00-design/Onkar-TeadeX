@@ -5845,31 +5845,51 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
     <div className="space-y-3 pb-4">
 
       {/* ── HEADER ── */}
-      <div className="flex items-center justify-between pt-1">
-        <div className="flex items-center gap-3">
-          <img src="/onkar-tradex-logo.png" alt="Onkar TradeX" className="w-11 h-11 object-contain drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]" />
-          <div>
-            <h1 className="text-base font-bold text-slate-100 leading-tight" style={{ fontFamily: "'Sora', sans-serif" }}>Onkar TradeX</h1>
-            <p className="text-[11px] text-slate-500">{greeting} · {todayISO()}</p>
+      <div className="relative rounded-2xl overflow-hidden border border-amber-500/10"
+        style={{ background: "linear-gradient(135deg, #0f1629 0%, #0f172a 60%, #1a1006 100%)" }}>
+        {/* ambient glow behind logo */}
+        <div className="absolute top-0 left-0 w-40 h-full opacity-20 pointer-events-none"
+          style={{ background: "radial-gradient(ellipse at 20% 50%, rgba(245,158,11,0.5) 0%, transparent 70%)" }} />
+        <div className="relative flex items-center justify-between px-4 py-3">
+          {/* Left: logo + name */}
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className="absolute inset-0 rounded-full blur-md opacity-60"
+                style={{ background: "rgba(245,158,11,0.35)" }} />
+              <img src="/onkar-tradex-logo.png" alt="Onkar TradeX"
+                className="relative w-12 h-12 object-contain drop-shadow-[0_0_12px_rgba(245,158,11,0.7)]" />
+            </div>
+            <div>
+              <h1 className="text-lg font-black leading-tight tracking-tight"
+                style={{
+                  fontFamily: "'Sora', sans-serif",
+                  background: "linear-gradient(90deg, #fbbf24 0%, #f59e0b 40%, #ffffff 100%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                }}>
+                Onkar TradeX
+              </h1>
+              <p className="text-[11px] text-slate-500 font-medium">{greeting} · {todayISO()}</p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setEditLayout((e) => !e)}
-            className={cx(
-              "flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium transition",
-              editLayout
-                ? "bg-amber-500/15 border-amber-500/40 text-amber-400"
-                : "bg-slate-900 border-slate-800 text-slate-400 hover:text-amber-400 hover:border-slate-700"
-            )}
-          >
-            {editLayout ? <Check size={12} /> : <GripVertical size={12} />}
-            {editLayout ? "Done" : "Reorder"}
-          </button>
-          <button onClick={() => goTo("more", "Account")}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 hover:text-amber-400 hover:border-slate-700 transition">
-            <Pencil size={12} /> Account
-          </button>
+          {/* Right: action buttons */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setEditLayout((e) => !e)}
+              className={cx(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition",
+                editLayout
+                  ? "bg-amber-500/20 border-amber-500/50 text-amber-400"
+                  : "bg-white/5 border-white/10 text-slate-400 hover:text-amber-400 hover:border-amber-500/30"
+              )}>
+              {editLayout ? <Check size={12} /> : <GripVertical size={12} />}
+              {editLayout ? "Done" : "Reorder"}
+            </button>
+            <button onClick={() => goTo("more", "Account")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-semibold text-slate-400 hover:text-amber-400 hover:border-amber-500/30 transition">
+              <Pencil size={12} /> Account
+            </button>
+          </div>
         </div>
       </div>
 
