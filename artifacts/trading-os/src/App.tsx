@@ -3961,6 +3961,78 @@ function HeroTopBar({ a, cur }: { a: any; cur: string }) {
   );
 }
 
+const MOOL_MANTAR_PHRASES = [
+  "ੴ  Ik Onkar",
+  "Satnam",
+  "Karta Purakh",
+  "Nirbhau",
+  "Nirvair",
+  "Akaal Moorat",
+  "Ajooni",
+  "Saibhang",
+  "Gur Prasad",
+  "Jap",
+  "Aad Sach",
+  "Jugaad Sach",
+  "Hai Bhi Sach",
+  "Nanak Hosi Bhi Sach",
+];
+
+function MoolMantar() {
+  const [idx, setIdx] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const tick = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setIdx((i) => (i + 1) % MOOL_MANTAR_PHRASES.length);
+        setVisible(true);
+      }, 500);
+    }, 2800);
+    return () => clearInterval(tick);
+  }, []);
+
+  const phrase = MOOL_MANTAR_PHRASES[idx];
+  const isFirst = idx === 0;
+
+  return (
+    <div className="rounded-2xl border border-amber-500/20 overflow-hidden"
+      style={{ background: "linear-gradient(135deg, rgba(120,60,0,0.18) 0%, rgba(30,20,5,0.35) 100%)" }}>
+      <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+        <div className="w-1 h-4 rounded-full bg-amber-500/60" />
+        <span className="text-[9px] uppercase tracking-[0.2em] text-amber-500/70 font-semibold">Mool Mantar</span>
+      </div>
+      <div className="flex flex-col items-center justify-center px-4 pb-4 pt-1 min-h-[72px]">
+        <p
+          className="text-center font-semibold transition-all duration-500"
+          style={{
+            fontFamily: "'Sora', sans-serif",
+            fontSize: isFirst ? "1.1rem" : "1.25rem",
+            color: "#f59e0b",
+            textShadow: "0 0 18px rgba(245,158,11,0.55), 0 0 40px rgba(245,158,11,0.2)",
+            opacity: visible ? 1 : 0,
+            transform: visible ? "translateY(0)" : "translateY(6px)",
+            letterSpacing: isFirst ? "0.05em" : "0.02em",
+          }}>
+          {phrase}
+        </p>
+        {/* progress dots */}
+        <div className="flex gap-1 mt-3">
+          {MOOL_MANTAR_PHRASES.map((_, i) => (
+            <div key={i} className="rounded-full transition-all duration-300"
+              style={{
+                width: i === idx ? 14 : 5,
+                height: 4,
+                background: i === idx ? "#f59e0b" : "rgba(245,158,11,0.2)",
+              }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ data, setData, goTo, onQuickLog }) {
   const a = useMemo(() => computeAnalytics(data), [data.trades, data.strategies, data.setups]);
   const acc = data.account || { startingBalance: 1000, currency: "€" };
@@ -3988,11 +4060,9 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
       {/* ── HEADER ── */}
       <div className="flex items-center justify-between pt-1">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-600/5 border border-amber-500/30 flex items-center justify-center shadow-lg shadow-amber-900/20">
-            <Crown size={18} className="text-amber-400" />
-          </div>
+          <img src="/onkar-tradex-logo.png" alt="Onkar TradeX" className="w-11 h-11 object-contain drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]" />
           <div>
-            <h1 className="text-base font-bold text-slate-100 leading-tight" style={{ fontFamily: "'Sora', sans-serif" }}>SRC Trading OS</h1>
+            <h1 className="text-base font-bold text-slate-100 leading-tight" style={{ fontFamily: "'Sora', sans-serif" }}>Onkar TradeX</h1>
             <p className="text-[11px] text-slate-500">{greeting} · {todayISO()}</p>
           </div>
         </div>
@@ -4047,6 +4117,9 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
           </div>
         </div>
       </div>
+
+      {/* ── MOOL MANTAR ── */}
+      <MoolMantar />
 
       {/* ── SECTION: MARKET SESSIONS ── */}
       <DashSectionLabel>Forex Market Sessions</DashSectionLabel>
@@ -9332,8 +9405,8 @@ export default function App() {
     return (
       <div className="h-screen w-full bg-slate-950 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <Crown size={28} className="text-amber-400 animate-pulse" />
-          <span className="text-slate-500 text-sm">Loading your trading OS...</span>
+          <img src="/onkar-tradex-logo.png" alt="Onkar TradeX" className="w-16 h-16 object-contain animate-pulse drop-shadow-[0_0_20px_rgba(245,158,11,0.6)]" />
+          <span className="text-slate-500 text-sm">Loading Onkar TradeX...</span>
         </div>
       </div>
     );
@@ -9350,8 +9423,8 @@ export default function App() {
         {/* Inline top header — scrolls away to give full screen to content */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Crown size={18} className="text-amber-400" />
-            <span className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>SRC Trading OS</span>
+            <img src="/onkar-tradex-logo.png" alt="Onkar TradeX" className="w-7 h-7 object-contain drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
+            <span className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>Onkar TradeX</span>
           </div>
           <button onClick={() => setSearchOpen(true)} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400">
             <Search size={17} />

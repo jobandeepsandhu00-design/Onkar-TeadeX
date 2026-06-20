@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import { Crown } from "lucide-react";
 import { getToken, login, register, logout, me } from "./api";
 import "./index.css";
 
@@ -41,9 +40,9 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
   return (
     <div className="h-screen w-full bg-slate-950 flex items-center justify-center p-6" style={{ fontFamily: "'Inter', sans-serif" }}>
       <div className="w-full max-w-sm">
-        <div className="flex items-center justify-center gap-2 mb-6">
-          <Crown size={22} className="text-amber-400" />
-          <span className="font-semibold text-slate-100" style={{ fontFamily: "'Sora', sans-serif" }}>SRC Trading OS</span>
+        <div className="flex flex-col items-center gap-2 mb-6">
+          <img src="/onkar-tradex-logo.png" alt="Onkar TradeX" className="w-20 h-20 object-contain drop-shadow-[0_0_18px_rgba(245,158,11,0.5)]" />
+          <span className="font-bold text-xl text-slate-100 tracking-wide" style={{ fontFamily: "'Sora', sans-serif" }}>Onkar TradeX</span>
         </div>
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
           <div className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 mb-4">
@@ -99,7 +98,7 @@ function Root() {
   if (status === "checking") {
     return (
       <div className="h-screen w-full bg-slate-950 flex items-center justify-center">
-        <Crown size={28} className="text-amber-400 animate-pulse" />
+        <img src="/onkar-tradex-logo.png" alt="Onkar TradeX" className="w-16 h-16 object-contain animate-pulse drop-shadow-[0_0_20px_rgba(245,158,11,0.6)]" />
       </div>
     );
   }

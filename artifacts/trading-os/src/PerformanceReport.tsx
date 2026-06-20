@@ -550,7 +550,7 @@ export default function PerformanceReport({ data, onClose }: Props) {
 
         {/* ── Footer ── */}
         <div className="mt-10 pt-4 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-400">
-          <span>SRC Trading OS · {acctName}</span>
+          <span>Onkar TradeX · {acctName}</span>
           <span>Generated {today}</span>
         </div>
       </div>

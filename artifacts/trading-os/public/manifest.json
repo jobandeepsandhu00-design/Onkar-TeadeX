@@ -1,6 +1,6 @@
 {
-  "name": "SRC Trading OS",
-  "short_name": "SRC Trading",
+  "name": "Onkar TradeX",
+  "short_name": "Onkar TradeX",
   "description": "Your personal Forex trading journal and operating system.",
   "start_url": "/",
   "display": "standalone",
@@ -9,13 +9,13 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/icon-192.png",
+      "src": "/onkar-tradex-logo.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon-512.png",
+      "src": "/onkar-tradex-logo.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

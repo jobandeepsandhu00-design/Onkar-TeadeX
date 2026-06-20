@@ -41,8 +41,8 @@ export default defineConfig({
       injectRegister: "auto",
       includeAssets: ["favicon.svg", "icon-192.png", "icon-512.png"],
       manifest: {
-        name: "SRC Trading OS",
-        short_name: "SRC Trading",
+        name: "Onkar TradeX",
+        short_name: "Onkar TradeX",
         description: "Your personal Forex trading journal and operating system",
         start_url: "/",
         display: "standalone",
