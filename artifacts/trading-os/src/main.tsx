@@ -96,9 +96,132 @@ function Root() {
   }, []);
 
   if (status === "checking") {
+    const candles = [
+      { bull: true,  bodyH: 55, bodyBot: 30, wTop: 20, wBot: 15, delay: "0s"   },
+      { bull: false, bodyH: 35, bodyBot: 55, wTop: 15, wBot: 12, delay: "0.1s" },
+      { bull: true,  bodyH: 65, bodyBot: 15, wTop: 12, wBot: 12, delay: "0.2s" },
+      { bull: true,  bodyH: 40, bodyBot: 40, wTop: 22, wBot: 14, delay: "0.3s" },
+      { bull: false, bodyH: 50, bodyBot: 35, wTop: 15, wBot: 18, delay: "0.4s" },
+      { bull: true,  bodyH: 70, bodyBot: 12, wTop: 8,  wBot: 10, delay: "0.5s" },
+      { bull: true,  bodyH: 45, bodyBot: 32, wTop: 16, wBot: 14, delay: "0.6s" },
+    ];
     return (
-      <div className="h-screen w-full bg-slate-950 flex items-center justify-center">
-        <img src="/onkar-tradex-logo.png" alt="Onkar TradeX" className="w-16 h-16 object-contain animate-pulse drop-shadow-[0_0_20px_rgba(245,158,11,0.6)]" />
+      <div style={{
+        height: "100dvh", width: "100%", display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", overflow: "hidden",
+        background: "linear-gradient(160deg,#060c1a 0%,#0a0f1e 60%,#030810 100%)",
+        fontFamily: "'Inter', sans-serif",
+      }}>
+        <style>{`
+          @keyframes otx-cup  { 0%{transform:scaleY(0.1);opacity:.3} 60%{transform:scaleY(1.12)} 100%{transform:scaleY(1);opacity:1} }
+          @keyframes otx-cdown{ 0%{transform:scaleY(0.1);opacity:.3} 60%{transform:scaleY(1.08)} 100%{transform:scaleY(1);opacity:1} }
+          @keyframes otx-wick { 0%{transform:scaleY(0);opacity:0} 100%{transform:scaleY(1);opacity:.65} }
+          @keyframes otx-scan { 0%{transform:translateX(0);opacity:0} 5%{opacity:1} 90%{opacity:1} 100%{transform:translateX(240px);opacity:0} }
+          @keyframes otx-pl   { 0%{transform:scaleX(0);opacity:0} 100%{transform:scaleX(1);opacity:1} }
+          @keyframes otx-rise { 0%{opacity:0;transform:translateY(14px)} 100%{opacity:1;transform:translateY(0)} }
+          @keyframes otx-glow { 0%,100%{opacity:.55;transform:scale(1)} 50%{opacity:1;transform:scale(1.1)} }
+          @keyframes otx-dot  { 0%,100%{opacity:.15;transform:scale(.8)} 50%{opacity:1;transform:scale(1.2)} }
+          @keyframes otx-float{ 0%,100%{transform:translateY(0)} 50%{transform:translateY(-5px)} }
+        `}</style>
+
+        {/* ── Chart ── */}
+        <div style={{ position:"relative", width:240, height:130, marginBottom:36,
+          animation:"otx-float 4s ease-in-out 1.2s infinite" }}>
+
+          {/* grid lines */}
+          {[0,33,66,100].map((p) => (
+            <div key={p} style={{ position:"absolute", left:0, right:0, top:`${p}%`,
+              height:1, background:"rgba(255,255,255,0.04)" }} />
+          ))}
+
+          {/* ambient glow */}
+          <div style={{ position:"absolute", left:"20%", right:"20%", top:"10%", bottom:"10%",
+            background:"radial-gradient(ellipse,rgba(245,158,11,0.07) 0%,transparent 70%)",
+            pointerEvents:"none" }} />
+
+          {/* scanning line */}
+          <div style={{ position:"absolute", top:0, bottom:0, width:1,
+            background:"linear-gradient(180deg,transparent,rgba(245,158,11,0.9),transparent)",
+            animation:"otx-scan 2.4s ease-in-out 0.8s infinite", zIndex:10 }} />
+
+          {/* candles */}
+          {candles.map((c, i) => (
+            <div key={i} style={{ position:"absolute", left:i*33+8, width:18, top:0, bottom:0,
+              display:"flex", alignItems:"center", justifyContent:"center" }}>
+              {/* top wick */}
+              <div style={{ position:"absolute", width:2, borderRadius:1,
+                background: c.bull ? "#22c55e" : "#ef4444",
+                height:c.wTop, bottom:c.bodyBot+c.bodyH,
+                transformOrigin:"bottom center",
+                animation:`otx-wick .45s ease-out ${c.delay} both` }} />
+              {/* body */}
+              <div style={{ position:"absolute", width:14, borderRadius:3,
+                height:c.bodyH, bottom:c.bodyBot,
+                background: c.bull
+                  ? "linear-gradient(180deg,#4ade80,#16a34a)"
+                  : "linear-gradient(180deg,#f87171,#dc2626)",
+                boxShadow: c.bull
+                  ? "0 0 10px rgba(34,197,94,0.45)"
+                  : "0 0 10px rgba(239,68,68,0.45)",
+                transformOrigin: c.bull ? "bottom center" : "top center",
+                animation:`${c.bull?"otx-cup":"otx-cdown"} .6s cubic-bezier(.34,1.56,.64,1) ${c.delay} both` }} />
+              {/* bottom wick */}
+              <div style={{ position:"absolute", width:2, borderRadius:1,
+                background: c.bull ? "#22c55e" : "#ef4444",
+                height:c.wBot, bottom:c.bodyBot-c.wBot,
+                transformOrigin:"top center",
+                animation:`otx-wick .45s ease-out ${c.delay} both` }} />
+            </div>
+          ))}
+
+          {/* dashed price line */}
+          <div style={{ position:"absolute", left:0, right:0, bottom:50,
+            borderTop:"1px dashed rgba(245,158,11,0.4)",
+            transformOrigin:"left center", animation:"otx-pl 1s ease-out 1s both" }} />
+
+          {/* price tag */}
+          <div style={{ position:"absolute", right:0, bottom:42,
+            background:"rgba(245,158,11,0.15)", border:"1px solid rgba(245,158,11,0.4)",
+            borderRadius:4, padding:"1px 5px",
+            fontSize:9, fontWeight:700, color:"#fbbf24", fontFamily:"monospace",
+            animation:"otx-rise .5s ease-out 1.5s both" }}>1.2847</div>
+        </div>
+
+        {/* ── Logo + brand ── */}
+        <div style={{ animation:"otx-rise .6s ease-out .85s both", display:"flex",
+          flexDirection:"column", alignItems:"center", gap:10 }}>
+
+          <div style={{ position:"relative", width:64, height:64 }}>
+            <div style={{ position:"absolute", inset:-6, borderRadius:"50%",
+              background:"rgba(245,158,11,0.25)", filter:"blur(14px)",
+              animation:"otx-glow 2.5s ease-in-out infinite" }} />
+            <img src="/onkar-tradex-logo.png" alt="Onkar TradeX" style={{
+              width:64, height:64, objectFit:"contain", position:"relative",
+              filter:"drop-shadow(0 0 16px rgba(245,158,11,0.75))" }} />
+          </div>
+
+          <div style={{ textAlign:"center" }}>
+            <div style={{ fontFamily:"'Sora',sans-serif", fontSize:22, fontWeight:900,
+              letterSpacing:-0.5,
+              background:"linear-gradient(90deg,#fbbf24 0%,#f59e0b 45%,#ffffff 100%)",
+              WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>
+              Onkar TradeX
+            </div>
+            <div style={{ color:"#334155", fontSize:11, marginTop:3,
+              letterSpacing:"0.08em", textTransform:"uppercase" }}>
+              Your Personal Trading OS
+            </div>
+          </div>
+
+          {/* bouncing dots */}
+          <div style={{ display:"flex", gap:7, marginTop:4 }}>
+            {[0,1,2].map((i) => (
+              <div key={i} style={{ width:7, height:7, borderRadius:"50%",
+                background:"linear-gradient(135deg,#f59e0b,#fbbf24)",
+                animation:`otx-dot 1.4s ease-in-out ${i*0.22}s infinite` }} />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
