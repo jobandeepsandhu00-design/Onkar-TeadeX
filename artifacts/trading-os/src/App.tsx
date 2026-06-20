@@ -3572,6 +3572,46 @@ function useUtcNow() {
   return now;
 }
 
+function useSessionCountdown() {
+  const now = useUtcNow();
+  const utcH = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
+
+  /* Find what's happening right now and what's next */
+  const events: { label: string; hUTC: number; color: string }[] = [
+    { label: "Tokyo Open",    hUTC: 0,  color: "#818cf8" },
+    { label: "Tokyo Close",   hUTC: 9,  color: "#818cf8" },
+    { label: "London Open",   hUTC: 8,  color: "#38bdf8" },
+    { label: "London Close",  hUTC: 17, color: "#38bdf8" },
+    { label: "NY Open",       hUTC: 13, color: "#fb923c" },
+    { label: "NY Close",      hUTC: 22, color: "#fb923c" },
+    { label: "Overlap Start", hUTC: 13, color: "#f59e0b" },
+    { label: "Overlap End",   hUTC: 17, color: "#f59e0b" },
+  ];
+
+  /* Deduplicate hours, keep unique next upcoming */
+  const seen = new Set<number>();
+  const upcoming = events
+    .filter(e => { if (seen.has(e.hUTC)) return false; seen.add(e.hUTC); return true; })
+    .map(e => {
+      let diff = e.hUTC - utcH;
+      if (diff < 0) diff += 24;
+      return { ...e, diffH: diff };
+    })
+    .sort((a, b) => a.diffH - b.diffH)[0];
+
+  if (!upcoming) return null;
+
+  const totalSec = Math.round(upcoming.diffH * 3600);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const fmt = h > 0
+    ? `${h}h ${m.toString().padStart(2,"0")}m`
+    : `${m.toString().padStart(2,"0")}:${s.toString().padStart(2,"0")}`;
+
+  return { label: upcoming.label, fmt, color: upcoming.color, urgency: totalSec < 900 };
+}
+
 function AnimatedCandlestickChart() {
   const TOTAL = 40;
   const REPLAY_SPEED = 110; // ms per candle reveal
@@ -3856,6 +3896,71 @@ function BestSetupsCard({ data, goTo }: { data: any; goTo: (tab: string, sub?: s
   );
 }
 
+/* ── Hero chart top bar — session countdown + personal stats ── */
+function HeroTopBar({ a, cur }: { a: any; cur: string }) {
+  const countdown = useSessionCountdown();
+  const now = useUtcNow();
+  const utcH = now.getUTCHours() + now.getUTCMinutes() / 60;
+  const activeSessions = SESSIONS.filter(s => utcH >= s.start && utcH < s.end);
+  const sessionLabel = activeSessions.length > 0
+    ? activeSessions.map(s => s.name).join(" + ") + " Session"
+    : "Markets Closed";
+  const sessionColor = activeSessions.length > 0 ? activeSessions[0].color : "#475569";
+
+  return (
+    <div className="relative px-4 pt-4 pb-2">
+      {/* row 1: session status + P&L */}
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <div className="text-[9px] text-amber-400/50 uppercase tracking-widest font-bold mb-1">
+            Market Overview · Replay + Live Tick
+          </div>
+          {/* Active session badge */}
+          <div className="flex items-center gap-1.5 mb-1">
+            <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: sessionColor, boxShadow: `0 0 6px ${sessionColor}` }} />
+            <span className="text-sm font-black text-slate-100" style={{ fontFamily: "'Sora', sans-serif", color: sessionColor }}>
+              {sessionLabel}
+            </span>
+          </div>
+          <div className="text-[10px] text-slate-600 font-mono">
+            {now.getUTCHours().toString().padStart(2,"0")}:{now.getUTCMinutes().toString().padStart(2,"0")} UTC
+          </div>
+        </div>
+        <div className="text-right">
+          <div className={cx("text-xl font-black font-mono", a.dayPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+            {a.dayPnl >= 0 ? "+" : ""}{fmtBalSigned(a.dayPnl, cur)}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Today P&amp;L</div>
+          <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
+            WR {a.winRate !== null ? fmtPct(a.winRate) : "—"}
+          </div>
+        </div>
+      </div>
+
+      {/* row 2: countdown timer */}
+      {countdown && (
+        <div className={cx(
+          "flex items-center gap-2 px-3 py-2 rounded-xl border w-full",
+          countdown.urgency
+            ? "border-amber-500/40 bg-amber-500/10"
+            : "border-slate-700/60 bg-slate-900/60"
+        )}>
+          <Clock size={11} style={{ color: countdown.color }} className="shrink-0" />
+          <span className="text-[10px] text-slate-400">Next:</span>
+          <span className="text-[10px] font-semibold" style={{ color: countdown.color }}>{countdown.label}</span>
+          <span className="ml-auto font-mono font-black text-sm tabular-nums" style={{ color: countdown.color,
+            textShadow: countdown.urgency ? `0 0 8px ${countdown.color}` : "none" }}>
+            {countdown.fmt}
+          </span>
+          {countdown.urgency && (
+            <span className="text-[9px] text-amber-400 font-bold animate-pulse">⚠ SOON</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({ data, setData, goTo }) {
   const a = useMemo(() => computeAnalytics(data), [data.trades, data.strategies, data.setups]);
   const acc = data.account || { startingBalance: 1000, currency: "€" };
@@ -3908,29 +4013,8 @@ function Dashboard({ data, setData, goTo }) {
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 opacity-15 pointer-events-none"
           style={{ background: "radial-gradient(ellipse,#f59e0b 0%,transparent 70%)" }} />
 
-        {/* ── top bar: pair + price ── */}
-        <div className="relative flex items-start justify-between px-4 pt-4 pb-2">
-          <div>
-            <div className="text-[9px] text-amber-400/50 uppercase tracking-widest font-bold mb-1">Replay · Live Tick</div>
-            <div className="text-3xl font-black text-slate-50 tracking-tight leading-none" style={{ fontFamily: "'Sora', sans-serif" }}>
-              EUR / USD
-            </div>
-            <div className="flex items-center gap-2 mt-1.5">
-              <span className="text-[10px] text-amber-400/70 font-semibold">Forex · Spot</span>
-              <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[10px] text-emerald-400 font-bold">LIVE</span>
-            </div>
-          </div>
-          <div className="text-right">
-            <div className={cx("text-xl font-black font-mono", a.dayPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
-              {a.dayPnl >= 0 ? "+" : ""}{fmtBalSigned(a.dayPnl, cur)}
-            </div>
-            <div className="text-[10px] text-slate-500 mt-0.5">Today P&amp;L</div>
-            <div className="text-[10px] text-slate-400 font-semibold mt-1">
-              WR {a.winRate !== null ? fmtPct(a.winRate) : "—"}
-            </div>
-          </div>
-        </div>
+        {/* ── top bar ── */}
+        <HeroTopBar a={a} cur={cur} />
 
         {/* ── CHART AREA ── */}
         <div className="relative px-2" style={{ height: 230 }}>
