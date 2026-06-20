@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "lpscAEG3WKrIRu3JbGjFR"
+uri = "file://SRC-Trading-OS.zip"
+type = "unspecified"
+title = "SRC Trading OS — Full Project"
