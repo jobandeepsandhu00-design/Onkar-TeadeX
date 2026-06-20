@@ -16,6 +16,7 @@ import {
 import { storage, getToken } from "./api";
 import CsvImportModal from "./CsvImport";
 import PerformanceReport from "./PerformanceReport";
+import BacktestTab from "./Backtest";
 
 /* ============================================================
    UTILITIES
@@ -14110,11 +14111,11 @@ function SearchOverlay({ data, onClose, onJump }) {
    APP SHELL
    ============================================================ */
 const NAV_ITEMS = [
-  { key: "home", label: "Home", icon: Home },
-  { key: "journal", label: "Journal", icon: BookOpen },
-  { key: "library", label: "Library", icon: Layers },
-  { key: "academy", label: "Academy", icon: GraduationCap },
-  { key: "more", label: "More", icon: MoreHorizontal },
+  { key: "home",      label: "Home",     icon: Home          },
+  { key: "journal",   label: "Journal",  icon: BookOpen      },
+  { key: "backtest",  label: "Backtest", icon: BarChart3     },
+  { key: "library",   label: "Library",  icon: Layers        },
+  { key: "more",      label: "More",     icon: MoreHorizontal },
 ];
 
 /* ============================================================
@@ -14592,6 +14593,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               {activeTab === "library" && <LibraryTab data={effectiveData} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} />}
               {activeTab === "academy" && <AcademyTab data={effectiveData} setData={setData} subTab={academySubTab} setSubTab={setAcademySubTab} goTo={goTo} />}
               {activeTab === "more" && <MoreTab data={d} setData={setData} subTab={moreSubTab} setSubTab={setMoreSubTab} goTo={goTo} />}
+              {activeTab === "backtest" && (
+                <div style={{ position: "fixed", inset: 0, zIndex: 30, overflow: "hidden" }}>
+                  <BacktestTab />
+                </div>
+              )}
             </>
           );
         })()}
