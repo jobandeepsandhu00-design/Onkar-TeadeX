@@ -4,6 +4,23 @@ import App from "./App";
 import { getToken, login, register, logout, me } from "./api";
 import "./index.css";
 
+// Suppress the harmless "ResizeObserver loop limit exceeded" browser error.
+// It fires when a ResizeObserver callback causes a resize in the same frame
+// (e.g. canvas redraw) and is caught by Vite's error overlay unnecessarily.
+if (typeof window !== "undefined") {
+  const _onerror = window.onerror;
+  window.onerror = (msg, ...rest) => {
+    if (typeof msg === "string" && msg.includes("ResizeObserver")) return true;
+    return _onerror ? _onerror(msg, ...rest) : false;
+  };
+  window.addEventListener("error", (e) => {
+    if (e.message && e.message.includes("ResizeObserver")) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }
+  }, true);
+}
+
 function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");

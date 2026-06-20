@@ -512,12 +512,16 @@ export default function BacktestTab() {
 
   useEffect(() => { redraw(); }, [redraw]);
 
-  // Resize observer
+  // Resize observer — wrapped in rAF to prevent ResizeObserver loop errors
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
-    const ro = new ResizeObserver(() => redraw());
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => redraw());
+    });
     ro.observe(canvas);
-    return () => ro.disconnect();
+    return () => { ro.disconnect(); cancelAnimationFrame(raf); };
   }, [redraw]);
 
   // Scroll wheel → zoom
