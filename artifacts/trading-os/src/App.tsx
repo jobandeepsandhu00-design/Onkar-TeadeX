@@ -10640,12 +10640,25 @@ function SettingsPanel({ data, setData }) {
   const accent = settings.accentColor || "#f59e0b";
   const cardBg = settings.cardBg || "#0f172a";
 
-  const upd = (patch: any) => setData((d: any) => ({ ...d, settings: { ...DEFAULT_SETTINGS(), ...(d.settings || {}), ...patch } }));
+  /* ── Auto-save flash ── */
+  const [saved, setSaved] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashSaved = () => {
+    setSaved(true);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setSaved(false), 2000);
+  };
+
+  const upd = (patch: any) => {
+    setData((d: any) => ({ ...d, settings: { ...DEFAULT_SETTINGS(), ...(d.settings || {}), ...patch } }));
+    flashSaved();
+  };
   const updNested = (key: string, subKey: string, val: any) => {
     setData((d: any) => {
       const s = { ...DEFAULT_SETTINGS(), ...(d.settings || {}) };
       return { ...d, settings: { ...s, [key]: { ...(s[key] || {}), [subKey]: val } } };
     });
+    flashSaved();
   };
 
   const [openSection, setOpenSection] = useState<string>("theme");
@@ -10657,6 +10670,7 @@ function SettingsPanel({ data, setData }) {
       const s = { ...DEFAULT_SETTINGS(), ...(d.settings || {}) };
       return { ...d, settings: { ...s, notifications: { ...DEFAULT_SETTINGS().notifications, ...(s.notifications || {}), [key]: val } } };
     });
+    flashSaved();
   };
 
   const sections: { id: string; label: string; icon: string }[] = [
@@ -10672,6 +10686,21 @@ function SettingsPanel({ data, setData }) {
 
   return (
     <div className="space-y-2 pb-8">
+
+      {/* ── Auto-save banner ── */}
+      <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800">
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span className="text-[11px] text-slate-400">Changes save automatically</span>
+        </div>
+        <div className={cx(
+          "flex items-center gap-1.5 text-[11px] font-semibold transition-all duration-300",
+          saved ? "text-emerald-400 opacity-100" : "opacity-0"
+        )}>
+          <Check size={11} />
+          Saved
+        </div>
+      </div>
 
       {sections.map(({ id, label, icon }) => {
         const open = openSection === id;
