@@ -8496,6 +8496,125 @@ const NAV_ITEMS = [
   { key: "more", label: "More", icon: MoreHorizontal },
 ];
 
+/* ============================================================
+   LIVE RISK ALERT OVERLAY
+   ============================================================ */
+type RiskAlert = {
+  type: "daily_loss" | "trade_loss";
+  todayLossAmt: number;
+  limitAmt: number;
+  limitPct: number;
+  currency: string;
+  tradePnl?: number;
+  tradeSymbol?: string;
+  overByAmt: number;
+  overByPct: number;
+};
+
+function RiskAlertOverlay({ alert, onDismiss }: { alert: RiskAlert; onDismiss: () => void }) {
+  const isDailyBreach = alert.type === "daily_loss";
+  const cur = alert.currency;
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4"
+      onClick={onDismiss}>
+      <div className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        {/* Pulsing danger ring */}
+        <div className="relative mb-4 flex justify-center">
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-20 h-20 rounded-full bg-rose-500/20 animate-ping" />
+          </div>
+          <div className="relative w-16 h-16 rounded-full bg-rose-500/25 border-2 border-rose-500/60 flex items-center justify-center">
+            <span className="text-3xl">⛔</span>
+          </div>
+        </div>
+
+        {/* Card */}
+        <div className="bg-slate-900 border-2 border-rose-500/60 rounded-2xl overflow-hidden shadow-2xl shadow-rose-500/20">
+          {/* Red header stripe */}
+          <div className="bg-gradient-to-r from-rose-600 to-rose-700 px-5 py-3.5">
+            <div className="text-white font-bold text-base" style={{ fontFamily: "'Sora',sans-serif" }}>
+              {isDailyBreach ? "⛔ Daily Loss Limit Breached" : "⛔ Trade Loss Alert"}
+            </div>
+            <div className="text-rose-200 text-xs mt-0.5">
+              {isDailyBreach ? "Stop trading now — rule triggered" : "Loss exceeds per-trade risk threshold"}
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="p-5 space-y-4">
+            {isDailyBreach ? (
+              <>
+                {/* Big loss number */}
+                <div className="text-center py-2">
+                  <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-1">Today's Total Loss</div>
+                  <div className="text-4xl font-bold text-rose-400" style={{ fontFamily: "'Sora',sans-serif" }}>
+                    -{cur}{alert.todayLossAmt.toFixed(2)}
+                  </div>
+                  <div className="text-sm text-slate-400 mt-1">
+                    Limit was {cur}{alert.limitAmt.toFixed(2)} ({alert.limitPct}%)
+                  </div>
+                </div>
+
+                {/* Progress bar — full and over */}
+                <div>
+                  <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full bg-rose-500 rounded-full w-full" />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                    <span>0</span>
+                    <span className="text-rose-400 font-semibold">
+                      {cur}{alert.overByAmt.toFixed(2)} OVER limit ({alert.overByPct.toFixed(1)}% over)
+                    </span>
+                    <span>Limit</span>
+                  </div>
+                </div>
+
+                {/* What to do */}
+                <div className="bg-rose-500/10 border border-rose-500/25 rounded-xl p-3.5 space-y-2">
+                  <div className="text-xs font-semibold text-rose-300 uppercase tracking-widest">What to do now</div>
+                  <ul className="space-y-1.5">
+                    {["Close the platform — do NOT take any more trades today", "Log what happened and review the losses calmly", "Come back tomorrow with a clear head", "Do NOT revenge trade to recover losses"].map((r, i) => (
+                      <li key={i} className="flex gap-2 text-xs text-slate-300">
+                        <span className="text-rose-400 mt-0.5 shrink-0">▸</span>
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-center py-2">
+                  <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-1">Single Trade Loss</div>
+                  <div className="text-4xl font-bold text-rose-400" style={{ fontFamily: "'Sora',sans-serif" }}>
+                    -{cur}{Math.abs(alert.tradePnl || 0).toFixed(2)}
+                  </div>
+                  {alert.tradeSymbol && <div className="text-sm text-slate-400 mt-1">{alert.tradeSymbol}</div>}
+                  <div className="text-sm text-slate-400 mt-1">
+                    Exceeds {alert.limitPct}% risk ({cur}{alert.limitAmt.toFixed(2)})
+                  </div>
+                </div>
+                <div className="bg-rose-500/10 border border-rose-500/25 rounded-xl p-3.5">
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    This loss exceeded your per-trade risk limit. Review your position sizing rules and ensure every trade is sized according to your plan before entering.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* Dismiss button */}
+            <button onClick={onDismiss}
+              className="w-full py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-sm text-slate-300 font-medium transition">
+              I understand — Dismiss
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [data, setDataRaw] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -8504,6 +8623,8 @@ export default function App() {
   const [academySubTab, setAcademySubTab] = useState("Price Action");
   const [moreSubTab, setMoreSubTab] = useState("Plans");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [riskAlert, setRiskAlert] = useState<RiskAlert | null>(null);
+  const dismissedAtRef = useRef<number>(0);  // tracks loss level when user dismissed
   const saveTimer = useRef(null);
 
   useEffect(() => {
@@ -8541,6 +8662,68 @@ export default function App() {
     if (tab === "academy" && sub) setAcademySubTab(sub);
     if (tab === "more" && sub) setMoreSubTab(sub);
   };
+
+  /* ── Live risk monitor — fires whenever trades or account change ── */
+  useEffect(() => {
+    if (!data || !loaded) return;
+
+    const acc = data.account || { startingBalance: 1000, currency: "€" };
+    const startBal = parseFloat(String(acc.startingBalance)) || 0;
+    const cur = (acc.currency as string) || "€";
+    if (startBal <= 0) return;
+
+    const today = todayISO();
+    const todayTrades = (data.trades || []).filter(
+      (t: any) => t.date === today && computeTrade(t).result !== null
+    );
+    const todayNetPnl = todayTrades.reduce((s: number, t: any) => s + (computeTrade(t).pnl || 0), 0);
+    const todayLossAmt = Math.max(0, -todayNetPnl);
+
+    /* ── Check 1: Daily loss limit from master plan ── */
+    const maxDailyLossStr = data.plans?.master?.maxDailyLoss || "";
+    const maxDailyLossPct = parseFloat(maxDailyLossStr) || 0;
+
+    if (maxDailyLossPct > 0) {
+      const limitAmt = (maxDailyLossPct / 100) * startBal;
+      if (todayLossAmt >= limitAmt && todayLossAmt > dismissedAtRef.current) {
+        const overByAmt = todayLossAmt - limitAmt;
+        const overByPct = limitAmt > 0 ? (overByAmt / limitAmt) * 100 : 0;
+        setRiskAlert({ type: "daily_loss", todayLossAmt, limitAmt, limitPct: maxDailyLossPct, currency: cur, overByAmt, overByPct });
+        return;
+      }
+      // Loss improved past dismissed level — reset so alert can fire again
+      if (todayLossAmt < dismissedAtRef.current - 0.01) {
+        dismissedAtRef.current = 0;
+        setRiskAlert(null);
+      }
+      if (todayLossAmt < limitAmt) setRiskAlert(null);
+    }
+
+    /* ── Check 2: Single trade loss alert — most recent losing trade > 3% of balance ── */
+    const sortedToday = [...todayTrades].sort((a: any, b: any) => (b.id || "").localeCompare(a.id || ""));
+    const lastTrade = sortedToday[0];
+    if (lastTrade) {
+      const c = computeTrade(lastTrade);
+      if (c.pnl !== null && c.pnl < 0) {
+        const lossPct = (Math.abs(c.pnl) / startBal) * 100;
+        // Only alert for single-trade loss if no daily limit is set (avoid double-alerting)
+        if (maxDailyLossPct <= 0 && lossPct >= 3) {
+          const overByAmt = Math.abs(c.pnl) - (3 / 100) * startBal;
+          setRiskAlert({
+            type: "trade_loss",
+            todayLossAmt,
+            limitAmt: (3 / 100) * startBal,
+            limitPct: 3,
+            currency: cur,
+            tradePnl: c.pnl,
+            tradeSymbol: lastTrade.symbol || "",
+            overByAmt: Math.max(0, overByAmt),
+            overByPct: Math.max(0, (overByAmt / ((3 / 100) * startBal)) * 100),
+          });
+        }
+      }
+    }
+  }, [data?.trades, data?.account, data?.plans, loaded]);
 
   if (!loaded || !data) {
     return (
@@ -8596,6 +8779,17 @@ export default function App() {
       </div>
 
       {searchOpen && <SearchOverlay data={data} onClose={() => setSearchOpen(false)} onJump={goTo} />}
+
+      {/* ── Live Risk Alert — auto fires when loss limit is breached ── */}
+      {riskAlert && (
+        <RiskAlertOverlay
+          alert={riskAlert}
+          onDismiss={() => {
+            dismissedAtRef.current = riskAlert.todayLossAmt;
+            setRiskAlert(null);
+          }}
+        />
+      )}
     </div>
   );
 }
