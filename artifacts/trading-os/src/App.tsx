@@ -6007,8 +6007,8 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
 
     {/* ── AI Coach bottom sheet ── */}
     {aiOpen && (
-      <div className="fixed inset-x-0 bottom-0 z-40 flex flex-col"
-        style={{ top: "30%", background: "#080e1e" }}>
+      <div className="fixed inset-x-0 bottom-0 z-[70] flex flex-col"
+        style={{ top: "30%", background: "#080e1e", boxShadow: "0 -4px 32px rgba(0,0,0,0.7)" }}>
         {/* Handle bar */}
         <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-2">
@@ -6042,8 +6042,32 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
                   "Give me a mindset tip for today",
                   "Am I ready to trade today?",
                 ].map((q) => (
-                  <button key={q} onClick={() => { setAiInput(q); }}
-                    className="text-left text-xs px-3 py-2 rounded-xl border border-violet-500/25 bg-violet-500/8 text-violet-300 hover:bg-violet-500/15 transition">
+                  <button key={q} onClick={() => {
+                    setAiInput(q);
+                    setTimeout(() => {
+                      setAiInput("");
+                      setAiMessages((m) => [...m, { role: "user", text: q }]);
+                      setAiLoading(true);
+                      const stats = {
+                        trades: a.tradeCount, winRate: a.winRate != null ? fmtPct(a.winRate) : null,
+                        dayPnl: a.dayPnl, weekPnl: a.weekPnl, avgRR: a.avgRR,
+                        profitFactor: a.profitFactor, qualityScore: a.qualityScore, currency: cur,
+                      };
+                      fetch("/api/mt-import/ai-chat", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          prompt: q,
+                          systemPrompt: `You are Onkar's personal AI trading coach inside Onkar TradeX. Be concise (2–4 sentences), direct, and motivating. Current stats: ${JSON.stringify(stats)}.`,
+                        }),
+                      })
+                        .then((r) => r.json())
+                        .then((json) => setAiMessages((m) => [...m, { role: "ai", text: json.response || json.error || "No response." }]))
+                        .catch(() => setAiMessages((m) => [...m, { role: "ai", text: "Couldn't reach AI. Check your connection." }]))
+                        .finally(() => setAiLoading(false));
+                    }, 0);
+                  }}
+                    className="text-left text-xs px-3 py-2 rounded-xl border border-violet-500/25 bg-violet-500/8 text-violet-300 hover:bg-violet-500/15 active:scale-95 transition">
                     {q}
                   </button>
                 ))}
@@ -6088,11 +6112,12 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
         <div className="px-4 py-3 border-t border-slate-800 flex gap-2 shrink-0 pb-safe"
           style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}>
           <input
+            autoFocus
             value={aiInput}
             onChange={(e) => setAiInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendAiMessage(); } }}
             placeholder="Ask your coach…"
-            className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder-slate-600 outline-none focus:border-violet-500/50"
+            className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder-slate-600 outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30"
           />
           <button
             onClick={sendAiMessage}
