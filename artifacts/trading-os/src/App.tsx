@@ -3945,130 +3945,289 @@ function WeeklySummary({ data, a, cur, goTo }) {
   );
 }
 
+/* ── Prop Challenge Metric Bar ── */
+function ChallengeMetricBar({ label, value, max, pct, valueFmt, maxFmt, violated, warning, passed, icon }: any) {
+  const barColor = violated ? "#f43f5e" : warning ? "#f59e0b" : passed ? "#10b981" : "#38bdf8";
+  const textColor = violated ? "text-rose-400" : warning ? "text-amber-400" : passed ? "text-emerald-400" : "text-sky-400";
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          <span className="text-[9px]">{icon}</span>
+          <span className="text-[10px] text-slate-500 font-medium">{label}</span>
+        </div>
+        <div className={cx("text-[10px] font-bold tabular-nums", textColor)}>{valueFmt}</div>
+      </div>
+      <div className="h-2 bg-slate-800/80 rounded-full overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${Math.min(100, Math.max(0, pct))}%`, background: barColor }} />
+      </div>
+      <div className="flex justify-between text-[9px] text-slate-600">
+        <span>of {maxFmt}</span>
+        <span>{Math.round(pct)}%</span>
+      </div>
+    </div>
+  );
+}
+
 /* ── Prop Challenges Dashboard Card ── */
 function PropChallengesDashCard({ data, goTo }) {
   const challenges: any[] = (data.propChallenges || []);
-  const active   = challenges.filter((c: any) => c.status !== "passed" && c.status !== "failed");
-  const anyFailed = challenges.some((c: any) => { const m = computePropChallenge(c); return m.hasFailed; });
-  const anyPassed = !anyFailed && challenges.some((c: any) => { const m = computePropChallenge(c); return m.hasPassed; });
-  const anyWarning = !anyFailed && !anyPassed && challenges.some((c: any) => { const m = computePropChallenge(c); return m.hasWarning; });
+  const active = challenges.filter((c: any) => c.status !== "passed" && c.status !== "failed");
 
   if (challenges.length === 0) {
     return (
       <button onClick={() => goTo("more", "Prop")}
-        className="w-full flex items-center gap-3 px-4 py-3 bg-slate-950 border border-slate-800 border-dashed rounded-2xl text-left hover:border-amber-500/30 transition">
-        <Trophy size={18} className="text-amber-400/50 shrink-0" />
-        <div>
-          <p className="text-sm font-medium text-slate-500">No prop challenges yet</p>
-          <p className="text-[11px] text-slate-700">Tap to add your first FTMO, The5ers, or custom challenge →</p>
+        className="w-full flex items-center gap-3 px-4 py-4 bg-slate-950 border border-slate-800 border-dashed rounded-2xl text-left hover:border-amber-500/30 transition">
+        <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
+          <Trophy size={18} className="text-amber-400/70" />
         </div>
+        <div>
+          <p className="text-sm font-semibold text-slate-400">No prop challenges yet</p>
+          <p className="text-[11px] text-slate-600 mt-0.5">Tap to add FTMO, The5ers, or a custom challenge</p>
+        </div>
+        <ChevronRight size={16} className="text-slate-700 ml-auto" />
       </button>
     );
   }
 
-  const cardBorder = anyFailed
-    ? "border-rose-500/50 shadow-rose-900/30 shadow-lg"
-    : anyPassed ? "border-emerald-500/40"
-    : anyWarning ? "border-amber-500/30"
-    : "border-slate-800";
-
   return (
-    <div className={cx("bg-slate-950 rounded-2xl overflow-hidden border", cardBorder)}>
-      {/* Breach banner across the top if any challenge failed */}
-      {anyFailed && (
-        <div className="flex items-center gap-2 px-4 py-2.5 bg-rose-500/15 border-b border-rose-500/30">
-          <div className="w-2 h-2 rounded-full bg-rose-400 animate-pulse shrink-0" />
-          <span className="text-[11px] font-bold text-rose-300 uppercase tracking-wide">⛔ Breach Detected — Limit Violated</span>
-          <ChevronRight size={12} className="text-rose-400 ml-auto" />
-        </div>
-      )}
-      {anyPassed && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border-b border-emerald-500/20">
-          <span className="text-[11px] font-bold text-emerald-400">🏆 Challenge Passed! Tap to review</span>
-        </div>
-      )}
-      {anyWarning && !anyFailed && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20">
-          <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
-          <span className="text-[11px] font-bold text-amber-400">⚠ Warning — Approaching Limit</span>
-        </div>
-      )}
-
-      <button onClick={() => goTo("more", "Prop")}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-900/40 transition">
+    <div className="space-y-4">
+      {/* Section header */}
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Trophy size={15} className={anyFailed ? "text-rose-400" : anyPassed ? "text-emerald-400" : "text-amber-400"} />
+          <Trophy size={14} className="text-amber-400" />
           <span className="text-sm font-semibold text-slate-200" style={{ fontFamily: "'Sora', sans-serif" }}>Prop Challenges</span>
           {active.length > 0 && (
-            <span className="px-1.5 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[9px] font-bold">
+            <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/20 text-amber-400 text-[9px] font-bold">
               {active.length} active
             </span>
           )}
         </div>
-        <ChevronRight size={14} className="text-slate-600" />
-      </button>
-
-      <div className="divide-y divide-slate-800/60">
-        {challenges.slice(0, 3).map((ch: any) => {
-          const m = computePropChallenge(ch);
-          const statusColor = m.hasFailed ? "text-rose-400" : m.hasPassed ? "text-emerald-400" : m.hasWarning ? "text-amber-400" : "text-sky-400";
-          const statusLabel = m.hasFailed ? "⛔ FAILED" : m.hasPassed ? "🏆 PASSED" : m.hasWarning ? "⚠ WARNING" : "✅ On Track";
-          const rowBg = m.hasFailed ? "bg-rose-500/5" : m.hasPassed ? "bg-emerald-500/5" : "";
-          return (
-            <button key={ch.id} onClick={() => goTo("more", "Prop")}
-              className={cx("w-full px-4 py-3 text-left hover:bg-slate-900/30 transition", rowBg)}>
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex-1 min-w-0">
-                  <span className="text-[11px] font-semibold text-slate-300 truncate">{ch.name || ch.firm}</span>
-                  <span className="text-[9px] text-slate-600 ml-1.5">{ch.firm} · {ch.currency} {parseFloat(ch.accountSize || "0").toLocaleString()}</span>
-                </div>
-                <span className={cx("text-[9px] font-extrabold shrink-0 ml-2", statusColor)}>{statusLabel}</span>
-              </div>
-              {/* Breach reason */}
-              {m.hasFailed && (
-                <div className="mb-1.5 px-2 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20">
-                  <span className="text-[9px] text-rose-300 font-semibold">
-                    {m.dailyLossViolated ? "Daily loss limit exceeded" : m.totalDrawdownViolated ? "Max drawdown exceeded" : "Challenge deadline passed"}
-                  </span>
-                </div>
-              )}
-              {/* Profit progress */}
-              <div className="mb-1">
-                <div className="flex justify-between text-[9px] text-slate-600 mb-0.5">
-                  <span>Profit ({ch.profitTargetPct}% target)</span>
-                  <span className={m.totalPnl >= 0 ? "text-emerald-400" : "text-rose-400"}>
-                    {m.totalPnlPct >= 0 ? "+" : ""}{m.totalPnlPct.toFixed(2)}%
-                  </span>
-                </div>
-                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${m.profitProgress}%` }} />
-                </div>
-              </div>
-              {/* Drawdown */}
-              <div>
-                <div className="flex justify-between text-[9px] text-slate-600 mb-0.5">
-                  <span>Drawdown ({ch.maxTotalDrawdownPct}% max)</span>
-                  <span className={m.totalDrawdownViolated ? "text-rose-400" : m.totalDrawdownProgress >= 75 ? "text-amber-400" : "text-slate-500"}>
-                    {m.currentDrawdownPct.toFixed(2)}%
-                  </span>
-                </div>
-                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all"
-                    style={{ width: `${m.totalDrawdownProgress}%`, background: m.totalDrawdownViolated ? "#f43f5e" : m.totalDrawdownProgress >= 75 ? "#f59e0b" : "#475569" }} />
-                </div>
-              </div>
-              {m.daysRemaining !== null && !m.hasPassed && !m.hasFailed && (
-                <p className="text-[9px] text-slate-600 mt-1">{m.daysRemaining}d remaining on deadline</p>
-              )}
-            </button>
-          );
-        })}
-        {challenges.length > 3 && (
-          <button onClick={() => goTo("more", "Prop")} className="w-full px-4 py-2 text-center text-[10px] text-amber-400 hover:bg-slate-900/30">
-            View all {challenges.length} challenges →
-          </button>
-        )}
+        <button onClick={() => goTo("more", "Prop")} className="text-[10px] text-amber-400 hover:text-amber-300 font-medium">
+          Manage →
+        </button>
       </div>
+
+      {challenges.map((ch: any) => {
+        const m = computePropChallenge(ch);
+        const cur = ch.currency || "$";
+
+        /* ── Status config ── */
+        const status = m.hasFailed ? "failed" : m.hasPassed ? "passed" : m.hasWarning ? "warning" : "active";
+        const statusCfg = {
+          failed:  { label: "⛔ RULE BREACHED",  dot: "bg-rose-400",    border: "border-rose-500/40",    bg: "bg-rose-500/5",    banner: "bg-rose-500/15 border-b border-rose-500/25",    bannerText: "text-rose-300"  },
+          passed:  { label: "🏆 CHALLENGE PASSED", dot: "bg-emerald-400", border: "border-emerald-500/40", bg: "bg-emerald-500/5", banner: "bg-emerald-500/10 border-b border-emerald-500/20", bannerText: "text-emerald-300" },
+          warning: { label: "⚠ LIMIT APPROACHING", dot: "bg-amber-400 animate-pulse", border: "border-amber-500/35", bg: "", banner: "bg-amber-500/10 border-b border-amber-500/20", bannerText: "text-amber-300" },
+          active:  { label: "✅ ON TRACK",          dot: "bg-sky-400",    border: "border-slate-800",      bg: "",                banner: "",                                               bannerText: "" },
+        }[status];
+
+        /* ── Equity sparkline data ── */
+        const sparkData = [
+          { bal: parseFloat(ch.accountSize) || 0 },
+          ...(m.log || []).map((e: any) => ({ bal: parseFloat(e.balance) || 0 })),
+        ];
+        const hasSpark = sparkData.length >= 3;
+
+        /* ── Fail reason ── */
+        const failReason = m.dailyLossViolated ? "Daily loss limit exceeded"
+          : m.totalDrawdownViolated ? "Maximum drawdown exceeded"
+          : m.deadlineViolated ? "Challenge deadline passed"
+          : "";
+
+        /* ── Rules checklist ── */
+        const rules = [
+          { label: `Profit target ≥ ${m.profitTargetPct}%`, ok: m.profitTargetMet },
+          { label: `Daily loss < ${m.maxDailyLossPct}%`, ok: !m.dailyLossViolated },
+          { label: `Total drawdown < ${m.maxTotalDrawdownPct}%`, ok: !m.totalDrawdownViolated },
+          ...(m.minTradingDays > 0 ? [{ label: `Min ${m.minTradingDays} trading days`, ok: m.minDaysMet }] : []),
+          ...(m.maxCalendarDays > 0 ? [{ label: `Deadline not exceeded`, ok: !m.deadlineViolated }] : []),
+          ...(ch.customRules || []).map((r: string) => ({ label: r, ok: null })),
+        ];
+
+        return (
+          <div key={ch.id} className={cx("bg-slate-950 rounded-2xl overflow-hidden border", statusCfg.border)}>
+
+            {/* Status banner */}
+            {status !== "active" && (
+              <div className={cx("flex items-center gap-2 px-4 py-2", statusCfg.banner)}>
+                <div className={cx("w-1.5 h-1.5 rounded-full shrink-0", statusCfg.dot)} />
+                <span className={cx("text-[10px] font-extrabold uppercase tracking-wider", statusCfg.bannerText)}>{statusCfg.label}</span>
+                {failReason && <span className={cx("text-[10px] ml-auto font-medium", statusCfg.bannerText)}>— {failReason}</span>}
+              </div>
+            )}
+
+            <button onClick={() => goTo("more", "Prop")} className="w-full text-left">
+              {/* Header row */}
+              <div className="flex items-start justify-between px-4 pt-4 pb-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-slate-100 truncate" style={{ fontFamily: "'Sora', sans-serif" }}>
+                      {ch.name || ch.firm || "Challenge"}
+                    </span>
+                    {ch.phase && <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-medium">{ch.phase}</span>}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[10px] text-slate-500">{ch.firm}</span>
+                    <span className="text-slate-700">·</span>
+                    <span className="text-[10px] text-slate-500">{cur} {parseFloat(ch.accountSize || "0").toLocaleString()} account</span>
+                    {ch.drawdownType === "trailing" && (
+                      <span className="text-[8px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 font-bold">TRAILING DD</span>
+                    )}
+                  </div>
+                </div>
+                {/* Status dot */}
+                <div className="flex items-center gap-1.5 shrink-0 ml-3 mt-1">
+                  <div className={cx("w-2 h-2 rounded-full", statusCfg.dot)} />
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">{
+                    status === "failed" ? "Failed" : status === "passed" ? "Passed" : status === "warning" ? "Warning" : "Active"
+                  }</span>
+                </div>
+              </div>
+
+              {/* Balance hero */}
+              <div className={cx("mx-4 mb-3 rounded-xl px-4 py-3", statusCfg.bg || "bg-slate-900/60")}>
+                <div className="flex items-end justify-between">
+                  <div>
+                    <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Current Balance</div>
+                    <div className="text-2xl font-black text-slate-100 leading-none" style={{ fontFamily: "'Sora', sans-serif" }}>
+                      {cur}{m.currentBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                    <div className={cx("text-[11px] font-semibold mt-1", m.totalPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                      {m.totalPnl >= 0 ? "+" : ""}{cur}{Math.abs(m.totalPnl).toFixed(2)}
+                      <span className="text-slate-500 font-normal ml-1">({m.totalPnlPct >= 0 ? "+" : ""}{m.totalPnlPct.toFixed(2)}%)</span>
+                    </div>
+                  </div>
+                  {/* Sparkline */}
+                  {hasSpark && (
+                    <div className="w-28 h-12">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={sparkData} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+                          <Line type="monotone" dataKey="bal" stroke={m.totalPnl >= 0 ? "#10b981" : "#f43f5e"}
+                            strokeWidth={1.5} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </button>
+
+            {/* Metric bars — 4 core rules */}
+            <div className="px-4 pb-3 space-y-3">
+              <ChallengeMetricBar
+                icon="🎯" label="Profit Target"
+                value={m.totalPnl} max={m.profitTargetAmt} pct={m.profitProgress}
+                valueFmt={`${m.totalPnlPct >= 0 ? "+" : ""}${m.totalPnlPct.toFixed(2)}%`}
+                maxFmt={`${m.profitTargetPct}% target`}
+                violated={false} warning={false} passed={m.profitTargetMet}
+              />
+              <ChallengeMetricBar
+                icon="🛡" label="Max Drawdown Used"
+                value={m.currentDrawdown} max={m.maxTotalDrawdownAmt} pct={m.totalDrawdownProgress}
+                valueFmt={`${m.currentDrawdownPct.toFixed(2)}%`}
+                maxFmt={`${m.maxTotalDrawdownPct}% limit`}
+                violated={m.totalDrawdownViolated} warning={!m.totalDrawdownViolated && m.totalDrawdownProgress >= 65} passed={false}
+              />
+              <ChallengeMetricBar
+                icon="⚡" label="Today's Loss"
+                value={m.todayLoss} max={m.maxDailyLossAmt} pct={m.dailyLossProgress}
+                valueFmt={`${m.todayLossPct.toFixed(2)}%`}
+                maxFmt={`${m.maxDailyLossPct}% daily limit`}
+                violated={m.dailyLossViolated} warning={!m.dailyLossViolated && m.dailyLossProgress >= 65} passed={false}
+              />
+              {m.minTradingDays > 0 && (
+                <ChallengeMetricBar
+                  icon="📅" label="Trading Days"
+                  value={m.daysTraded} max={m.minTradingDays} pct={m.tradingDaysProgress}
+                  valueFmt={`${m.daysTraded} / ${m.minTradingDays} days`}
+                  maxFmt={`${m.minTradingDays} min required`}
+                  violated={false} warning={false} passed={m.minDaysMet}
+                />
+              )}
+            </div>
+
+            {/* Stats row — deadline + win days */}
+            <div className="mx-4 mb-3 grid grid-cols-3 gap-2">
+              {m.daysRemaining !== null && (
+                <div className={cx("rounded-xl px-3 py-2.5 text-center border",
+                  m.deadlineViolated ? "bg-rose-500/10 border-rose-500/25" :
+                  m.daysRemaining <= 5 ? "bg-amber-500/10 border-amber-500/25" : "bg-slate-900 border-slate-800")}>
+                  <div className={cx("text-base font-black", m.deadlineViolated ? "text-rose-400" : m.daysRemaining <= 5 ? "text-amber-400" : "text-slate-200")}>
+                    {m.deadlineViolated ? "0" : m.daysRemaining}
+                  </div>
+                  <div className="text-[9px] text-slate-500 mt-0.5">days left</div>
+                </div>
+              )}
+              <div className="rounded-xl px-3 py-2.5 text-center bg-slate-900 border border-slate-800">
+                <div className="text-base font-black text-emerald-400">{m.winDays}</div>
+                <div className="text-[9px] text-slate-500 mt-0.5">win days</div>
+              </div>
+              <div className="rounded-xl px-3 py-2.5 text-center bg-slate-900 border border-slate-800">
+                <div className="text-base font-black text-slate-200">{m.daysTraded}</div>
+                <div className="text-[9px] text-slate-500 mt-0.5">days traded</div>
+              </div>
+              {m.daysRemaining === null && (
+                <div className="rounded-xl px-3 py-2.5 text-center bg-slate-900 border border-slate-800">
+                  <div className="text-base font-black text-slate-200">{m.daysElapsed}</div>
+                  <div className="text-[9px] text-slate-500 mt-0.5">days elapsed</div>
+                </div>
+              )}
+            </div>
+
+            {/* Calendar deadline progress */}
+            {m.maxCalendarDays > 0 && (
+              <div className="px-4 pb-3">
+                <div className="flex justify-between text-[9px] text-slate-500 mb-1">
+                  <span>⏱ Calendar — Day {m.daysElapsed} of {m.maxCalendarDays}</span>
+                  <span className={m.deadlineViolated ? "text-rose-400" : m.daysRemaining !== null && m.daysRemaining <= 5 ? "text-amber-400" : "text-slate-500"}>
+                    {m.deadlineViolated ? "Deadline passed" : `${m.daysRemaining}d left`}
+                  </span>
+                </div>
+                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${m.deadlineProgress}%`, background: m.deadlineViolated ? "#f43f5e" : m.daysRemaining !== null && m.daysRemaining <= 5 ? "#f59e0b" : "#475569" }} />
+                </div>
+              </div>
+            )}
+
+            {/* Rule compliance checklist */}
+            <div className="border-t border-slate-800/60 px-4 py-3">
+              <div className="text-[9px] text-slate-600 uppercase tracking-wide mb-2 font-medium">Rule Checklist</div>
+              <div className="space-y-1.5">
+                {rules.map((r, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <div className={cx("w-4 h-4 rounded-full flex items-center justify-center shrink-0 mt-0.5",
+                      r.ok === null ? "bg-slate-800 border border-slate-700" :
+                      r.ok ? "bg-emerald-500/20 border border-emerald-500/40" : "bg-rose-500/20 border border-rose-500/40")}>
+                      {r.ok === true && <Check size={9} className="text-emerald-400" />}
+                      {r.ok === false && <X size={9} className="text-rose-400" />}
+                      {r.ok === null && <span className="text-[8px] text-slate-500">?</span>}
+                    </div>
+                    <span className={cx("text-[10px] leading-snug",
+                      r.ok === null ? "text-slate-500" : r.ok ? "text-slate-400" : "text-rose-400 font-medium")}>
+                      {r.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer tap hint */}
+            <button onClick={() => goTo("more", "Prop")}
+              className="w-full flex items-center justify-center gap-1 py-2 border-t border-slate-800/40 hover:bg-slate-900/30 transition">
+              <span className="text-[10px] text-amber-400/70">Log daily balance · View full detail</span>
+              <ChevronRight size={11} className="text-amber-400/50" />
+            </button>
+          </div>
+        );
+      })}
+
+      {challenges.length > 2 && (
+        <button onClick={() => goTo("more", "Prop")} className="w-full py-2 text-center text-[10px] text-slate-500 hover:text-amber-400 transition">
+          View all {challenges.length} challenges →
+        </button>
+      )}
     </div>
   );
 }
