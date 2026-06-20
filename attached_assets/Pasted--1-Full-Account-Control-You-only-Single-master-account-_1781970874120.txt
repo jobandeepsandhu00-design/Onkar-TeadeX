@@ -1,0 +1,102 @@
+👑 1. Full Account Control (You only)
+
+* Single master account (you)
+* Change credentials anytime
+* Enable/disable login
+* Session kill switch (log yourself out everywhere)
+
+⸻
+
+💰 2. Trading Control
+
+* Place / modify / cancel all orders
+* Enable/disable live trading
+* Switch between:
+    * Paper trading (simulation)
+    * Live trading
+* Set leverage (if supported)
+* Set max position size
+* Set daily loss limit / profit target
+
+⸻
+
+🧠 3. Strategy Control
+
+* Turn strategies on/off
+* Switch between manual and automated mode
+* Modify indicators or bot logic
+* Backtest strategies
+* Enable “auto-exit” rules (stop loss / take profit)
+
+⸻
+
+📊 4. Portfolio Control
+
+* View full portfolio instantly
+* Track PnL (real-time / historical)
+* Reset simulation portfolio
+* Manually adjust positions (override mode)
+* Freeze all positions (emergency lock)
+
+⸻
+
+🔌 5. API & Exchange Control
+
+* Connect/disconnect exchange accounts
+* Rotate API keys
+* Enable read-only vs trading access
+* Switch between multiple exchanges (if any)
+
+⸻
+
+🛡️ 6. Risk & Safety Controls
+
+* Global kill switch (stop all trading instantly)
+* Max risk per trade (% or amount)
+* Max daily loss limit
+* Auto-liquidation rules
+* “Safe mode” (only close positions, no new trades)
+
+⸻
+
+📈 7. Market Data Control
+
+* Choose data source (Binance, Coinbase, etc.)
+* Enable real-time chart updates
+* Turn off/on indicators (RSI, MACD, etc.)
+* Data refresh interval control
+
+⸻
+
+⚙️ 8. System Settings
+
+* App theme / UI settings
+* Trading hours (or 24/7 mode)
+* Logging level (basic vs full debug)
+* Save/load configurations (profiles)
+
+⸻
+
+🧾 9. History & Logs
+
+* Full trade history
+* Strategy decision logs
+* Error logs / system logs
+* Export data (CSV / JSON)
+
+⸻
+
+🔐 10. Emergency Controls (Important)
+
+* Panic button: close all positions instantly
+* Disconnect all exchanges
+* Disable auto trading immediately
+* Restore last stable config
+
+⸻
+
+🧩 Simple way to think about it:
+
+For personal use, your app should behave like:
+
+“One user = full system admin + trader + risk manager + developer”

@@ -823,6 +823,13 @@ const DEFAULT_SETTINGS = () => ({
   maxTradesPerDay:  "",
   maxOpenTrades:    "",
   singleTradeLossAlertPct: "3",
+  maxDailyProfitPct: "",
+  /* ── Trading Mode & Safety ── */
+  tradingMode:          "live",
+  safeModeEnabled:      false,
+  tradingHoursEnabled:  false,
+  tradingHoursStart:    "08:00",
+  tradingHoursEnd:      "17:00",
   /* ── Display ── */
   dateFormat:   "DD/MM/YYYY",
   timeFormat:   "24h",
@@ -4997,7 +5004,9 @@ function ActiveTradeMonitor({ data, acc }: any) {
   const limitApproaching = maxDailyLossPct > 0 && totalRiskPct >= maxDailyLossPct * 0.8 && !limitBreached;
   const maxTradesHit = maxTradesPerDay > 0 && todayTrades.length >= maxTradesPerDay;
   const maxOpenHit = maxOpenTradesNum > 0 && openTrades.length >= maxOpenTradesNum;
-  const canTrade = !limitBreached && !maxTradesHit && !maxOpenHit;
+  const safeModeOn = !!(settings as any).safeModeEnabled;
+  const paperModeOn = (settings as any).tradingMode === "paper";
+  const canTrade = !limitBreached && !maxTradesHit && !maxOpenHit && !safeModeOn;
 
   function elapsedStr(t: any): string {
     if (!t.date || !t.entryTime) return "—";
@@ -5085,12 +5094,27 @@ function ActiveTradeMonitor({ data, acc }: any) {
         </div>
       </div>
 
+      {/* ── Mode banners ── */}
+      {paperModeOn && (
+        <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
+          <span className="text-sm">📄</span>
+          <span className="text-[11px] font-semibold text-amber-400">PAPER TRADING MODE — No real money at risk. Trades are simulated.</span>
+        </div>
+      )}
+      {safeModeOn && (
+        <div className="flex items-center gap-2 bg-rose-500/12 border border-rose-500/40 rounded-xl px-3 py-2">
+          <span className="text-sm">🔒</span>
+          <span className="text-[11px] font-semibold text-rose-400">SAFE MODE ACTIVE — New trades suspended by owner. Close existing positions only.</span>
+        </div>
+      )}
+
       {/* ── Why can't trade ── */}
       {!canTrade && (
         <div className="bg-rose-500/8 border border-rose-500/25 rounded-xl px-3 py-2 space-y-0.5">
           {limitBreached && <div className="text-[11px] text-rose-400">• Daily loss limit of {fmt2(maxDailyLossPct)}% reached</div>}
           {maxTradesHit && <div className="text-[11px] text-rose-400">• Max {maxTradesPerDay} trades/day reached</div>}
           {maxOpenHit && <div className="text-[11px] text-rose-400">• Max {maxOpenTradesNum} open trades reached</div>}
+          {safeModeOn && <div className="text-[11px] text-rose-400">• Safe mode enabled — go to Owner → Risk to disable</div>}
         </div>
       )}
 
@@ -11739,11 +11763,14 @@ function OwnerPanel({ data, setData }: any) {
   }
 
   const OWNER_SECTIONS = [
-    { id: "stats",    label: "Stats",    icon: BarChart3 },
-    { id: "backup",   label: "Backup",   icon: Download },
-    { id: "import",   label: "Import",   icon: Upload },
-    { id: "data",     label: "Data",     icon: Trash2 },
-    { id: "settings", label: "Settings", icon: Shield },
+    { id: "stats",     label: "Stats",     icon: BarChart3  },
+    { id: "trading",   label: "Trading",   icon: Activity   },
+    { id: "risk",      label: "Risk",      icon: ShieldAlert },
+    { id: "emergency", label: "Emergency", icon: AlertTriangle },
+    { id: "backup",    label: "Backup",    icon: Download   },
+    { id: "import",    label: "Import",    icon: Upload     },
+    { id: "data",      label: "Data",      icon: Trash2     },
+    { id: "settings",  label: "Settings",  icon: Shield     },
   ];
 
   return (
@@ -11802,6 +11829,424 @@ function OwnerPanel({ data, setData }: any) {
           <p className="text-[11px] text-slate-600 text-center pt-1">Onkar TradeX · Owner Build</p>
         </div>
       )}
+
+      {/* ─────────── TRADING CONTROL ─────────── */}
+      {activeSection === "trading" && (() => {
+        const s = (data as any).settings || {};
+        const setSetting = (key: string, val: any) =>
+          setData((d: any) => ({ ...d, settings: { ...d.settings, [key]: val } }));
+        const isLive = s.tradingMode !== "paper";
+        const hoursOn = !!s.tradingHoursEnabled;
+
+        return (
+          <div className="space-y-3">
+            {/* Mode toggle */}
+            <Card>
+              <SectionTitle sub="Switch between live journaling and paper (simulated) mode">Trading Mode</SectionTitle>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {(["live", "paper"] as const).map((mode) => {
+                  const active = (s.tradingMode || "live") === mode;
+                  const isL = mode === "live";
+                  return (
+                    <button key={mode} onClick={() => setSetting("tradingMode", mode)}
+                      className="flex flex-col items-center gap-2 py-4 rounded-xl border transition"
+                      style={active
+                        ? { background: isL ? "#10b98120" : "#f59e0b20", border: `1px solid ${isL ? "#10b981" : "#f59e0b"}` }
+                        : { background: "#0f172a", border: "1px solid #1e293b" }}>
+                      <span className="text-2xl">{isL ? "🟢" : "📄"}</span>
+                      <span className={cx("text-sm font-bold", active ? (isL ? "text-emerald-400" : "text-amber-400") : "text-slate-500")}>
+                        {isL ? "Live" : "Paper"}
+                      </span>
+                      <span className="text-[10px] text-slate-600 text-center px-2 leading-tight">
+                        {isL ? "Real money journaling" : "Simulated trades, no real risk"}
+                      </span>
+                      {active && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                        style={{ background: isL ? "#10b98130" : "#f59e0b30", color: isL ? "#10b981" : "#f59e0b" }}>ACTIVE</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              {!isLive && (
+                <div className="mt-3 bg-amber-500/10 border border-amber-500/25 rounded-xl px-3 py-2 text-[11px] text-amber-400">
+                  📄 Paper mode active — a banner appears on the Risk Tools card. Trades are logged normally but marked as simulated.
+                </div>
+              )}
+            </Card>
+
+            {/* Daily limits */}
+            <Card>
+              <SectionTitle sub="Automatic session guards applied each trading day">Daily Limits</SectionTitle>
+              <div className="space-y-3 mt-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400 font-medium">Max Daily Loss %</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" min="0" max="100" step="0.1"
+                      value={s.maxDailyLossPct || ""}
+                      onChange={(e) => setSetting("maxDailyLossPct", e.target.value)}
+                      placeholder="e.g. 3"
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-slate-500 transition" />
+                    <span className="text-slate-500 text-sm font-medium w-6">%</span>
+                  </div>
+                  <p className="text-[10px] text-slate-600">Trading stops when day's loss exceeds this % of account balance</p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400 font-medium">Daily Profit Target %</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" min="0" max="100" step="0.1"
+                      value={s.maxDailyProfitPct || ""}
+                      onChange={(e) => setSetting("maxDailyProfitPct", e.target.value)}
+                      placeholder="e.g. 5 (optional)"
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-slate-500 transition" />
+                    <span className="text-slate-500 text-sm font-medium w-6">%</span>
+                  </div>
+                  <p className="text-[10px] text-slate-600">Reminder shown when day's profit hits this target — stop and secure gains</p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400 font-medium">Max Trades Per Day</label>
+                  <input type="number" min="0" step="1"
+                    value={s.maxTradesPerDay || ""}
+                    onChange={(e) => setSetting("maxTradesPerDay", e.target.value)}
+                    placeholder="e.g. 3 (leave blank = unlimited)"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-slate-500 transition" />
+                  <p className="text-[10px] text-slate-600">Prevents overtrading — a warning fires when this limit is hit</p>
+                </div>
+              </div>
+            </Card>
+
+            {/* Trading hours */}
+            <Card>
+              <div className="flex items-center justify-between">
+                <SectionTitle sub="Only log trades during your allowed hours">Trading Hours Gate</SectionTitle>
+                <button onClick={() => setSetting("tradingHoursEnabled", !hoursOn)}
+                  className={cx("relative w-11 h-6 rounded-full transition-colors shrink-0", hoursOn ? "" : "bg-slate-700")}
+                  style={hoursOn ? { background: accent } : {}}>
+                  <span className={cx("absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all",
+                    hoursOn ? "left-6" : "left-1")} />
+                </button>
+              </div>
+              {hoursOn && (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-slate-500">Session Start</label>
+                    <input type="time" value={s.tradingHoursStart || "08:00"}
+                      onChange={(e) => setSetting("tradingHoursStart", e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-500 transition" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-slate-500">Session End</label>
+                    <input type="time" value={s.tradingHoursEnd || "17:00"}
+                      onChange={(e) => setSetting("tradingHoursEnd", e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 outline-none focus:border-slate-500 transition" />
+                  </div>
+                </div>
+              )}
+              {!hoursOn && (
+                <p className="text-[11px] text-slate-600 mt-2">Enable to restrict journaling to specific hours (informational reminder)</p>
+              )}
+            </Card>
+          </div>
+        );
+      })()}
+
+      {/* ─────────── RISK & SAFETY ─────────── */}
+      {activeSection === "risk" && (() => {
+        const s = (data as any).settings || {};
+        const setSetting = (key: string, val: any) =>
+          setData((d: any) => ({ ...d, settings: { ...d.settings, [key]: val } }));
+        const safeOn = !!s.safeModeEnabled;
+        const maxRisk = parseFloat(s.maxRiskPerTrade || "") || 0;
+        const maxOpen = parseInt(s.maxOpenTrades || "") || 0;
+
+        const RiskMeter = ({ value, max, label, color }: any) => {
+          const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+          return (
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px]">
+                <span className="text-slate-500">{label}</span>
+                <span style={{ color }}>{value > 0 ? `${value.toFixed(1)} / ${max}` : "—"}</span>
+              </div>
+              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+              </div>
+            </div>
+          );
+        };
+
+        return (
+          <div className="space-y-3">
+            {/* Safe Mode */}
+            <Card className={safeOn ? "border-rose-500/40" : ""} style={safeOn ? { borderColor: "#ef444460" } : {}}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={cx("w-9 h-9 rounded-xl flex items-center justify-center shrink-0", safeOn ? "bg-rose-500/20" : "bg-slate-800")}>
+                    <Lock size={16} className={safeOn ? "text-rose-400" : "text-slate-500"} />
+                  </div>
+                  <div>
+                    <div className={cx("text-sm font-bold", safeOn ? "text-rose-400" : "text-slate-200")}>
+                      Safe Mode {safeOn ? "— ACTIVE" : ""}
+                    </div>
+                    <div className="text-[10px] text-slate-500">Block all new trades (existing positions unaffected)</div>
+                  </div>
+                </div>
+                <button onClick={() => setSetting("safeModeEnabled", !safeOn)}
+                  className={cx("relative w-11 h-6 rounded-full transition-colors shrink-0", safeOn ? "bg-rose-500" : "bg-slate-700")}>
+                  <span className={cx("absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all",
+                    safeOn ? "left-6" : "left-1")} />
+                </button>
+              </div>
+              {safeOn && (
+                <div className="mt-3 bg-rose-500/10 border border-rose-500/25 rounded-xl px-3 py-2 text-[11px] text-rose-400 space-y-0.5">
+                  <div className="font-semibold">🔒 Safe Mode is ON</div>
+                  <div>New trade logging is blocked. Close or manage existing positions only.</div>
+                  <div>Visible as a red banner on the Risk Tools card.</div>
+                </div>
+              )}
+            </Card>
+
+            {/* Per-trade risk limits */}
+            <Card>
+              <SectionTitle sub="Hard limits enforced on each trade logged">Per-Trade Risk Rules</SectionTitle>
+              <div className="space-y-3 mt-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400 font-medium">Max Risk Per Trade %</label>
+                  <div className="flex items-center gap-3">
+                    <input type="range" min="0" max="10" step="0.1"
+                      value={s.maxRiskPerTrade || "0"}
+                      onChange={(e) => setSetting("maxRiskPerTrade", e.target.value)}
+                      className="flex-1 accent-amber-500" />
+                    <div className="w-16 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-center">
+                      <input type="number" min="0" max="100" step="0.1"
+                        value={s.maxRiskPerTrade || ""}
+                        onChange={(e) => setSetting("maxRiskPerTrade", e.target.value)}
+                        placeholder="2"
+                        className="w-full bg-transparent text-sm text-slate-100 text-center outline-none" />
+                    </div>
+                    <span className="text-slate-500 text-sm">%</span>
+                  </div>
+                  <p className="text-[10px] text-slate-600">A warning fires when a trade's risk % exceeds this limit</p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400 font-medium">Single Trade Loss Alert %</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" min="0" max="100" step="0.1"
+                      value={s.singleTradeLossAlertPct || ""}
+                      onChange={(e) => setSetting("singleTradeLossAlertPct", e.target.value)}
+                      placeholder="e.g. 3"
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-slate-500 transition" />
+                    <span className="text-slate-500 text-sm font-medium w-6">%</span>
+                  </div>
+                  <p className="text-[10px] text-slate-600">Alert fires when a single closed trade loses more than this % of account</p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400 font-medium">Max Open Trades At Once</label>
+                  <input type="number" min="0" step="1"
+                    value={s.maxOpenTrades || ""}
+                    onChange={(e) => setSetting("maxOpenTrades", e.target.value)}
+                    placeholder="e.g. 3 (leave blank = unlimited)"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-slate-500 transition" />
+                  <p className="text-[10px] text-slate-600">Blocks new trades when this many positions are already open</p>
+                </div>
+              </div>
+            </Card>
+
+            {/* Risk overview */}
+            <Card>
+              <SectionTitle sub="Your current risk configuration at a glance">Risk Parameter Overview</SectionTitle>
+              <div className="mt-3 space-y-3">
+                <RiskMeter value={maxRisk} max={10} label="Max risk per trade" color="#f59e0b" />
+                <RiskMeter value={parseFloat(s.maxDailyLossPct || "") || 0} max={10} label="Daily loss limit" color="#ef4444" />
+                <RiskMeter value={parseInt(s.maxTradesPerDay || "") || 0} max={10} label="Max trades / day" color="#3b82f6" />
+                <RiskMeter value={maxOpen} max={10} label="Max open trades" color="#8b5cf6" />
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                {[
+                  { label: "Safe Mode",       value: safeOn ? "ON 🔒" : "Off",                           c: safeOn ? "text-rose-400" : "text-slate-500" },
+                  { label: "Trading Mode",    value: (s.tradingMode || "live") === "paper" ? "Paper 📄" : "Live 🟢", c: (s.tradingMode || "live") === "paper" ? "text-amber-400" : "text-emerald-400" },
+                  { label: "Risk / Trade",    value: maxRisk > 0 ? `${maxRisk}%` : "Unlimited",           c: maxRisk > 0 ? "text-slate-200" : "text-slate-500" },
+                  { label: "Daily Loss Cap",  value: parseFloat(s.maxDailyLossPct || "") > 0 ? `${s.maxDailyLossPct}%` : "Not set", c: "text-slate-200" },
+                ].map(({ label, value, c }) => (
+                  <div key={label} className="bg-slate-900 border border-slate-800 rounded-xl p-3">
+                    <div className={cx("text-sm font-bold", c)}>{value}</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">{label}</div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+        );
+      })()}
+
+      {/* ─────────── EMERGENCY CONTROLS ─────────── */}
+      {activeSection === "emergency" && (() => {
+        const s = (data as any).settings || {};
+        const setSetting = (key: string, val: any) =>
+          setData((d: any) => ({ ...d, settings: { ...d.settings, [key]: val } }));
+        const openTrades = ((data as any).trades || []).filter((t: any) => {
+          const c = computeTrade(t);
+          return c.result === null;
+        });
+        const safeOn = !!s.safeModeEnabled;
+
+        return (
+          <div className="space-y-3">
+            {/* Panic button */}
+            <Card className="border-rose-500/30" style={{ borderColor: "#ef444440" }}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/20 flex items-center justify-center shrink-0">
+                  <Zap size={18} className="text-rose-400" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-rose-400">🚨 Emergency Panic Button</div>
+                  <div className="text-[10px] text-slate-500">{openTrades.length} open position{openTrades.length !== 1 ? "s" : ""} will be marked as emergency-closed</div>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                Marks all open trades as closed at their entry price (0 P&L) with a note "Emergency closed via panic button". 
+                This action is logged but cannot be automatically undone — edit trades individually if needed.
+              </p>
+              <button
+                onClick={() => setConfirmAction({
+                  title: "🚨 Emergency Panic — Close All?",
+                  body: `This will mark all ${openTrades.length} open trade${openTrades.length !== 1 ? "s" : ""} as closed at entry price (0 P&L). Cannot be undone automatically.`,
+                  onConfirm: () => {
+                    if (openTrades.length === 0) { setConfirmAction(null); showToast("ℹ No open trades to close"); return; }
+                    setData((d: any) => ({
+                      ...d,
+                      trades: (d.trades || []).map((t: any) => {
+                        const c = computeTrade(t);
+                        if (c.result !== null) return t;
+                        return {
+                          ...t,
+                          exit: t.entry,
+                          exitTime: new Date().toTimeString().slice(0, 5),
+                          notes: (t.notes ? t.notes + "\n" : "") + "⚠ Emergency closed via panic button.",
+                        };
+                      }),
+                    }));
+                    setConfirmAction(null);
+                    showToast(`🚨 ${openTrades.length} trade${openTrades.length !== 1 ? "s" : ""} emergency-closed`);
+                  },
+                })}
+                disabled={openTrades.length === 0}
+                className={cx("w-full py-3.5 rounded-xl font-bold text-sm transition",
+                  openTrades.length > 0
+                    ? "bg-rose-500 text-white hover:bg-rose-600 active:scale-95"
+                    : "bg-slate-800 text-slate-600 cursor-not-allowed")}>
+                {openTrades.length > 0
+                  ? `🚨 Panic — Close All ${openTrades.length} Open Trade${openTrades.length !== 1 ? "s" : ""}`
+                  : "No Open Trades"}
+              </button>
+            </Card>
+
+            {/* Safe mode quick toggle */}
+            <Card>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={cx("w-9 h-9 rounded-xl flex items-center justify-center shrink-0", safeOn ? "bg-rose-500/20" : "bg-slate-800")}>
+                    <Lock size={16} className={safeOn ? "text-rose-400" : "text-slate-500"} />
+                  </div>
+                  <div>
+                    <div className={cx("text-sm font-semibold", safeOn ? "text-rose-400" : "text-slate-200")}>
+                      {safeOn ? "🔒 Safe Mode ACTIVE" : "Enable Safe Mode"}
+                    </div>
+                    <div className="text-[10px] text-slate-500">Block all new trades immediately</div>
+                  </div>
+                </div>
+                <button onClick={() => setSetting("safeModeEnabled", !safeOn)}
+                  className={cx("relative w-11 h-6 rounded-full transition-colors shrink-0", safeOn ? "bg-rose-500" : "bg-slate-700")}>
+                  <span className={cx("absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all",
+                    safeOn ? "left-6" : "left-1")} />
+                </button>
+              </div>
+            </Card>
+
+            {/* Session kill */}
+            <Card>
+              <SectionTitle sub="Lock the owner panel and clear this session">Session Controls</SectionTitle>
+              <div className="space-y-2 mt-3">
+                <button onClick={() => { lock(); showToast("🔒 Owner session locked"); }}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border border-amber-500/20 hover:border-amber-500/40 bg-amber-500/5 transition text-left">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
+                    <Lock size={14} className="text-amber-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-slate-200">Lock Owner Panel</div>
+                    <div className="text-[11px] text-slate-500">Requires password to re-enter. Data is preserved.</div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setConfirmAction({
+                    title: "Switch to Paper Mode?",
+                    body: "This will set the app to Paper Trading mode and enable Safe Mode to block new live trades.",
+                    onConfirm: () => {
+                      setData((d: any) => ({ ...d, settings: { ...d.settings, tradingMode: "paper", safeModeEnabled: true } }));
+                      setConfirmAction(null);
+                      showToast("📄 Switched to paper mode + safe mode enabled");
+                    },
+                  })}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border border-slate-700 hover:border-slate-600 bg-slate-900 transition text-left">
+                  <div className="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
+                    <span className="text-base">📄</span>
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-slate-200">Switch to Paper + Lock</div>
+                    <div className="text-[11px] text-slate-500">Paper mode on · Safe mode on · No new live trades</div>
+                  </div>
+                </button>
+              </div>
+            </Card>
+
+            {/* Quick clear shortcuts */}
+            <Card>
+              <SectionTitle sub="Fast-access data management">Quick Controls</SectionTitle>
+              <div className="space-y-2 mt-3">
+                {[
+                  {
+                    label: "Clear Today's Trades",
+                    sub: "Remove only trades logged today",
+                    icon: "🗑",
+                    tone: "rose",
+                    fn: () => {
+                      const today = todayISO();
+                      setData((d: any) => ({ ...d, trades: (d.trades || []).filter((t: any) => t.date !== today) }));
+                      setConfirmAction(null);
+                      showToast("✅ Today's trades cleared");
+                    },
+                  },
+                  {
+                    label: "Reset Daily Counters",
+                    sub: "Clears check-ins & pre-session notes for today",
+                    icon: "🔄",
+                    tone: "violet",
+                    fn: () => {
+                      const today = todayISO();
+                      setData((d: any) => ({
+                        ...d,
+                        checkins: (d.checkins || []).filter((c: any) => c.date !== today),
+                        preSession: (d.preSession || []).filter((p: any) => p.date !== today),
+                      }));
+                      setConfirmAction(null);
+                      showToast("✅ Daily counters reset");
+                    },
+                  },
+                ].map(({ label, sub, icon, tone, fn }) => (
+                  <button key={label}
+                    onClick={() => setConfirmAction({ title: label + "?", body: sub + " — this cannot be undone.", onConfirm: fn })}
+                    className={cx("w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition text-left",
+                      tone === "rose" ? "border-rose-500/20 hover:border-rose-500/40" : "border-violet-500/20 hover:border-violet-500/40")}
+                    style={{ background: "#0f172a" }}>
+                    <span className="text-lg shrink-0">{icon}</span>
+                    <div>
+                      <div className="text-sm font-medium text-slate-200">{label}</div>
+                      <div className="text-[11px] text-slate-500">{sub}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </Card>
+          </div>
+        );
+      })()}
 
       {activeSection === "backup" && (
         <div className="space-y-3">
