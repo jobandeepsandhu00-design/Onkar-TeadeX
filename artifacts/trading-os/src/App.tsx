@@ -3291,6 +3291,9 @@ function Dashboard({ data, setData, goTo }) {
       {/* Trading Calendar */}
       <TradingCalendar a={a} />
 
+      {/* Economic Calendar */}
+      <EconomicCalendarWidget />
+
       {/* Recent Trades */}
       <Card>
         <SectionTitle action={<button onClick={() => goTo("journal")} className="text-xs text-amber-400 font-medium">View all →</button>}>Recent Trades</SectionTitle>
@@ -5427,6 +5430,265 @@ function BackupPanel({ data, setData }) {
    MORE TAB (wraps Plans / Psychology / Vault / Backup)
    ============================================================ */
 /* ============================================================
+   ECONOMIC CALENDAR (Forex Factory proxy)
+   ============================================================ */
+const IMPACT_CFG: Record<string, { label: string; dot: string; badge: string; text: string; order: number }> = {
+  High:   { label: "High",   dot: "bg-rose-500",   badge: "bg-rose-500/10 border-rose-500/30",   text: "text-rose-400",   order: 0 },
+  Medium: { label: "Med",    dot: "bg-amber-500",  badge: "bg-amber-500/10 border-amber-500/25",  text: "text-amber-400",  order: 1 },
+  Low:    { label: "Low",    dot: "bg-slate-500",  badge: "bg-slate-800 border-slate-700",         text: "text-slate-500",  order: 2 },
+};
+
+const CURRENCY_FLAGS: Record<string, string> = {
+  USD:"🇺🇸", EUR:"🇪🇺", GBP:"🇬🇧", JPY:"🇯🇵", CAD:"🇨🇦",
+  AUD:"🇦🇺", NZD:"🇳🇿", CHF:"🇨🇭", CNY:"🇨🇳", ALL:"🌍",
+};
+
+function parseEventDate(dateStr: string): Date {
+  return new Date(dateStr);
+}
+
+function formatEventTime(dateStr: string, timeStr: string): string {
+  if (!timeStr || timeStr === "Tentative" || timeStr === "All Day") return timeStr || "";
+  try {
+    const d = parseEventDate(dateStr);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch { return timeStr; }
+}
+
+function useEconomicCalendar() {
+  const [events, setEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [lastFetch, setLastFetch] = useState<number | null>(null);
+
+  const load = async () => {
+    setLoading(true); setError("");
+    try {
+      const res = await fetch("/api/calendar");
+      if (!res.ok) throw new Error("Failed to load");
+      const json = await res.json();
+      setEvents(json.events || []);
+      setLastFetch(json.cachedAt || Date.now());
+    } catch {
+      setError("Unable to load calendar. Check your connection.");
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+  return { events, loading, error, reload: load, lastFetch };
+}
+
+function EconomicCalendarWidget() {
+  const { events, loading, error, reload, lastFetch } = useEconomicCalendar();
+  const [expanded, setExpanded] = useState(false);
+  const [impactFilter, setImpactFilter] = useState<string>("High");
+  const [currFilter, setCurrFilter] = useState<string>("All");
+
+  const todayStr = todayISO();
+
+  const filtered = useMemo(() => {
+    return events.filter((e: any) => {
+      const eDate = e.date ? e.date.slice(0, 10) : "";
+      if (impactFilter !== "All" && e.impact !== impactFilter) return false;
+      if (currFilter !== "All" && e.country !== currFilter) return false;
+      return true;
+    });
+  }, [events, impactFilter, currFilter]);
+
+  const todayEvents = useMemo(() =>
+    filtered.filter((e: any) => e.date && e.date.slice(0, 10) === todayStr),
+    [filtered, todayStr]);
+
+  const grouped = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    filtered.forEach((e: any) => {
+      const d = e.date ? e.date.slice(0, 10) : "Unknown";
+      if (!map[d]) map[d] = [];
+      map[d].push(e);
+    });
+    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
+  }, [filtered]);
+
+  const allCurrencies = useMemo(() => {
+    const s = new Set(events.map((e: any) => e.country).filter(Boolean));
+    return ["All", ...Array.from(s).sort()];
+  }, [events]);
+
+  const EventRow = ({ e }: { e: any }) => {
+    const cfg = IMPACT_CFG[e.impact] || IMPACT_CFG.Low;
+    const flag = CURRENCY_FLAGS[e.country] || "🌍";
+    const time = formatEventTime(e.date, e.time);
+    return (
+      <div className="flex items-start gap-2.5 py-2 border-b border-slate-800/60 last:border-0">
+        <div className="flex items-center gap-1.5 w-14 shrink-0">
+          <div className={cx("w-2 h-2 rounded-full shrink-0 mt-0.5", cfg.dot)} />
+          <span className="text-[10px] text-slate-500 font-medium">{time || "—"}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-semibold text-slate-300 leading-snug">{e.title}</span>
+          </div>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <span className="text-[10px] text-slate-500">{flag} {e.country}</span>
+            <span className={cx("px-1.5 py-px rounded border text-[9px] font-bold", cfg.badge, cfg.text)}>{cfg.label}</span>
+            {e.forecast && <span className="text-[10px] text-slate-500">F: <span className="text-slate-300">{e.forecast}</span></span>}
+            {e.previous && <span className="text-[10px] text-slate-500">P: <span className="text-slate-400">{e.previous}</span></span>}
+            {e.actual  && <span className="text-[10px] text-slate-500">A: <span className={cx("font-semibold", e.actual.startsWith("-") ? "text-rose-400" : "text-emerald-400")}>{e.actual}</span></span>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const formatDayLabel = (dateStr: string) => {
+    if (dateStr === todayStr) return "Today";
+    const d = new Date(dateStr + "T12:00:00");
+    const diff = Math.round((d.getTime() - new Date(todayStr + "T12:00:00").getTime()) / 86400000);
+    if (diff === 1) return "Tomorrow";
+    if (diff === -1) return "Yesterday";
+    return d.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+  };
+
+  return (
+    <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
+      {/* Header */}
+      <button onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-900/40 transition">
+        <div className="flex items-center gap-2">
+          <CalendarDays size={15} className="text-amber-400" />
+          <span className="text-sm font-semibold text-slate-200" style={{ fontFamily: "'Sora', sans-serif" }}>Economic Calendar</span>
+          {todayEvents.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-lg bg-rose-500/15 border border-rose-500/25 text-rose-400 text-[9px] font-bold">
+              {todayEvents.length} today
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {lastFetch && !expanded && (
+            <span className="text-[10px] text-slate-600">
+              {new Date(lastFetch).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+          {expanded ? <ChevronUp size={14} className="text-slate-500" /> : <ChevronDown size={14} className="text-slate-500" />}
+        </div>
+      </button>
+
+      {/* Collapsed: show today's high-impact events */}
+      {!expanded && !loading && !error && todayEvents.length > 0 && (
+        <div className="px-4 pb-3">
+          {todayEvents.slice(0, 3).map((e: any, i: number) => {
+            const cfg = IMPACT_CFG[e.impact] || IMPACT_CFG.Low;
+            const flag = CURRENCY_FLAGS[e.country] || "🌍";
+            return (
+              <div key={i} className="flex items-center gap-2 py-1.5 border-b border-slate-800/40 last:border-0">
+                <div className={cx("w-1.5 h-1.5 rounded-full shrink-0", cfg.dot)} />
+                <span className="text-[10px] text-slate-500 w-10 shrink-0">{e.time || "—"}</span>
+                <span className="text-[10px] text-slate-400 truncate flex-1">{flag} {e.title}</span>
+                <span className={cx("text-[9px] font-bold", cfg.text)}>{cfg.label}</span>
+              </div>
+            );
+          })}
+          {todayEvents.length > 3 && (
+            <button onClick={() => setExpanded(true)} className="text-[10px] text-amber-400 mt-1.5">
+              +{todayEvents.length - 3} more today →
+            </button>
+          )}
+        </div>
+      )}
+      {!expanded && !loading && !error && todayEvents.length === 0 && (
+        <div className="px-4 pb-3">
+          <p className="text-[11px] text-slate-600">No {impactFilter === "All" ? "" : impactFilter.toLowerCase() + "-impact "}events today.</p>
+        </div>
+      )}
+      {!expanded && loading && (
+        <div className="px-4 pb-3">
+          <p className="text-[11px] text-slate-600 animate-pulse">Loading calendar…</p>
+        </div>
+      )}
+      {!expanded && error && (
+        <div className="px-4 pb-3">
+          <p className="text-[11px] text-rose-400">{error}</p>
+        </div>
+      )}
+
+      {/* Expanded full view */}
+      {expanded && (
+        <div className="border-t border-slate-800">
+          {/* Filters */}
+          <div className="px-4 py-3 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide shrink-0">Impact:</span>
+              {["High", "Medium", "Low", "All"].map((imp) => (
+                <button key={imp} onClick={() => setImpactFilter(imp)}
+                  className={cx("px-2.5 py-1 rounded-lg border text-[10px] font-medium transition",
+                    impactFilter === imp
+                      ? "bg-amber-500 border-amber-500 text-slate-950"
+                      : "bg-slate-900 border-slate-800 text-slate-500")}>
+                  {imp}
+                </button>
+              ))}
+              <button onClick={reload}
+                className="ml-auto p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-500 hover:text-amber-400">
+                <RotateCcw size={12} />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide shrink-0">Currency:</span>
+              {["All", "USD", "EUR", "GBP", "JPY", "CAD", "AUD", "NZD", "CHF"].map((c) => (
+                <button key={c} onClick={() => setCurrFilter(c)}
+                  className={cx("px-2 py-1 rounded-lg border text-[10px] font-medium transition",
+                    currFilter === c
+                      ? "bg-amber-500 border-amber-500 text-slate-950"
+                      : "bg-slate-900 border-slate-800 text-slate-500")}>
+                  {CURRENCY_FLAGS[c] || ""} {c}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Events list */}
+          <div className="max-h-[60vh] overflow-y-auto">
+            {loading ? (
+              <div className="px-4 py-6 text-center text-slate-600 text-sm animate-pulse">Loading calendar data…</div>
+            ) : error ? (
+              <div className="px-4 py-6 text-center">
+                <p className="text-rose-400 text-sm mb-3">{error}</p>
+                <button onClick={reload} className="px-4 py-2 bg-amber-500 text-slate-950 rounded-xl text-sm font-bold">Retry</button>
+              </div>
+            ) : grouped.length === 0 ? (
+              <div className="px-4 py-6 text-center text-slate-600 text-sm">No events match the current filters.</div>
+            ) : (
+              grouped.map(([date, dayEvents]) => (
+                <div key={date} className={cx("px-4", date === todayStr ? "bg-amber-500/3" : "")}>
+                  <div className={cx("flex items-center gap-2 py-2 border-b border-slate-800 sticky top-0",
+                    date === todayStr ? "bg-slate-950" : "bg-slate-950")}>
+                    <div className={cx("text-[10px] font-bold uppercase tracking-wider",
+                      date === todayStr ? "text-amber-400" : date < todayStr ? "text-slate-600" : "text-slate-400")}>
+                      {formatDayLabel(date)}
+                    </div>
+                    {date === todayStr && (
+                      <span className="px-1.5 py-px rounded bg-amber-500/15 border border-amber-500/30 text-amber-400 text-[8px] font-bold">TODAY</span>
+                    )}
+                    <span className="text-[10px] text-slate-700 ml-auto">{dayEvents.length} event{dayEvents.length !== 1 ? "s" : ""}</span>
+                  </div>
+                  {dayEvents.map((e: any, i: number) => <EventRow key={i} e={e} />)}
+                </div>
+              ))
+            )}
+          </div>
+
+          {lastFetch && (
+            <div className="px-4 py-2 border-t border-slate-800">
+              <p className="text-[9px] text-slate-700">Data from Forex Factory · Last updated {new Date(lastFetch).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · Refreshes every 30 min</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    PROP FIRM CHALLENGE TRACKER
    ============================================================ */
 const PROP_FIRM_PRESETS: Record<string, any> = {
@@ -5683,7 +5945,7 @@ function PropChallengeForm({ initial, onSave, onBack }) {
       </Field>
 
       <button onClick={() => onSave({ ...form, id: form.id || uid(), firm: form.firm === "Custom" ? form.name : form.firm })}
-        disabled={!form.name.trim()}
+        disabled={!(form.name || "").trim()}
         className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold text-sm py-3 rounded-xl transition">
         {initial?.id ? "Save Changes" : "Create Challenge"}
       </button>
