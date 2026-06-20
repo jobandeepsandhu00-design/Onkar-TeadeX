@@ -5001,34 +5001,46 @@ function ActiveTradeMonitor({ data, acc }: any) {
 }
 
 function LiveMarketTicker() {
+  // Priority pairs first — Gold and GBP/JPY are highlighted
   const TICKERS = [
-    { sym: "EURUSD", label: "EUR/USD" },
-    { sym: "GBPUSD", label: "GBP/USD" },
-    { sym: "USDJPY", label: "USD/JPY" },
-    { sym: "AUDUSD", label: "AUD/USD" },
-    { sym: "USDCAD", label: "USD/CAD" },
-    { sym: "USDCHF", label: "USD/CHF" },
-    { sym: "XAUUSD", label: "GOLD" },
-    { sym: "XAGUSD", label: "SILVER" },
-    { sym: "OIL",    label: "OIL WTI" },
-    { sym: "US30",   label: "DOW" },
-    { sym: "NAS100", label: "NASDAQ" },
-    { sym: "BTCUSD", label: "BTC" },
+    { sym: "XAUUSD",  label: "GOLD",     priority: true  },
+    { sym: "GBPJPY",  label: "GBP/JPY",  priority: true  },
+    { sym: "EURUSD",  label: "EUR/USD",  priority: false },
+    { sym: "GBPUSD",  label: "GBP/USD",  priority: false },
+    { sym: "USDJPY",  label: "USD/JPY",  priority: false },
+    { sym: "EURJPY",  label: "EUR/JPY",  priority: false },
+    { sym: "AUDUSD",  label: "AUD/USD",  priority: false },
+    { sym: "USDCAD",  label: "USD/CAD",  priority: false },
+    { sym: "USDCHF",  label: "USD/CHF",  priority: false },
+    { sym: "EURGBP",  label: "EUR/GBP",  priority: false },
+    { sym: "NZDUSD",  label: "NZD/USD",  priority: false },
+    { sym: "CADJPY",  label: "CAD/JPY",  priority: false },
+    { sym: "OIL",     label: "OIL WTI",  priority: false },
+    { sym: "US30",    label: "DOW",      priority: false },
+    { sym: "NAS100",  label: "NASDAQ",   priority: false },
+    { sym: "BTCUSD",  label: "BTC",      priority: false },
   ];
 
   const [prices, setPrices] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
 
-  const fetchAll = () => {
+  // Batch-fetch all symbols at once — only show ticker after all complete
+  const fetchAll = async () => {
     const token = getToken();
     const hdrs: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-    TICKERS.forEach(({ sym }) => {
-      fetch(`/api/market/price/${encodeURIComponent(sym)}`, { headers: hdrs })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => { if (d) setPrices((p) => ({ ...p, [sym]: d })); })
-        .catch(() => {});
+    const results = await Promise.allSettled(
+      TICKERS.map(({ sym }) =>
+        fetch(`/api/market/price/${encodeURIComponent(sym)}`, { headers: hdrs })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null)
+      )
+    );
+    const updated: Record<string, any> = {};
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled" && r.value) updated[TICKERS[i].sym] = r.value;
     });
+    setPrices(updated);
     setLoading(false);
     setRefreshedAt(new Date());
   };
@@ -5041,14 +5053,21 @@ function LiveMarketTicker() {
   }, []);
 
   const items = TICKERS.filter((t) => prices[t.sym]);
+  // Speed: ~4s per card, capped 30–90s
+  const animDur = Math.min(90, Math.max(30, items.length * 4));
 
   return (
     <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden">
       <style>{`@keyframes otx-ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}`}</style>
+
+      {/* Header */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800/50">
         <div className="flex items-center gap-2">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Live Markets</span>
+          {!loading && items.length > 0 && (
+            <span className="text-[10px] text-slate-700">{items.length} pairs</span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {refreshedAt && (
@@ -5062,39 +5081,66 @@ function LiveMarketTicker() {
         </div>
       </div>
 
-      {loading && items.length === 0 ? (
-        <div className="flex gap-6 px-4 py-3">
+      {/* Body */}
+      {loading ? (
+        <div className="flex gap-4 px-4 py-3">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-8 w-20 bg-slate-800 rounded animate-pulse" />
+            <div key={i} className="h-10 w-24 bg-slate-800 rounded animate-pulse" />
           ))}
         </div>
       ) : items.length === 0 ? (
         <div className="text-center py-3 text-[11px] text-slate-600">Unable to load market prices</div>
       ) : (
-        <div className="overflow-hidden py-2.5">
+        <div className="overflow-hidden py-2">
           <div
             className="flex whitespace-nowrap"
-            style={{ animation: "otx-ticker 40s linear infinite", width: "max-content" }}
+            style={{ animation: `otx-ticker ${animDur}s linear infinite`, width: "max-content" }}
           >
-            {[...items, ...items].map(({ sym, label }, idx) => {
+            {[...items, ...items].map(({ sym, label, priority }, idx) => {
               const d = prices[sym];
               if (!d) return null;
               const { dec } = getPipInfo(sym);
-              const pos = d.changePct >= 0;
+              const bull = d.changePct > 0;
+              const flat = Math.abs(d.changePct) < 0.01;
+              const pctColor = flat ? "text-slate-500" : bull ? "text-emerald-400" : "text-rose-400";
+              const trend = flat ? "FLAT" : bull ? "BULL" : "BEAR";
+              const trendBg = flat
+                ? "bg-slate-800 text-slate-500"
+                : bull
+                ? "bg-emerald-500/15 text-emerald-400"
+                : "bg-rose-500/15 text-rose-400";
+
               return (
                 <div
                   key={`${sym}-${idx}`}
-                  className="inline-flex items-center gap-3 px-5 border-r border-slate-800/50 shrink-0"
+                  className={cx(
+                    "inline-flex items-center gap-3 px-4 border-r border-slate-800/40 shrink-0",
+                    priority && "bg-slate-800/40"
+                  )}
                 >
+                  {/* Priority star for Gold & GBP/JPY */}
+                  {priority && <span className="text-amber-400 text-[9px] leading-none">★</span>}
+
                   <div>
-                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide leading-none mb-0.5">
-                      {label}
+                    {/* Symbol row */}
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className={cx("text-[10px] font-bold uppercase tracking-wide", priority ? "text-amber-300" : "text-slate-400")}>
+                        {label}
+                      </span>
+                      {/* BULL / BEAR / FLAT badge */}
+                      <span className={cx("text-[9px] font-black px-1 py-0.5 rounded leading-none", trendBg)}>
+                        {trend}
+                      </span>
                     </div>
+
+                    {/* Price + change */}
                     <div className="flex items-baseline gap-1.5">
-                      <span className="font-mono text-sm font-bold text-slate-100">{d.price.toFixed(dec)}</span>
-                      <span className={cx("text-[10px] font-bold flex items-center gap-0.5", pos ? "text-emerald-400" : "text-rose-400")}>
-                        {pos ? <TrendingUp size={8} /> : <TrendingDown size={8} />}
-                        {pos ? "+" : ""}{d.changePct.toFixed(2)}%
+                      <span className="font-mono text-sm font-black text-slate-100 tracking-tight">
+                        {d.price.toFixed(dec)}
+                      </span>
+                      <span className={cx("text-[10px] font-bold flex items-center gap-0.5", pctColor)}>
+                        {!flat && (bull ? <TrendingUp size={8} /> : <TrendingDown size={8} />)}
+                        {bull && !flat ? "+" : ""}{d.changePct.toFixed(2)}%
                       </span>
                     </div>
                   </div>
