@@ -323,7 +323,7 @@ const INTERVALS = [
 export default function BacktestTab() {
   const [mode, setMode] = useState<"replay" | "strategy">("replay");
   const [symbol, setSymbol] = useState("EURUSD");
-  const [interval, setInterval_] = useState("1h");
+  const [timeframe, setTimeframe] = useState("1h");
   const [candles, setCandles] = useState<Candle[]>([]);
   const [loading, setLoading] = useState(false);
   const [source, setSource] = useState("");
@@ -351,7 +351,7 @@ export default function BacktestTab() {
   const fetchCandles = useCallback(async () => {
     setLoading(true); setPlaying(false); setTrades([]); setBtResult(null);
     try {
-      const r = await fetch(`/api/backtest/candles?symbol=${symbol}&interval=${interval_}&outputsize=300`);
+      const r = await fetch(`/api/backtest/candles?symbol=${symbol}&interval=${timeframe}&outputsize=300`);
       const j = await r.json();
       const data: Candle[] = j.candles || [];
       setCandles(data);
@@ -359,7 +359,7 @@ export default function BacktestTab() {
       setIdx(Math.min(vis - 1, data.length - 1));
     } catch { setCandles([]); }
     finally { setLoading(false); }
-  }, [symbol, interval_]);
+  }, [symbol, timeframe]);
 
   useEffect(() => { fetchCandles(); }, []);
 
@@ -486,10 +486,10 @@ export default function BacktestTab() {
           </select>
           <div style={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
             {INTERVALS.map(iv => (
-              <button key={iv.value} onClick={() => setInterval_(iv.value)}
+              <button key={iv.value} onClick={() => setTimeframe(iv.value)}
                 style={{ padding: "3px 7px", borderRadius: 6, fontSize: 10, fontWeight: 600, cursor: "pointer", border: "none", transition: "all 0.1s",
-                  background: interval_ === iv.value ? "#f59e0b" : "#111f35",
-                  color: interval_ === iv.value ? "#1a1a1a" : "#64748b" }}>
+                  background: timeframe === iv.value ? "#f59e0b" : "#111f35",
+                  color: timeframe === iv.value ? "#1a1a1a" : "#64748b" }}>
                 {iv.label}
               </button>
             ))}
