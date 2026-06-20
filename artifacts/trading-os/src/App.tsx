@@ -3606,7 +3606,7 @@ function useSessionCountdown() {
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
   const fmt = h > 0
-    ? `${h}h ${m.toString().padStart(2,"0")}m`
+    ? `${h}h ${m.toString().padStart(2,"0")}m ${s.toString().padStart(2,"0")}s`
     : `${m.toString().padStart(2,"0")}:${s.toString().padStart(2,"0")}`;
 
   return { label: upcoming.label, fmt, color: upcoming.color, urgency: totalSec < 900 };
