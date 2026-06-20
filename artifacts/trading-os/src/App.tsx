@@ -5936,9 +5936,19 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
         <button onClick={onClose} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400">
           <ArrowLeft size={18} />
         </button>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <h2 className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>{initial ? "Edit Trade" : "Log Trade"}</h2>
-          {form.symbol && <p className="text-[11px] text-slate-500">{form.symbol} · {form.side} · {form.date}</p>}
+          {form.accountId && (() => {
+            const acct = (tradingAccounts as any[]).find((a: any) => a.id === form.accountId);
+            if (!acct) return null;
+            const typeColors: Record<string, string> = { Live: "text-emerald-400", Demo: "text-amber-400", Prop: "text-sky-400", Challenge: "text-purple-400" };
+            return (
+              <p className={cx("text-[11px] font-semibold truncate", typeColors[acct.accountType] || "text-slate-400")}>
+                {acct.alias || acct.accountNumber} · {acct.accountType}
+              </p>
+            );
+          })()}
+          {!form.accountId && form.symbol && <p className="text-[11px] text-slate-500">{form.symbol} · {form.side} · {form.date}</p>}
         </div>
         <div className="text-right">
           <div className="text-[10px] text-slate-500 font-medium">Step</div>
@@ -5965,6 +5975,76 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
         {/* Step 0: Setup */}
         {step === 0 && (
           <div className="space-y-0">
+
+            {/* ── Account Selector — always first ── */}
+            {(tradingAccounts as any[]).length > 0 && (() => {
+              const TYPE_CONFIG: Record<string, { bg: string; border: string; text: string; dot: string }> = {
+                Live:      { bg: "bg-emerald-500/10", border: "border-emerald-500/40", text: "text-emerald-400",  dot: "bg-emerald-400" },
+                Demo:      { bg: "bg-amber-500/10",   border: "border-amber-500/40",   text: "text-amber-400",   dot: "bg-amber-400" },
+                Prop:      { bg: "bg-sky-500/10",     border: "border-sky-500/40",     text: "text-sky-400",     dot: "bg-sky-400" },
+                Challenge: { bg: "bg-purple-500/10",  border: "border-purple-500/40",  text: "text-purple-400",  dot: "bg-purple-400" },
+              };
+              const noAcctSelected = !form.accountId;
+              return (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Log trade to account</span>
+                    {noAcctSelected && (
+                      <span className="text-[10px] font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-lg">
+                        Select account ↓
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {(tradingAccounts as any[]).map((a: any) => {
+                      const cfg = TYPE_CONFIG[a.accountType] || { bg: "bg-slate-800", border: "border-slate-700", text: "text-slate-400", dot: "bg-slate-500" };
+                      const isSelected = form.accountId === a.id;
+                      const bal = parseFloat(a.balance);
+                      return (
+                        <button key={a.id} type="button"
+                          onClick={() => setForm((f: any) => ({ ...f, accountId: a.id }))}
+                          className={cx(
+                            "w-full flex items-center gap-3 px-3 py-3 rounded-xl border transition text-left",
+                            isSelected
+                              ? `${cfg.bg} ${cfg.border} ring-1 ring-inset ${cfg.border}`
+                              : "bg-slate-900 border-slate-800 hover:border-slate-700"
+                          )}>
+                          {/* Selection indicator */}
+                          <div className={cx(
+                            "w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition",
+                            isSelected ? `${cfg.border} ${cfg.bg}` : "border-slate-700"
+                          )}>
+                            {isSelected && <div className={cx("w-2 h-2 rounded-full", cfg.dot)} />}
+                          </div>
+                          {/* Account info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={cx("text-sm font-bold", isSelected ? cfg.text : "text-slate-100")}>
+                                {a.alias || a.accountNumber}
+                              </span>
+                              {a.alias && <span className="text-[10px] text-slate-500 font-mono">{a.accountNumber}</span>}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                              <span className={cx("text-[10px] font-semibold px-1.5 py-0.5 rounded", cfg.bg, cfg.text)}>
+                                {a.accountType}
+                              </span>
+                              {a.platform && <span className="text-[10px] text-slate-600">{a.platform}</span>}
+                              {!isNaN(bal) && bal > 0 && (
+                                <span className="text-[10px] text-slate-400 font-semibold">
+                                  {a.currency} {bal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {isSelected && <Check size={15} className={cfg.text} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             <Field label="Symbol">
               <SymbolSelector value={form.symbol} onChange={(v) => setForm((f) => ({ ...f, symbol: v }))} />
             </Field>
@@ -6021,18 +6101,6 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                 {TRADING_PLATFORMS.map((p) => <option key={p} value={p} />)}
               </datalist>
             </Field>
-            {(tradingAccounts as any[]).length > 0 && (
-              <Field label="Trading Account" hint="Link this trade to one of your broker accounts">
-                <Select value={form.accountId || ""} onChange={set("accountId")}>
-                  <option value="">— No account selected —</option>
-                  {(tradingAccounts as any[]).map((a: any) => (
-                    <option key={a.id} value={a.id}>
-                      {a.accountNumber}{a.alias ? ` · ${a.alias}` : ""} ({a.platform} · {a.accountType})
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            )}
             <div className="grid grid-cols-2 gap-3">
               <Field label="Setup used">
                 <Select value={form.setupId} onChange={set("setupId")}>
@@ -6467,6 +6535,34 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                   </div>
                 ))}
               </div>
+
+              {/* Account confirmation */}
+              {form.accountId && (() => {
+                const acct = (tradingAccounts as any[]).find((a: any) => a.id === form.accountId);
+                if (!acct) return null;
+                const typeColors: Record<string, { bg: string; border: string; text: string }> = {
+                  Live:      { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-400" },
+                  Demo:      { bg: "bg-amber-500/10",   border: "border-amber-500/30",   text: "text-amber-400" },
+                  Prop:      { bg: "bg-sky-500/10",     border: "border-sky-500/30",     text: "text-sky-400" },
+                  Challenge: { bg: "bg-purple-500/10",  border: "border-purple-500/30",  text: "text-purple-400" },
+                };
+                const cfg = typeColors[acct.accountType] || { bg: "bg-slate-800", border: "border-slate-700", text: "text-slate-400" };
+                return (
+                  <div className={cx("flex items-center gap-3 rounded-xl px-3 py-2.5 border", cfg.bg, cfg.border)}>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Logging to account</div>
+                      <div className={cx("text-sm font-bold", cfg.text)}>{acct.alias || acct.accountNumber}</div>
+                      <div className="text-[10px] text-slate-500">{acct.accountNumber}{acct.alias ? ` · ${acct.platform}` : ""} · {acct.accountType}</div>
+                    </div>
+                    <Check size={18} className={cfg.text} />
+                  </div>
+                );
+              })()}
+              {!form.accountId && (tradingAccounts as any[]).length > 0 && (
+                <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 border bg-rose-500/8 border-rose-500/25">
+                  <span className="text-[11px] text-rose-400 font-medium">⚠ No account selected — go back to Step 1 to pick one</span>
+                </div>
+              )}
 
               {form.notes ? (
                 <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
