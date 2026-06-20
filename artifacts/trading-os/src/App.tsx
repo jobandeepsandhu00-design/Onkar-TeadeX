@@ -783,6 +783,7 @@ const DEFAULT_SETTINGS = () => ({
   /* ── Dashboard visibility ── */
   dashVisibility: {
     moolMantar:      true,
+    liveTicker:      true,
     marketOverview:  true,
     marketSessions:  true,
     accountOverview: true,
@@ -798,7 +799,7 @@ const DEFAULT_SETTINGS = () => ({
     reference:       true,
     activeTrades:    true,
   },
-  dashSectionOrder: ["moolMantar","activeTrades","marketOverview","marketSessions","accountOverview","todaysFocus","propChallenges","thisWeek","riskTools","recentTrades","insightsEdge","setupLibrary","marketCalendar","statistics","reference"],
+  dashSectionOrder: ["moolMantar","liveTicker","activeTrades","marketOverview","marketSessions","accountOverview","todaysFocus","propChallenges","thisWeek","riskTools","recentTrades","insightsEdge","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -4654,9 +4655,33 @@ function ActiveTradeMonitor({ data, acc }: any) {
     return () => clearInterval(t);
   }, []);
 
+  const [livePrices, setLivePrices] = useState<Record<string, any>>({});
+
+  // Declare trade lists here so they are available to the useEffect dependency array below
   const allTrades: any[] = data.trades || [];
   const today = todayISO();
   const openTrades = allTrades.filter((t) => computeTrade(t).result === null);
+
+  const fetchPricesForTrades = (trades: any[]) => {
+    const syms = [...new Set(trades.map((t: any) => (t.symbol || "").toUpperCase()).filter(Boolean))] as string[];
+    if (!syms.length) return;
+    const token = getToken();
+    const hdrs: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    syms.forEach((sym) => {
+      fetch(`/api/market/price/${encodeURIComponent(sym)}`, { headers: hdrs })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d) setLivePrices((prev) => ({ ...prev, [sym]: d })); })
+        .catch(() => {});
+    });
+  };
+
+  useEffect(() => {
+    if (!openTrades.length) { setLivePrices({}); return; }
+    fetchPricesForTrades(openTrades);
+    const iv = setInterval(() => fetchPricesForTrades(openTrades), 30000);
+    return () => clearInterval(iv);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTrades.map((t: any) => t.symbol).join(",")]); // re-fetch when open trade symbols change
   const todayTrades = allTrades.filter((t) => t.date === today);
   const todayClosedPnl = todayTrades
     .filter((t) => computeTrade(t).result !== null)
@@ -4798,9 +4823,10 @@ function ActiveTradeMonitor({ data, acc }: any) {
         const riskAmt = startBal > 0 && riskPctNum > 0 ? (riskPctNum / 100) * startBal : null;
         const overLimit = maxRiskPerTrade > 0 && riskPctNum > maxRiskPerTrade;
         const platClr = PLAT_CLR[t.platform] || "#64748b";
-        const isJpy = (t.symbol || "").toUpperCase().includes("JPY");
-        const dec = t.market === "Indices" || t.market === "Crypto" ? 2 : isJpy ? 3 : 5;
         const elapsed = elapsedStr(t);
+        const liveD = livePrices[(t.symbol || "").toUpperCase()] || null;
+        const { pip, dec, label: pipLabel } = getPipInfo(t.symbol);
+        const isLong = t.side === "Buy";
 
         return (
           <div key={t.id} className={cx("rounded-2xl border p-4",
@@ -4833,7 +4859,7 @@ function ActiveTradeMonitor({ data, acc }: any) {
             </div>
 
             {/* Price levels */}
-            <div className="grid grid-cols-3 gap-1.5 mb-3">
+            <div className="grid grid-cols-3 gap-1.5 mb-2">
               <div className="bg-slate-800 rounded-xl p-2.5 text-center">
                 <div className="text-[11px] font-mono font-bold text-slate-200">{hasEntry ? entry.toFixed(dec) : "—"}</div>
                 <div className="text-[9px] text-slate-500 mt-0.5 uppercase tracking-wide">Entry</div>
@@ -4847,6 +4873,98 @@ function ActiveTradeMonitor({ data, acc }: any) {
                 <div className="text-[9px] text-slate-500 mt-0.5 uppercase tracking-wide">TP</div>
               </div>
             </div>
+
+            {/* ── Live Price Panel ── */}
+            {liveD && hasEntry && (() => {
+              const livePrice: number = liveD.price;
+              const rawPips = (livePrice - entry) / pip;
+              const profitPips = isLong ? rawPips : -rawPips;
+              const inProfit = profitPips > 0;
+              const absPips = Math.abs(rawPips);
+              const slPips   = hasSL ? Math.abs((livePrice - sl) / pip) : null;
+              const tpPips   = hasTP ? Math.abs((livePrice - tp) / pip) : null;
+              const todayPos = liveD.changePct >= 0;
+              // Progress bar: where is price between SL and TP?
+              const barPct = (hasSL && hasTP) ? (() => {
+                const full = Math.abs(tp - sl);
+                const pos  = livePrice - (isLong ? sl : tp);
+                return Math.max(0, Math.min(100, (pos / (isLong ? full : -full)) * 100));
+              })() : null;
+              const spec = getSpec(t.symbol);
+              const estimatedPnl = spec && t.positionSize
+                ? (profitPips * parseFloat(t.positionSize) * spec.pipValuePerLot)
+                : null;
+              return (
+                <div className={cx("rounded-xl border p-3 mb-2", inProfit ? "bg-emerald-500/6 border-emerald-500/20" : "bg-rose-500/6 border-rose-500/20")}>
+                  {/* Header row */}
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">Live</span>
+                    </div>
+                    <span className={cx("text-[10px] font-semibold", todayPos ? "text-emerald-400" : "text-rose-400")}>
+                      {todayPos ? "▲" : "▼"} {Math.abs(liveD.changePct).toFixed(2)}% today
+                    </span>
+                  </div>
+                  {/* Three metric cells */}
+                  <div className="grid grid-cols-3 gap-1.5 mb-2">
+                    <div className="bg-slate-900 rounded-lg p-2 text-center">
+                      <div className={cx("font-mono text-sm font-black tracking-tight", inProfit ? "text-emerald-400" : "text-rose-400")}>
+                        {livePrice.toFixed(dec)}
+                      </div>
+                      <div className="text-[9px] text-slate-500 mt-0.5">Current Price</div>
+                    </div>
+                    <div className="bg-slate-900 rounded-lg p-2 text-center">
+                      <div className={cx("font-mono text-sm font-bold", inProfit ? "text-emerald-400" : "text-rose-400")}>
+                        {inProfit ? "+" : "-"}{absPips.toFixed(1)}
+                      </div>
+                      <div className="text-[9px] text-slate-500 mt-0.5">{pipLabel} from entry</div>
+                    </div>
+                    <div className="bg-slate-900 rounded-lg p-2 text-center">
+                      <div className={cx("text-sm font-bold", inProfit ? "text-emerald-400" : "text-rose-400")}>
+                        {estimatedPnl !== null ? (estimatedPnl >= 0 ? "+" : "") + estimatedPnl.toFixed(0) + cur : (inProfit ? "✓ Profit" : "✗ Loss")}
+                      </div>
+                      <div className="text-[9px] text-slate-500 mt-0.5">{estimatedPnl !== null ? "Est. P/L" : "Status"}</div>
+                    </div>
+                  </div>
+                  {/* SL / TP distance */}
+                  {(slPips !== null || tpPips !== null) && (
+                    <div className="flex items-center gap-2 text-[10px] mb-1.5">
+                      {slPips !== null && (
+                        <span className={cx("font-medium", slPips < 5 ? "text-rose-400" : "text-slate-500")}>
+                          SL: {slPips.toFixed(1)} {pipLabel} away{slPips < 5 ? " ⚠️" : ""}
+                        </span>
+                      )}
+                      {tpPips !== null && (
+                        <span className="text-slate-600">·</span>
+                      )}
+                      {tpPips !== null && (
+                        <span className={cx("font-medium", tpPips < 3 ? "text-emerald-300" : "text-slate-500")}>
+                          TP: {tpPips.toFixed(1)} {pipLabel} away{tpPips < 3 ? " 🎯" : ""}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {/* Price progress bar: SL → TP */}
+                  {barPct !== null && (
+                    <div className="relative h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="absolute inset-y-0 left-0 rounded-full transition-all"
+                        style={{ width: `${barPct}%`, background: inProfit ? "#34d399" : "#f87171" }} />
+                      <div className="absolute inset-y-0 w-0.5 bg-amber-400 opacity-60"
+                        style={{ left: `${barPct}%` }} />
+                    </div>
+                  )}
+                  {barPct !== null && (
+                    <div className="flex justify-between text-[9px] text-slate-700 mt-0.5">
+                      <span>SL</span><span>TP</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            {liveD === null && openTrades.length > 0 && (
+              <div className="text-[10px] text-slate-700 text-center py-1 mb-2">Fetching live price…</div>
+            )}
 
             {/* Risk + meta row */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -4878,6 +4996,114 @@ function ActiveTradeMonitor({ data, acc }: any) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function LiveMarketTicker() {
+  const TICKERS = [
+    { sym: "EURUSD", label: "EUR/USD" },
+    { sym: "GBPUSD", label: "GBP/USD" },
+    { sym: "USDJPY", label: "USD/JPY" },
+    { sym: "AUDUSD", label: "AUD/USD" },
+    { sym: "USDCAD", label: "USD/CAD" },
+    { sym: "USDCHF", label: "USD/CHF" },
+    { sym: "XAUUSD", label: "GOLD" },
+    { sym: "XAGUSD", label: "SILVER" },
+    { sym: "OIL",    label: "OIL WTI" },
+    { sym: "US30",   label: "DOW" },
+    { sym: "NAS100", label: "NASDAQ" },
+    { sym: "BTCUSD", label: "BTC" },
+  ];
+
+  const [prices, setPrices] = useState<Record<string, any>>({});
+  const [loading, setLoading] = useState(true);
+  const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
+
+  const fetchAll = () => {
+    const token = getToken();
+    const hdrs: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    TICKERS.forEach(({ sym }) => {
+      fetch(`/api/market/price/${encodeURIComponent(sym)}`, { headers: hdrs })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d) setPrices((p) => ({ ...p, [sym]: d })); })
+        .catch(() => {});
+    });
+    setLoading(false);
+    setRefreshedAt(new Date());
+  };
+
+  useEffect(() => {
+    fetchAll();
+    const iv = setInterval(fetchAll, 60_000);
+    return () => clearInterval(iv);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const items = TICKERS.filter((t) => prices[t.sym]);
+
+  return (
+    <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden">
+      <style>{`@keyframes otx-ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}`}</style>
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800/50">
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Live Markets</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {refreshedAt && (
+            <span className="text-[10px] text-slate-700">
+              {refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+          <button onClick={fetchAll} className="text-slate-600 hover:text-amber-400 transition" title="Refresh">
+            <RefreshCw size={11} />
+          </button>
+        </div>
+      </div>
+
+      {loading && items.length === 0 ? (
+        <div className="flex gap-6 px-4 py-3">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="h-8 w-20 bg-slate-800 rounded animate-pulse" />
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="text-center py-3 text-[11px] text-slate-600">Unable to load market prices</div>
+      ) : (
+        <div className="overflow-hidden py-2.5">
+          <div
+            className="flex whitespace-nowrap"
+            style={{ animation: "otx-ticker 40s linear infinite", width: "max-content" }}
+          >
+            {[...items, ...items].map(({ sym, label }, idx) => {
+              const d = prices[sym];
+              if (!d) return null;
+              const { dec } = getPipInfo(sym);
+              const pos = d.changePct >= 0;
+              return (
+                <div
+                  key={`${sym}-${idx}`}
+                  className="inline-flex items-center gap-3 px-5 border-r border-slate-800/50 shrink-0"
+                >
+                  <div>
+                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide leading-none mb-0.5">
+                      {label}
+                    </div>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="font-mono text-sm font-bold text-slate-100">{d.price.toFixed(dec)}</span>
+                      <span className={cx("text-[10px] font-bold flex items-center gap-0.5", pos ? "text-emerald-400" : "text-rose-400")}>
+                        {pos ? <TrendingUp size={8} /> : <TrendingDown size={8} />}
+                        {pos ? "+" : ""}{d.changePct.toFixed(2)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4937,6 +5163,7 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
 
   const sectionContent: Record<string, React.ReactNode> = {
     moolMantar: <MoolMantar />,
+    liveTicker: <LiveMarketTicker />,
     activeTrades: <ActiveTradeMonitor data={data} acc={acc} />,
     marketOverview: (
       <div className="relative rounded-2xl overflow-hidden border border-slate-800/60 shadow-2xl shadow-black/60"
@@ -10238,6 +10465,7 @@ const CARD_BG_OPTIONS = [
 
 const DASH_SECTION_META = [
   { key: "moolMantar",      label: "Mool Mantar",           icon: "🙏" },
+  { key: "liveTicker",      label: "Live Market Ticker",    icon: "📊" },
   { key: "activeTrades",    label: "Active Trades Monitor",  icon: "📡" },
   { key: "marketOverview",  label: "Market Overview Chart",  icon: "📈" },
   { key: "marketSessions",  label: "Forex Market Sessions",  icon: "🌍" },
