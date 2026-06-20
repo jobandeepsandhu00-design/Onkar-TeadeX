@@ -5007,7 +5007,9 @@ function BackupPanel({ data, setData }) {
         vault: parsed.vault || [],
         smc: parsed.smc || seedSMC(),
         checkins: parsed.checkins || [],
+        preSession: parsed.preSession || [],
         account: parsed.account || { startingBalance: 1000, currency: "€" },
+        propChallenges: parsed.propChallenges || [],
       });
       setImportText(""); setImportError(""); setConfirmImport(false);
     } catch (e) {
@@ -5731,6 +5733,7 @@ function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
       {subTab === "Plans" && <PlansPanel data={data} setData={setData} goTo={goTo} />}
       {subTab === "Psychology" && <PsychologyPanel data={data} setData={setData} goTo={goTo} />}
       {subTab === "Vault" && <VaultPanel data={data} setData={setData} goTo={goTo} />}
+      {subTab === "Prop" && <PropChallengesPanel data={data} setData={setData} />}
       {subTab === "Backup" && <BackupPanel data={data} setData={setData} />}
     </div>
   );
