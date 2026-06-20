@@ -104,18 +104,7 @@ function Root() {
   }
   if (status === "out") return <AuthScreen onAuthed={() => setStatus("in")} />;
 
-  return (
-    <div className="relative">
-      <button
-        onClick={() => { logout(); setStatus("out"); }}
-        className="fixed top-3 right-14 z-[60] text-[11px] text-slate-500 hover:text-rose-400 px-2 py-1"
-        title="Log out"
-      >
-        Log out
-      </button>
-      <App />
-    </div>
-  );
+  return <App onLogout={() => { logout(); setStatus("out"); }} />;
 }
 
 createRoot(document.getElementById("root")!).render(

@@ -10575,7 +10575,7 @@ function RiskAlertOverlay({ alert, onDismiss }: { alert: RiskAlert; onDismiss: (
   );
 }
 
-export default function App() {
+export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const [data, setDataRaw] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
@@ -10747,14 +10747,20 @@ export default function App() {
                 <img src="/onkar-tradex-logo.png" alt="Onkar TradeX" className="w-7 h-7 object-contain drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
                 <span className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>Onkar TradeX</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <NotifBell count={unreadCount} accent={accent} onClick={() => {
                   setNotifCentreOpen(true);
                   setNotifs((n) => n.map((x) => ({ ...x, read: true })));
                 }} />
                 {(data as any)?.settings?.showSearchBar !== false && (
-                  <button onClick={() => setSearchOpen(true)} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400">
+                  <button onClick={() => setSearchOpen(true)} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 transition">
                     <Search size={17} />
+                  </button>
+                )}
+                {onLogout && (
+                  <button onClick={onLogout} title="Log out"
+                    className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-rose-400 transition">
+                    <LogOut size={16} />
                   </button>
                 )}
               </div>
