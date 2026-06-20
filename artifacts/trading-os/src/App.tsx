@@ -7,7 +7,7 @@ import {
   ChevronLeft, MoreHorizontal, Wallet, ClipboardList, ArrowLeft, Copy, Check, Sparkles,
   Trophy, Flame, Gauge, DollarSign, Smile, Zap, AlertCircle, CalendarDays, Activity, Calculator,
   Play, Eye, EyeOff, Repeat2, Clock, Lock, Shield, LogOut, GripVertical, RefreshCw,
-  ExternalLink, TrendingUpDown, Camera, ScanLine
+  ExternalLink, TrendingUpDown, Camera, ScanLine, Send
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line,
@@ -809,7 +809,7 @@ const DEFAULT_SETTINGS = () => ({
     equityCurve:     true,
     tvChart:         true,
   },
-  dashSectionOrder: ["moolMantar","liveTicker","activeTrades","marketOverview","marketSessions","accountOverview","todaysFocus","propChallenges","thisWeek","riskTools","equityCurve","tvChart","recentTrades","insightsEdge","setupLibrary","marketCalendar","statistics","reference"],
+  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -5665,11 +5665,55 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
 
   const [editLayout, setEditLayout] = useState(false);
 
+  /* ── AI Chat state ── */
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiMessages, setAiMessages] = useState<{ role: "user" | "ai"; text: string }[]>([]);
+  const [aiInput, setAiInput] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const aiBottomRef = useRef<HTMLDivElement>(null);
+
+  const sendAiMessage = async () => {
+    const msg = aiInput.trim();
+    if (!msg || aiLoading) return;
+    setAiInput("");
+    setAiMessages((m) => [...m, { role: "user", text: msg }]);
+    setAiLoading(true);
+    try {
+      const stats = {
+        trades: a.tradeCount, winRate: a.winRate != null ? fmtPct(a.winRate) : null,
+        dayPnl: a.dayPnl, weekPnl: a.weekPnl, avgRR: a.avgRR,
+        profitFactor: a.profitFactor, qualityScore: a.qualityScore,
+        currency: cur,
+      };
+      const res = await fetch("/api/mt-import/ai-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: msg,
+          systemPrompt: `You are Onkar's personal AI trading coach inside Onkar TradeX. Be concise (2–4 sentences), direct, and motivating. Current stats: ${JSON.stringify(stats)}.`,
+        }),
+      });
+      const json = await res.json();
+      setAiMessages((m) => [...m, { role: "ai", text: json.response || json.error || "No response." }]);
+    } catch {
+      setAiMessages((m) => [...m, { role: "ai", text: "Couldn't reach AI. Check your connection." }]);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (aiOpen) aiBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [aiMessages, aiOpen]);
+
   const sectionOrder: string[] = (() => {
     const allKeys = DASH_SECTION_META.map((m: any) => m.key);
     const stored = (settings.dashSectionOrder as string[] | undefined);
-    if (stored && Array.isArray(stored) && stored.length === allKeys.length) return stored;
-    return allKeys;
+    if (!stored || !Array.isArray(stored) || stored.length !== allKeys.length) return allKeys;
+    /* Migrate: if stored order exactly matches the old default, use new order */
+    const OLD_DEFAULT = ["moolMantar","liveTicker","activeTrades","marketOverview","marketSessions","accountOverview","todaysFocus","propChallenges","thisWeek","riskTools","equityCurve","tvChart","recentTrades","insightsEdge","setupLibrary","marketCalendar","statistics","reference"];
+    if (JSON.stringify(stored) === JSON.stringify(OLD_DEFAULT)) return allKeys;
+    return stored;
   })();
 
   const moveSection = (key: string, dir: -1 | 1) => {
@@ -5932,16 +5976,134 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
 
     </div>
 
+    {/* ── Floating AI Coach button ── */}
+    <button
+      onClick={() => setAiOpen((o) => !o)}
+      className="fixed z-50 w-12 h-12 rounded-full flex items-center justify-center transition-all active:scale-95 shadow-lg"
+      style={{
+        bottom: settings.showQuickLogFAB !== false ? "9rem" : "5.5rem",
+        right: "1rem",
+        background: aiOpen
+          ? "linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%)"
+          : "linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%)",
+        boxShadow: "0 0 18px rgba(139,92,246,0.45)",
+      }}
+      aria-label="AI Coach"
+    >
+      {aiOpen ? <X size={20} className="text-white" /> : <Brain size={20} className="text-white" />}
+    </button>
+
     {/* ── Floating Quick-Log button ── */}
     {settings.showQuickLogFAB !== false && (
       <button
         onClick={onQuickLog}
-        className="fixed bottom-20 right-4 z-50 w-14 h-14 rounded-full bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 shadow-lg shadow-amber-900/40 flex items-center justify-center transition-all"
+        className="fixed bottom-20 right-4 z-50 w-14 h-14 rounded-full active:scale-95 text-slate-950 shadow-lg flex items-center justify-center transition-all"
         style={{ background: "var(--otx-accent,#f59e0b)", boxShadow: "0 0 20px rgba(245,158,11,0.35)" }}
         aria-label="Log Trade"
       >
         <Plus size={26} strokeWidth={2.5} />
       </button>
+    )}
+
+    {/* ── AI Coach bottom sheet ── */}
+    {aiOpen && (
+      <div className="fixed inset-x-0 bottom-0 z-40 flex flex-col"
+        style={{ top: "30%", background: "#080e1e" }}>
+        {/* Handle bar */}
+        <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-slate-800 shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+              style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)" }}>
+              <Brain size={14} className="text-white" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-slate-100">AI Trading Coach</div>
+              <div className="text-[10px] text-violet-400">Powered by GPT-4o · knows your stats</div>
+            </div>
+          </div>
+          <button onClick={() => setAiOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-500">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          {aiMessages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full gap-3 py-8">
+              <div className="w-14 h-14 rounded-full flex items-center justify-center"
+                style={{ background: "linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%)", boxShadow: "0 0 24px rgba(139,92,246,0.3)" }}>
+                <Sparkles size={24} className="text-white" />
+              </div>
+              <p className="text-sm font-semibold text-slate-300 text-center">Ask your AI coach anything</p>
+              <div className="grid grid-cols-1 gap-2 w-full max-w-xs">
+                {[
+                  "How is my win rate today?",
+                  "What's my biggest weakness?",
+                  "Give me a mindset tip for today",
+                  "Am I ready to trade today?",
+                ].map((q) => (
+                  <button key={q} onClick={() => { setAiInput(q); }}
+                    className="text-left text-xs px-3 py-2 rounded-xl border border-violet-500/25 bg-violet-500/8 text-violet-300 hover:bg-violet-500/15 transition">
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {aiMessages.map((msg, i) => (
+            <div key={i} className={cx("flex gap-2", msg.role === "user" ? "flex-row-reverse" : "flex-row")}>
+              {msg.role === "ai" && (
+                <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+                  style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)" }}>
+                  <Brain size={12} className="text-white" />
+                </div>
+              )}
+              <div className={cx(
+                "max-w-[82%] px-3 py-2 rounded-2xl text-sm leading-relaxed",
+                msg.role === "user"
+                  ? "bg-violet-600 text-white rounded-tr-sm"
+                  : "bg-slate-800 text-slate-200 rounded-tl-sm border border-slate-700/50"
+              )}>
+                {msg.text}
+              </div>
+            </div>
+          ))}
+          {aiLoading && (
+            <div className="flex gap-2 items-center">
+              <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)" }}>
+                <Brain size={12} className="text-white" />
+              </div>
+              <div className="px-3 py-2 rounded-2xl rounded-tl-sm bg-slate-800 border border-slate-700/50 flex gap-1 items-center">
+                <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
+            </div>
+          )}
+          <div ref={aiBottomRef} />
+        </div>
+
+        {/* Input */}
+        <div className="px-4 py-3 border-t border-slate-800 flex gap-2 shrink-0 pb-safe"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}>
+          <input
+            value={aiInput}
+            onChange={(e) => setAiInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendAiMessage(); } }}
+            placeholder="Ask your coach…"
+            className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder-slate-600 outline-none focus:border-violet-500/50"
+          />
+          <button
+            onClick={sendAiMessage}
+            disabled={!aiInput.trim() || aiLoading}
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition active:scale-95 disabled:opacity-40"
+            style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)" }}
+          >
+            <Send size={15} className="text-white" />
+          </button>
+        </div>
+      </div>
     )}
     </>
   );
@@ -11520,19 +11682,19 @@ const CARD_BG_OPTIONS = [
 
 const DASH_SECTION_META = [
   { key: "moolMantar",      label: "Mool Mantar",           icon: "🙏" },
+  { key: "marketOverview",  label: "Market Overview Chart",  icon: "📈" },
   { key: "liveTicker",      label: "Live Market Ticker",    icon: "📊" },
   { key: "activeTrades",    label: "Active Trades Monitor",  icon: "📡" },
-  { key: "marketOverview",  label: "Market Overview Chart",  icon: "📈" },
-  { key: "marketSessions",  label: "Forex Market Sessions",  icon: "🌍" },
   { key: "accountOverview", label: "Account Overview",       icon: "💰" },
+  { key: "marketSessions",  label: "Forex Market Sessions",  icon: "🌍" },
   { key: "todaysFocus",     label: "Today's Focus",          icon: "🎯" },
+  { key: "riskTools",       label: "Risk & Tools",           icon: "⚖️" },
   { key: "propChallenges",  label: "Prop Challenges",        icon: "🏆" },
   { key: "thisWeek",        label: "This Week",              icon: "📅" },
-  { key: "riskTools",       label: "Risk & Tools",           icon: "⚖️" },
   { key: "equityCurve",     label: "Equity Curve",           icon: "📈" },
-  { key: "tvChart",         label: "TradingView Chart",      icon: "🖥️" },
   { key: "recentTrades",    label: "Recent Trades",          icon: "📋" },
   { key: "insightsEdge",    label: "Insights & Edge",        icon: "💡" },
+  { key: "tvChart",         label: "TradingView Chart",      icon: "🖥️" },
   { key: "setupLibrary",    label: "Setup Library",          icon: "📚" },
   { key: "marketCalendar",  label: "Market Calendar",        icon: "🗓️" },
   { key: "statistics",      label: "Statistics",             icon: "📊" },
