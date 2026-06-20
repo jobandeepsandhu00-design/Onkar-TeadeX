@@ -390,6 +390,11 @@ const INTERVALS = [
   { label: "M15", value: "15min" }, { label: "M30", value: "30min" },
   { label: "H1", value: "1h" }, { label: "H4", value: "4h" }, { label: "D1", value: "1day" },
 ];
+// Candles to request per timeframe (backend caps at 5000)
+const OUTPUTSIZE: Record<string, number> = {
+  "1min": 1500, "5min": 1500, "15min": 2000, "30min": 2000,
+  "1h": 2000, "4h": 2000, "1day": 500,
+};
 
 /* ── Main component ───────────────────────────────────── */
 export default function BacktestTab() {
@@ -423,6 +428,8 @@ export default function BacktestTab() {
   const chartViewRef = useRef<ChartView | null>(null);
   const drawingRef = useRef<{ startIdx: number; startPrice: number } | null>(null);
   const previewRef = useRef<DrawShape | null>(null);
+  const panOffsetRef = useRef(0);
+  const panDragRef = useRef<{ startX: number; startOffset: number } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -430,8 +437,10 @@ export default function BacktestTab() {
 
   const fetchCandles = useCallback(async () => {
     setLoading(true); setPlaying(false); setTrades([]); setBtResult(null); setShapes([]);
+    panOffsetRef.current = 0;
     try {
-      const r = await fetch(`/api/backtest/candles?symbol=${symbol}&interval=${timeframe}&outputsize=300`);
+      const size = OUTPUTSIZE[timeframe] ?? 1500;
+      const r = await fetch(`/api/backtest/candles?symbol=${symbol}&interval=${timeframe}&outputsize=${size}`);
       const j = await r.json();
       const data: Candle[] = j.candles || [];
       setCandles(data);
@@ -482,10 +491,14 @@ export default function BacktestTab() {
     return null;
   }, [candles, cfg.indicator, cfg.period]);
 
-  // Draw chart
+  // Reset pan when replay starts playing
+  useEffect(() => { if (playing) panOffsetRef.current = 0; }, [playing]);
+
+  // Draw chart — effectiveViewEnd accounts for pan (reads ref, no re-render needed)
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !candles.length) return;
+    const effectiveViewEnd = Math.max(vis - 1, Math.min(candles.length - 1, idx - panOffsetRef.current));
     const openT = trades.filter(t => t.result === undefined);
     const markers: { idx: number; type: "buy" | "sell" | "exit"; price: number }[] = [];
     trades.forEach(t => {
@@ -493,7 +506,7 @@ export default function BacktestTab() {
       if (t.exitIdx !== undefined && t.exitPrice !== undefined)
         markers.push({ idx: t.exitIdx, type: "exit", price: t.exitPrice });
     });
-    drawChart(canvas, candles, idx, vis, getOverlay(), markers, openT, pip, shapes, previewRef.current, chartViewRef);
+    drawChart(canvas, candles, effectiveViewEnd, vis, getOverlay(), markers, openT, pip, shapes, previewRef.current, chartViewRef);
   }, [candles, idx, vis, trades, getOverlay, pip, shapes]);
 
   useEffect(() => { redraw(); }, [redraw]);
@@ -506,12 +519,55 @@ export default function BacktestTab() {
     return () => ro.disconnect();
   }, [redraw]);
 
-  // Drawing tool pointer handlers
-  const onPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (activeTool === "cursor") return;
+  // Scroll wheel → zoom
+  useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
-    const v = chartViewRef.current; if (!v) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setVis(v => Math.max(10, Math.min(300, v + (e.deltaY > 0 ? 10 : -10))));
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, []);
+
+  // Pinch gesture → zoom (two-finger)
+  useEffect(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    let lastDist = 0;
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        lastDist = Math.sqrt(dx * dx + dy * dy);
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || lastDist === 0) return;
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const ratio = lastDist / dist;
+      setVis(v => Math.max(10, Math.min(300, Math.round(v * ratio))));
+      lastDist = dist;
+    };
+    canvas.addEventListener("touchstart", onTouchStart, { passive: true });
+    canvas.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => {
+      canvas.removeEventListener("touchstart", onTouchStart);
+      canvas.removeEventListener("touchmove", onTouchMove);
+    };
+  }, []);
+
+  // Pointer handlers — cursor mode = pan, tool modes = draw
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current; if (!canvas) return;
     canvas.setPointerCapture(e.pointerId);
+    if (activeTool === "cursor") {
+      panDragRef.current = { startX: e.clientX, startOffset: panOffsetRef.current };
+      return;
+    }
+    const v = chartViewRef.current; if (!v) return;
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left, py = e.clientY - rect.top;
     const price = v.pLo + (1 - py / v.cH) * v.pRange;
@@ -524,7 +580,19 @@ export default function BacktestTab() {
   }, [activeTool, drawColor]);
 
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drawingRef.current || activeTool === "cursor") return;
+    if (activeTool === "cursor") {
+      if (!panDragRef.current) return;
+      const v = chartViewRef.current; if (!v) return;
+      const dx = e.clientX - panDragRef.current.startX;
+      const shift = Math.round(dx / v.barW);
+      panOffsetRef.current = Math.max(0, Math.min(
+        Math.max(0, candles.length - vis),
+        panDragRef.current.startOffset - shift,
+      ));
+      redraw();
+      return;
+    }
+    if (!drawingRef.current) return;
     const v = chartViewRef.current; if (!v) return;
     const canvas = canvasRef.current; if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -537,10 +605,14 @@ export default function BacktestTab() {
       i2: hIdx, p2: price, color: drawColor,
     };
     redraw();
-  }, [activeTool, drawColor, redraw]);
+  }, [activeTool, drawColor, redraw, candles.length, vis]);
 
   const onPointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drawingRef.current || activeTool === "cursor") return;
+    if (activeTool === "cursor") {
+      panDragRef.current = null;
+      return;
+    }
+    if (!drawingRef.current) return;
     const v = chartViewRef.current; if (!v) return;
     const canvas = canvasRef.current; if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -558,6 +630,7 @@ export default function BacktestTab() {
   }, [activeTool, drawColor]);
 
   const onPointerCancel = useCallback(() => {
+    panDragRef.current = null;
     drawingRef.current = null;
     previewRef.current = null;
     redraw();
@@ -681,7 +754,7 @@ export default function BacktestTab() {
       <div style={{ flexShrink: 0, height: 210, padding: "0 10px", position: "relative" }}>
         <canvas ref={canvasRef}
           style={{ width: "100%", height: "100%", borderRadius: 8, display: "block",
-            cursor: activeTool === "cursor" ? "default" : "crosshair",
+            cursor: activeTool === "cursor" ? "grab" : "crosshair",
             touchAction: "none" }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -694,7 +767,7 @@ export default function BacktestTab() {
           </div>
         )}
         <div style={{ position: "absolute", top: 6, right: 18, display: "flex", gap: 2 }}>
-          {[["−", () => setVis(v => Math.min(120, v + 20))], ["+", () => setVis(v => Math.max(20, v - 20))]].map(([lbl, fn]) => (
+          {[["−", () => setVis(v => Math.min(300, v + 20))], ["+", () => setVis(v => Math.max(10, v - 20))]].map(([lbl, fn]) => (
             <button key={lbl as string} onClick={fn as any}
               style={{ background: "rgba(15,25,50,0.85)", border: "1px solid #1e3a5f", borderRadius: 5, padding: "2px 8px", fontSize: 12, color: "#64748b", cursor: "pointer" }}>
               {lbl as string}
