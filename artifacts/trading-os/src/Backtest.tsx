@@ -790,7 +790,7 @@ export default function BacktestTab() {
                   {icon}
                 </button>
               ))}
-              {(["#ef4444", "#22c55e", "#f59e0b", "#60a5fa"] as const).map(c => (
+              {(["#ef4444", "#22c55e", "#f59e0b", "#60a5fa"]).map(c => (
                 <button key={c} onClick={() => setDrawColor(c)}
                   style={{ width: 16, height: 16, borderRadius: "50%", background: c, border: drawColor === c ? "2px solid #fff" : "2px solid transparent", cursor: "pointer" }} />
               ))}
@@ -842,6 +842,107 @@ export default function BacktestTab() {
             </button>
           )}
         </div>
+
+        {/* ── Fullscreen replay / trade controls ── */}
+        {fullscreen && mode === "replay" && (
+          <div style={{ flexShrink: 0, background: "#060d1f", borderTop: "1px solid #1e3a5f", padding: "8px 14px", paddingBottom: "calc(8px + env(safe-area-inset-bottom,0px))" }}>
+            {/* Top row: date + speed */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: 10, color: "#4b6080" }}>
+                {cur ? `${idx + 1} / ${candles.length} · ${new Date(cur.t).toLocaleDateString("en-GB")}` : "No data"}
+              </span>
+              <div style={{ display: "flex", gap: 3 }}>
+                {([[1000, "1×"], [400, "3×"], [150, "8×"], [60, "20×"]] as [number,string][]).map(([ms, lbl]) => (
+                  <button key={lbl} onClick={() => setSpeed(ms)}
+                    style={{ padding: "2px 7px", borderRadius: 5, fontSize: 9, fontWeight: 600, cursor: "pointer", border: "none",
+                      background: speed === ms ? "#f59e0b" : "#111f35",
+                      color: speed === ms ? "#000" : "#64748b" }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div style={{ height: 2, background: "#111f35", borderRadius: 2, overflow: "hidden", marginBottom: 8 }}>
+              <div style={{ height: "100%", background: "linear-gradient(90deg,#f59e0b,#fbbf24)", width: `${candles.length ? (idx / (candles.length - 1)) * 100 : 0}%`, transition: "width 0.1s" }} />
+            </div>
+
+            {/* Transport + trade row */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {/* Transport buttons */}
+              <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                <button onClick={reset} title="Reset"
+                  style={{ width: 30, height: 30, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #1e3a5f", background: "#111f35", cursor: "pointer", color: "#64748b" }}>
+                  <RotateCcw size={12} />
+                </button>
+                <button onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={idx <= 0}
+                  style={{ width: 30, height: 30, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #1e3a5f", background: "#111f35", cursor: "pointer", color: "#64748b", opacity: idx <= 0 ? 0.4 : 1 }}>
+                  <ChevronLeft size={14} />
+                </button>
+                <button onClick={() => setPlaying(p => !p)}
+                  style={{ width: 42, height: 42, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", border: "none", cursor: "pointer",
+                    background: playing ? "#ef4444" : "linear-gradient(135deg,#f59e0b,#d97706)", color: "#000" }}>
+                  {playing ? <Pause size={18} /> : <Play size={18} />}
+                </button>
+                <button onClick={() => setIdx(i => Math.min(candles.length - 1, i + 1))} disabled={idx >= candles.length - 1}
+                  style={{ width: 30, height: 30, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #1e3a5f", background: "#111f35", cursor: "pointer", color: "#64748b", opacity: idx >= candles.length - 1 ? 0.4 : 1 }}>
+                  <ChevronRight size={14} />
+                </button>
+                <button onClick={() => { setPlaying(false); setIdx(candles.length - 1); }} title="Jump to end"
+                  style={{ width: 30, height: 30, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #1e3a5f", background: "#111f35", cursor: "pointer", color: "#64748b" }}>
+                  <SkipForward size={12} />
+                </button>
+              </div>
+
+              {/* Divider */}
+              <div style={{ width: 1, height: 36, background: "#1e3a5f" }} />
+
+              {/* SL / TP inputs */}
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 9, color: "#4b6080", marginBottom: 2 }}>SL</div>
+                  <input type="number" value={slPips} min={1} onChange={e => setSlPips(+e.target.value)}
+                    style={{ ...inpStyle, width: 52, padding: "4px 6px", fontSize: 11 }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 9, color: "#4b6080", marginBottom: 2 }}>TP</div>
+                  <input type="number" value={tpPips} min={1} onChange={e => setTpPips(+e.target.value)}
+                    style={{ ...inpStyle, width: 52, padding: "4px 6px", fontSize: 11 }} />
+                </div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", alignSelf: "flex-end", paddingBottom: 4 }}>
+                  {(tpPips / Math.max(1, slPips)).toFixed(1)}R
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div style={{ width: 1, height: 36, background: "#1e3a5f" }} />
+
+              {/* BUY / SELL */}
+              <div style={{ display: "flex", gap: 6, flex: 1 }}>
+                <button onClick={() => enter("long")}
+                  style={{ flex: 1, padding: "8px 0", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, border: "none", cursor: "pointer", background: "linear-gradient(135deg,#16a34a,#15803d)", color: "#fff", fontWeight: 700, fontSize: 12 }}>
+                  <TrendingUp size={13} /> BUY
+                </button>
+                <button onClick={() => enter("short")}
+                  style={{ flex: 1, padding: "8px 0", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, border: "none", cursor: "pointer", background: "linear-gradient(135deg,#dc2626,#b91c1c)", color: "#fff", fontWeight: 700, fontSize: 12 }}>
+                  <TrendingDown size={13} /> SELL
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Fullscreen strategy controls ── */}
+        {fullscreen && mode === "strategy" && (
+          <div style={{ flexShrink: 0, background: "#060d1f", borderTop: "1px solid #1e3a5f", padding: "10px 14px", paddingBottom: "calc(10px + env(safe-area-inset-bottom,0px))", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 11, color: "#7a9fc0", fontWeight: 600 }}>Strategy Mode</span>
+            <span style={{ fontSize: 10, color: "#4b6080" }}>Configure settings below in normal view</span>
+            <button onClick={() => setFullscreen(false)} style={{ marginLeft: "auto", padding: "6px 14px", borderRadius: 8, background: "#f59e0b", border: "none", color: "#000", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+              Exit Fullscreen
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Scrollable panel ── */}
