@@ -7,7 +7,7 @@ import {
   ChevronLeft, MoreHorizontal, Wallet, ClipboardList, ArrowLeft, Copy, Check, Sparkles,
   Trophy, Flame, Gauge, DollarSign, Smile, Zap, AlertCircle, CalendarDays, Activity, Calculator,
   Play, Eye, EyeOff, Repeat2, Clock, Lock, Shield, LogOut, GripVertical, RefreshCw,
-  ExternalLink, TrendingUpDown
+  ExternalLink, TrendingUpDown, Camera, ScanLine
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line,
@@ -7454,6 +7454,281 @@ function TradeReplayModal({ trade, data, onClose, onSave }) {
   );
 }
 
+/* ── MT4/MT5 Screenshot OCR Import Modal ── */
+function MTImportModal({ onClose, onImport }: { onClose: () => void; onImport: (trades: any[]) => void }) {
+  const [phase, setPhase] = useState<"upload" | "scanning" | "preview" | "error">("upload");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [detected, setDetected] = useState<any[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const processFile = async (file: File) => {
+    if (!file.type.startsWith("image/")) { setErrorMsg("Please upload an image file (PNG, JPG, WebP)."); setPhase("error"); return; }
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const dataUrl = e.target?.result as string;
+      setPreview(dataUrl);
+      setPhase("scanning");
+      try {
+        const base64 = dataUrl.split(",")[1];
+        const mimeType = file.type;
+        const { getToken } = await import("./api");
+        const token = getToken();
+        const res = await fetch("/api/mt-import/ocr", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ image: base64, mimeType }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Scan failed");
+        const trades: any[] = json.trades || [];
+        setDetected(trades);
+        setSelected(new Set(trades.map((_, i) => i)));
+        setPhase("preview");
+      } catch (err: any) {
+        setErrorMsg(err.message || "Scan failed. Please try again.");
+        setPhase("error");
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+  };
+
+  const toggleRow = (i: number) => setSelected((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
+
+  const doImport = () => {
+    const now = new Date();
+    const trades = detected.filter((_, i) => selected.has(i)).map((t) => {
+      const side = (t.type || "buy").toLowerCase().includes("sell") ? "Sell" : "Buy";
+      const dateStr = t.openTime ? t.openTime.replace(/\./g, "-").split(" ")[0] : now.toISOString().split("T")[0];
+      const entryTime = t.openTime ? t.openTime.split(" ")[1] || "" : "";
+      const exitTime = t.closeTime ? t.closeTime.split(" ")[1] || "" : "";
+      return {
+        id: `mt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        symbol: (t.symbol || "").toUpperCase(),
+        market: detectMarket(t.symbol || ""),
+        side,
+        date: dateStr,
+        entryTime,
+        exitTime: t.closeTime ? exitTime : "",
+        entryPrice: t.openPrice ?? "",
+        exitPrice: t.closePrice ?? "",
+        lots: t.lots ?? "",
+        sl: t.sl ?? "",
+        tp: t.tp ?? "",
+        pnl: t.profit ?? "",
+        commission: t.commission ?? "",
+        swap: t.swap ?? "",
+        ticket: t.ticket ?? "",
+        notes: t.comment ? `MT import: ${t.comment}` : "Imported from MetaTrader",
+        tags: ["mt-import"],
+        source: "mt-import",
+      };
+    });
+    onImport(trades);
+  };
+
+  const detectMarket = (symbol: string) => {
+    const s = symbol.toUpperCase();
+    if (["XAUUSD","XAGUSD","GOLD","SILVER","USOIL","NATGAS"].some((x) => s.includes(x))) return "Commodities";
+    if (["BTC","ETH","SOL","BNB","XRP","DOGE","ADA"].some((x) => s.startsWith(x) || s.endsWith(x))) return "Crypto";
+    if (["US30","NAS100","SP500","UK100","GER40","DAX","NDX","DJI"].some((x) => s.includes(x))) return "Indices";
+    return "Forex";
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-slate-800 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-blue-500/15 flex items-center justify-center">
+              <Camera size={16} className="text-blue-400" />
+            </div>
+            <div>
+              <div className="font-bold text-slate-100">MT4 / MT5 Screenshot Import</div>
+              <div className="text-[11px] text-slate-500">AI reads your MetaTrader screen and imports trades automatically</div>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+
+          {/* Upload phase */}
+          {(phase === "upload" || phase === "error") && (
+            <>
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => fileRef.current?.click()}
+                className={cx(
+                  "border-2 border-dashed rounded-2xl p-10 flex flex-col items-center justify-center gap-3 cursor-pointer transition",
+                  dragOver ? "border-blue-500 bg-blue-500/10" : "border-slate-700 hover:border-slate-500 hover:bg-slate-800/50"
+                )}>
+                <div className="w-14 h-14 rounded-2xl bg-blue-500/15 flex items-center justify-center">
+                  <ScanLine size={28} className="text-blue-400" />
+                </div>
+                <div className="text-center">
+                  <p className="text-slate-100 font-semibold">Drop your MetaTrader screenshot here</p>
+                  <p className="text-slate-500 text-sm mt-1">or click to browse · PNG, JPG, WebP supported</p>
+                </div>
+                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); }} />
+              </div>
+
+              {phase === "error" && (
+                <div className="flex items-center gap-2 bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 text-rose-400 text-sm">
+                  <AlertCircle size={15} />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
+              {/* Tips */}
+              <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 space-y-2">
+                <p className="text-xs font-semibold text-slate-400 flex items-center gap-1.5"><CheckCircle2 size={12} className="text-emerald-400" /> Tips for best results</p>
+                <ul className="text-[11px] text-slate-500 space-y-1 ml-4 list-disc">
+                  <li>Screenshot the <strong className="text-slate-400">History tab</strong> for closed trades, or <strong className="text-slate-400">Trade tab</strong> for open positions</li>
+                  <li>Make sure the text is <strong className="text-slate-400">readable</strong> — zoom in before screenshotting</li>
+                  <li>Works with <strong className="text-slate-400">MT4 and MT5</strong>, any broker, any language</li>
+                  <li>You can also photograph your screen with your phone</li>
+                </ul>
+              </div>
+            </>
+          )}
+
+          {/* Scanning phase */}
+          {phase === "scanning" && (
+            <div className="flex flex-col items-center justify-center gap-5 py-10">
+              {preview && <img src={preview} alt="Uploaded" className="max-h-48 rounded-xl border border-slate-700 object-contain" />}
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-12 h-12 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+                <div className="text-center">
+                  <p className="text-slate-100 font-semibold">AI is reading your screenshot…</p>
+                  <p className="text-slate-500 text-sm">This takes 5–15 seconds</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Preview phase */}
+          {phase === "preview" && (
+            <>
+              <div className="flex items-center justify-between">
+                {preview && <img src={preview} alt="Source" className="h-16 rounded-lg border border-slate-700 object-contain" />}
+                <div className="text-right">
+                  <p className="text-slate-100 font-semibold">{detected.length} trade{detected.length !== 1 ? "s" : ""} detected</p>
+                  <p className="text-[11px] text-slate-500">{selected.size} selected for import</p>
+                </div>
+              </div>
+
+              {detected.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-8 text-center">
+                  <AlertCircle size={28} className="text-amber-400" />
+                  <p className="text-slate-300 font-medium">No trades could be detected</p>
+                  <p className="text-slate-500 text-sm">Try a clearer screenshot with the trade list fully visible</p>
+                  <button onClick={() => { setPhase("upload"); setPreview(null); }} className="mt-2 px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-sm hover:bg-slate-700 transition">
+                    Try another image
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Select all row */}
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <button onClick={() => setSelected(selected.size === detected.length ? new Set() : new Set(detected.map((_, i) => i)))}
+                      className="text-blue-400 hover:text-blue-300 font-medium transition">
+                      {selected.size === detected.length ? "Deselect all" : "Select all"}
+                    </button>
+                    <span className="text-slate-700">·</span>
+                    <button onClick={() => { setPhase("upload"); setPreview(null); setDetected([]); }} className="text-slate-500 hover:text-slate-300 transition">
+                      Retry with new image
+                    </button>
+                  </div>
+
+                  {/* Trade table */}
+                  <div className="rounded-xl border border-slate-800 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-800/80 text-slate-400">
+                          <th className="p-2 text-left w-8"></th>
+                          <th className="p-2 text-left">Symbol</th>
+                          <th className="p-2 text-left">Side</th>
+                          <th className="p-2 text-right">Lots</th>
+                          <th className="p-2 text-right">Entry</th>
+                          <th className="p-2 text-right">Exit</th>
+                          <th className="p-2 text-right">P/L</th>
+                          <th className="p-2 text-left">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detected.map((t, i) => {
+                          const isSell = (t.type || "").toLowerCase().includes("sell");
+                          const pnl = t.profit ?? null;
+                          const isWin = pnl !== null && pnl >= 0;
+                          return (
+                            <tr key={i} onClick={() => toggleRow(i)}
+                              className={cx("border-t border-slate-800 cursor-pointer transition",
+                                selected.has(i) ? "bg-blue-500/5 hover:bg-blue-500/10" : "opacity-50 hover:opacity-70")}>
+                              <td className="p-2">
+                                <div className={cx("w-4 h-4 rounded border flex items-center justify-center transition",
+                                  selected.has(i) ? "bg-blue-500 border-blue-500" : "border-slate-600 bg-slate-800")}>
+                                  {selected.has(i) && <Check size={10} className="text-white" />}
+                                </div>
+                              </td>
+                              <td className="p-2 font-bold text-slate-100">{t.symbol || "—"}</td>
+                              <td className="p-2">
+                                <span className={cx("px-1.5 py-0.5 rounded font-bold text-[10px]",
+                                  isSell ? "bg-rose-500/20 text-rose-400" : "bg-emerald-500/20 text-emerald-400")}>
+                                  {isSell ? "▼ SELL" : "▲ BUY"}
+                                </span>
+                              </td>
+                              <td className="p-2 text-right text-slate-300">{t.lots ?? "—"}</td>
+                              <td className="p-2 text-right text-slate-300">{t.openPrice ?? "—"}</td>
+                              <td className="p-2 text-right text-slate-400">{t.closePrice ?? <span className="text-amber-400/70 text-[10px]">Open</span>}</td>
+                              <td className={cx("p-2 text-right font-semibold", pnl === null ? "text-slate-500" : isWin ? "text-emerald-400" : "text-rose-400")}>
+                                {pnl === null ? "—" : `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}`}
+                              </td>
+                              <td className="p-2 text-slate-500">{t.openTime?.split(" ")[0] || "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        {phase === "preview" && detected.length > 0 && (
+          <div className="p-4 border-t border-slate-800 flex items-center justify-between gap-3 shrink-0">
+            <button onClick={onClose} className="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-sm hover:bg-slate-700 transition">
+              Cancel
+            </button>
+            <button onClick={doImport} disabled={selected.size === 0}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-bold text-sm hover:bg-amber-400 transition disabled:opacity-40 disabled:pointer-events-none">
+              <CheckCircle2 size={15} />
+              Import {selected.size} trade{selected.size !== 1 ? "s" : ""} to Journal
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {} }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -7465,6 +7740,7 @@ function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {}
   const [marketFilter, setMarketFilter] = useState("All");
   const [resultFilter, setResultFilter] = useState("All");
   const [csvImportOpen, setCsvImportOpen] = useState(false);
+  const [mtImportOpen, setMtImportOpen] = useState(false);
   const [reviewTrade, setReviewTrade] = useState(null);
   const [replayTrade, setReplayTrade] = useState(null);
 
@@ -7517,6 +7793,18 @@ function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {}
     setReviewTrade(null);
   };
 
+  if (mtImportOpen) {
+    return (
+      <MTImportModal
+        onClose={() => setMtImportOpen(false)}
+        onImport={(imported) => {
+          setData((d: any) => ({ ...d, trades: [...(d.trades || []), ...imported] }));
+          setMtImportOpen(false);
+        }}
+      />
+    );
+  }
+
   if (reviewTrade) {
     return <TradeReviewPanel trade={reviewTrade} onClose={() => setReviewTrade(null)} onSave={saveReview} />;
   }
@@ -7539,6 +7827,9 @@ function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {}
       <SectionTitle sub={`${trades.length} trade${trades.length === 1 ? "" : "s"}`}
         action={
           <div className="flex items-center gap-2">
+            <button onClick={() => setMtImportOpen(true)} className="flex items-center gap-1.5 bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 text-blue-400 text-xs px-3 py-2 rounded-xl transition">
+              <Camera size={13} /> MT4/MT5
+            </button>
             <button onClick={() => setCsvImportOpen(true)} className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs px-3 py-2 rounded-xl">
               <Upload size={13} /> Import CSV
             </button>

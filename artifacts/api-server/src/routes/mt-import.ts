@@ -1,0 +1,101 @@
+import { Router, type IRouter } from "express";
+import OpenAI from "openai";
+import { logger } from "../lib/logger";
+
+const router: IRouter = Router();
+
+const SYSTEM_PROMPT = `You are a MetaTrader 4/5 trade data extractor. The user will upload a screenshot of their MetaTrader terminal — this may be the "Trade" tab (open positions), the "History" tab (closed trades), or the "Account History" report.
+
+Extract ALL visible trades/positions from the screenshot and return them as a JSON array.
+
+For each trade return an object with these fields (use null for any field you cannot determine):
+{
+  "symbol": string,          // e.g. "EURUSD", "XAUUSD", "GBPUSD"
+  "type": string,            // "buy" or "sell"
+  "lots": number,            // lot size e.g. 0.10
+  "openPrice": number,       // entry/open price
+  "closePrice": number|null, // exit/close price (null if still open)
+  "openTime": string|null,   // ISO-style or MT4 format e.g. "2024.01.15 09:30"
+  "closeTime": string|null,  // close time or null if open
+  "profit": number|null,     // P&L in account currency (negative for loss)
+  "sl": number|null,         // stop loss price
+  "tp": number|null,         // take profit price
+  "commission": number|null, // commission charged
+  "swap": number|null,       // swap/overnight fee
+  "ticket": string|null,     // order ticket/ID number
+  "comment": string|null     // any comment shown
+}
+
+Rules:
+- Return ONLY valid JSON array, no explanation, no markdown code fences
+- If the image shows no trades, return []
+- For "buy limit", "buy stop" etc treat type as "buy"
+- For "sell limit", "sell stop" etc treat type as "sell"
+- Extract every row you can see, even partial ones`;
+
+router.post("/mt-import/ocr", async (req, res): Promise<void> => {
+  const { image, mimeType } = req.body as { image?: string; mimeType?: string };
+
+  if (!image || typeof image !== "string") {
+    res.status(400).json({ error: "Missing image (base64 string)" });
+    return;
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    res.status(500).json({ error: "OpenAI API key not configured on server" });
+    return;
+  }
+
+  const openai = new OpenAI({ apiKey });
+
+  const imageType = (mimeType || "image/png") as "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+
+  try {
+    req.log.info("MT import OCR request received");
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      max_tokens: 4096,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${imageType};base64,${image}`,
+                detail: "high",
+              },
+            },
+            {
+              type: "text",
+              text: "Extract all trades visible in this MetaTrader screenshot and return as a JSON array.",
+            },
+          ],
+        },
+      ],
+    });
+
+    const raw = response.choices[0]?.message?.content ?? "[]";
+
+    let trades: unknown[];
+    try {
+      const cleaned = raw.replace(/```json|```/g, "").trim();
+      trades = JSON.parse(cleaned);
+      if (!Array.isArray(trades)) trades = [];
+    } catch {
+      req.log.warn({ raw }, "Failed to parse OCR JSON response");
+      trades = [];
+    }
+
+    req.log.info({ count: trades.length }, "MT import OCR complete");
+    res.json({ trades });
+  } catch (err: any) {
+    logger.error({ err: err.message }, "MT import OCR error");
+    res.status(500).json({ error: err.message || "OCR failed" });
+  }
+});
+
+export default router;

@@ -4,6 +4,7 @@ import authRouter from "./auth";
 import stateRouter from "./state";
 import calendarRouter from "./calendar";
 import marketRouter from "./market";
+import mtImportRouter from "./mt-import";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(authRouter);
 router.use(stateRouter);
 router.use(calendarRouter);
 router.use(marketRouter);
+router.use(mtImportRouter);
 
 export default router;
