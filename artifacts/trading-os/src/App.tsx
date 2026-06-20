@@ -126,6 +126,12 @@ function syncChallengeBalances(d: any) {
   return (d.propChallenges || []).map((c: any) => {
     if (c.status !== "active") return c;
 
+    // Only count trades belonging to the linked trading account (if one is set)
+    const allTrades: any[] = d.trades || [];
+    const relevantTrades = c.accountId
+      ? allTrades.filter((t: any) => t.accountId === c.accountId)
+      : allTrades;
+
     const prevLogs = [...(c.dailyLog || [])]
       .filter((e: any) => e.date < today)
       .sort((a: any, b: any) => a.date.localeCompare(b.date));
@@ -133,7 +139,7 @@ function syncChallengeBalances(d: any) {
       ? parseFloat(prevLogs[prevLogs.length - 1].balance) || parseFloat(c.accountSize) || 0
       : parseFloat(c.accountSize) || 0;
 
-    const todayTrades = (d.trades || []).filter((t: any) => t.date === today);
+    const todayTrades = relevantTrades.filter((t: any) => t.date === today);
     const hasTodayTrades = todayTrades.length > 0;
     const todayPnl = todayTrades.reduce((sum: number, t: any) => sum + (computeTrade(t).pnl || 0), 0);
 
@@ -2505,14 +2511,54 @@ function TradingAccountsManager({ data, setData }: any) {
   const save = () => {
     if (!form.accountNumber.trim()) return;
     if (editId) {
-      setData((d: any) => ({ ...d, tradingAccounts: (d.tradingAccounts || []).map((a: any) => a.id === editId ? { ...form, id: editId } : a) }));
+      setData((d: any) => {
+        const updatedAccounts = (d.tradingAccounts || []).map((a: any) => a.id === editId ? { ...form, id: editId } : a);
+        // If account size (balance) changed, keep linked challenge's accountSize in sync
+        const updatedChallenges = (d.propChallenges || []).map((c: any) => {
+          if (c.accountId !== editId) return c;
+          const newBal = form.balance ? String(parseFloat(form.balance)) : c.accountSize;
+          return { ...c, accountSize: newBal, currency: form.currency || c.currency };
+        });
+        return { ...d, tradingAccounts: updatedAccounts, propChallenges: updatedChallenges };
+      });
     } else {
       const newId = uid();
-      setData((d: any) => ({
-        ...d,
-        tradingAccounts: [...(d.tradingAccounts || []), { ...form, id: newId }],
-        activeAccountId: d.activeAccountId || newId, // auto-select first account added
-      }));
+      setData((d: any) => {
+        const newAccount = { ...form, id: newId };
+        const updatedAccounts = [...(d.tradingAccounts || []), newAccount];
+        const updatedChallenges = [...(d.propChallenges || [])];
+        // Auto-create a linked prop challenge for Prop / Challenge account types
+        if (form.accountType === "Prop" || form.accountType === "Challenge") {
+          const challengeId = uid();
+          const autoChallenge = {
+            id: challengeId,
+            name: `${form.alias || form.accountNumber} Challenge`,
+            firm: "Custom",
+            phase: form.accountType === "Prop" ? "Funded" : "Evaluation",
+            accountSize: form.balance ? String(parseFloat(form.balance) || 100000) : "100000",
+            currency: form.currency || "USD",
+            accountId: newId,
+            profitTargetPct: "10",
+            maxDailyLossPct: "5",
+            maxTotalDrawdownPct: "10",
+            drawdownType: "initial",
+            minTradingDays: "0",
+            maxCalendarDays: "0",
+            startDate: todayISO(),
+            status: "active",
+            notes: `Auto-created for ${form.accountType} account ${form.alias || form.accountNumber}`,
+            customRules: [],
+            dailyLog: [],
+          };
+          updatedChallenges.push(autoChallenge);
+        }
+        return {
+          ...d,
+          tradingAccounts: updatedAccounts,
+          propChallenges: updatedChallenges,
+          activeAccountId: d.activeAccountId || newId,
+        };
+      });
     }
     setForm(emptyTA()); setEditId(null); setOpen(false);
   };
@@ -2653,6 +2699,26 @@ function TradingAccountsManager({ data, setData }: any) {
                       {!isNaN(bal) && bal > 0 && (
                         <span className="text-[10px] font-semibold text-slate-300">{a.currency} {bal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       )}
+                      {/* Linked challenge status badge */}
+                      {(a.accountType === "Prop" || a.accountType === "Challenge") && (() => {
+                        const linked = (data.propChallenges || []).find((c: any) => c.accountId === a.id);
+                        if (!linked) return (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-slate-800/80 border border-slate-700 text-slate-500">No challenge linked</span>
+                        );
+                        const m = computePropChallenge(linked);
+                        const cfg = m.hasFailed
+                          ? { cls: "bg-rose-500/15 border-rose-500/30 text-rose-400", icon: "⛔" }
+                          : m.hasPassed
+                          ? { cls: "bg-emerald-500/15 border-emerald-500/30 text-emerald-400", icon: "🏆" }
+                          : m.hasWarning
+                          ? { cls: "bg-amber-500/15 border-amber-500/30 text-amber-400", icon: "⚠" }
+                          : { cls: "bg-sky-500/15 border-sky-500/30 text-sky-400", icon: "✅" };
+                        return (
+                          <span className={cx("text-[9px] px-1.5 py-0.5 rounded-md border font-semibold", cfg.cls)}>
+                            {cfg.icon} {m.hasFailed ? "Breached" : m.hasPassed ? "Passed" : m.hasWarning ? "Warning" : `${m.totalPnlPct >= 0 ? "+" : ""}${m.totalPnlPct.toFixed(1)}%`}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -9771,22 +9837,75 @@ function PropChallengeForm({ initial, onSave, onBack, tradingAccounts = [] }: an
         <Field label="Start Date"><TextInput type="date" value={form.startDate} onChange={set("startDate")} /></Field>
       </div>
 
-      {/* Trading account link */}
-      {(tradingAccounts as any[]).length > 0 && (
-        <div>
-          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Broker Account</div>
-          <select value={form.accountId || ""} onChange={(e) => set("accountId")(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-amber-500/50">
-            <option value="">— No account selected —</option>
-            {(tradingAccounts as any[]).map((a: any) => (
-              <option key={a.id} value={a.id}>
-                {a.accountNumber}{a.alias ? ` · ${a.alias}` : ""} ({a.platform} · {a.accountType})
-              </option>
-            ))}
-          </select>
-          <p className="text-[10px] text-slate-600 mt-1">Link this challenge to a specific broker account number</p>
-        </div>
-      )}
+      {/* Trading account link — visual card picker */}
+      {(tradingAccounts as any[]).length > 0 && (() => {
+        const propAccounts = (tradingAccounts as any[]).filter((a: any) => a.accountType === "Prop" || a.accountType === "Challenge");
+        const otherAccounts = (tradingAccounts as any[]).filter((a: any) => a.accountType !== "Prop" && a.accountType !== "Challenge");
+        const orderedAccounts = [...propAccounts, ...otherAccounts];
+        const typeColors: Record<string, { bg: string; border: string; text: string; dot: string }> = {
+          Live:      { bg: "bg-emerald-500/8",  border: "border-emerald-500/25", text: "text-emerald-400", dot: "bg-emerald-400" },
+          Demo:      { bg: "bg-amber-500/8",    border: "border-amber-500/25",   text: "text-amber-400",   dot: "bg-amber-400" },
+          Prop:      { bg: "bg-sky-500/8",      border: "border-sky-500/25",     text: "text-sky-400",     dot: "bg-sky-400" },
+          Challenge: { bg: "bg-purple-500/8",   border: "border-purple-500/25",  text: "text-purple-400",  dot: "bg-purple-400" },
+        };
+        return (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Link to Trading Account</div>
+              {form.accountId && (
+                <button onClick={() => setForm((f: any) => ({ ...f, accountId: "" }))}
+                  className="text-[10px] text-slate-500 hover:text-slate-300">Clear</button>
+              )}
+            </div>
+            {propAccounts.length > 0 && (
+              <p className="text-[10px] text-sky-400/70 mb-2">⭐ Prop/Challenge accounts shown first — trades logged to this account update the challenge automatically</p>
+            )}
+            <div className="space-y-2">
+              {orderedAccounts.map((a: any) => {
+                const cfg = typeColors[a.accountType] || { bg: "bg-slate-900", border: "border-slate-800", text: "text-slate-400", dot: "bg-slate-400" };
+                const isSelected = form.accountId === a.id;
+                const bal = parseFloat(a.balance);
+                return (
+                  <button key={a.id} type="button"
+                    onClick={() => setForm((f: any) => ({
+                      ...f,
+                      accountId: a.id,
+                      // Auto-fill account size and currency from the trading account
+                      accountSize: (a.balance && !isNaN(parseFloat(a.balance))) ? String(parseFloat(a.balance)) : f.accountSize,
+                      currency: a.currency || f.currency,
+                    }))}
+                    className={cx("w-full flex items-center gap-3 rounded-xl px-3 py-2.5 border text-left transition",
+                      isSelected
+                        ? cx("border-amber-500/60 bg-amber-500/10")
+                        : cx(cfg.bg, cfg.border, "hover:border-slate-600"))}>
+                    {/* Radio */}
+                    <div className={cx("w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0",
+                      isSelected ? "border-amber-400 bg-amber-400/20" : "border-slate-600")}>
+                      {isSelected && <div className="w-2 h-2 rounded-full bg-amber-400" />}
+                    </div>
+                    {/* Type dot */}
+                    <div className={cx("w-2 h-2 rounded-full shrink-0", cfg.dot)} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-bold text-slate-200 font-mono">{a.accountNumber}</span>
+                        {a.alias && <span className="text-[10px] text-slate-400">{a.alias}</span>}
+                        <span className={cx("text-[9px] px-1 py-0.5 rounded font-semibold", cfg.text)}>{a.accountType}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        {a.platform}{!isNaN(bal) && bal > 0 ? ` · ${a.currency} ${bal.toLocaleString()}` : ""}
+                      </div>
+                    </div>
+                    {isSelected && <Check size={14} className="text-amber-400 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+            {!form.accountId && (
+              <p className="text-[10px] text-slate-600 mt-1.5">Selecting an account auto-fills the account size and currency, and filters P&amp;L tracking to that account's trades only</p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Targets */}
       <div>
