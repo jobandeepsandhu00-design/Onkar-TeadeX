@@ -121,6 +121,41 @@ function computeTrade(t) {
   return { pnl, rMultiple, plannedRR, result, pctMove, fees, netPnl, holdMinutes };
 }
 
+function syncChallengeBalances(d: any) {
+  const today = todayISO();
+  return (d.propChallenges || []).map((c: any) => {
+    if (c.status !== "active") return c;
+
+    const prevLogs = [...(c.dailyLog || [])]
+      .filter((e: any) => e.date < today)
+      .sort((a: any, b: any) => a.date.localeCompare(b.date));
+    const baseBalance = prevLogs.length > 0
+      ? parseFloat(prevLogs[prevLogs.length - 1].balance) || parseFloat(c.accountSize) || 0
+      : parseFloat(c.accountSize) || 0;
+
+    const todayTrades = (d.trades || []).filter((t: any) => t.date === today);
+    const hasTodayTrades = todayTrades.length > 0;
+    const todayPnl = todayTrades.reduce((sum: number, t: any) => sum + (computeTrade(t).pnl || 0), 0);
+
+    const todayEntry = (c.dailyLog || []).find((e: any) => e.date === today);
+
+    if (!hasTodayTrades) {
+      if (todayEntry && todayEntry.auto) {
+        return { ...c, dailyLog: (c.dailyLog || []).filter((e: any) => e.date !== today) };
+      }
+      return c;
+    }
+
+    if (todayEntry && !todayEntry.auto) return c;
+
+    const newBalance = parseFloat((baseBalance + todayPnl).toFixed(2));
+    const existingLog = (c.dailyLog || []).filter((e: any) => e.date !== today);
+    const newLog = [...existingLog, { date: today, balance: String(newBalance), note: "", auto: true }]
+      .sort((a: any, b: any) => a.date.localeCompare(b.date));
+    return { ...c, dailyLog: newLog };
+  });
+}
+
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -4481,14 +4516,19 @@ function JournalTab({ data, setData }) {
     setData((d) => {
       const exists = d.trades.some((t) => t.id === trade.id);
       const trades = exists ? d.trades.map((t) => (t.id === trade.id ? trade : t)) : [...d.trades, trade];
-      return { ...d, trades };
+      const nd = { ...d, trades };
+      return { ...nd, propChallenges: syncChallengeBalances(nd) };
     });
     setFormOpen(false);
     setEditing(null);
   };
 
   const remove = (id) => {
-    setData((d) => ({ ...d, trades: d.trades.filter((t) => t.id !== id) }));
+    setData((d) => {
+      const trades = d.trades.filter((t) => t.id !== id);
+      const nd = { ...d, trades };
+      return { ...nd, propChallenges: syncChallengeBalances(nd) };
+    });
     setConfirmId(null);
   };
 
@@ -6092,8 +6132,8 @@ function PropChallengeDetail({ challenge, onBack, onEdit, onUpdateLog, onMarkSta
   const [logDate, setLogDate] = useState(todayISO());
 
   const submitLog = () => {
-    if (!logBalance.trim()) return;
-    const entry = { date: logDate, balance: logBalance, note: logNote };
+    if (!(logBalance || "").trim()) return;
+    const entry = { date: logDate, balance: String(logBalance), note: logNote };
     const existing = (challenge.dailyLog || []).filter((e: any) => e.date !== logDate);
     onUpdateLog([...existing, entry].sort((a: any, b: any) => a.date.localeCompare(b.date)));
     setLogBalance(""); setLogNote(""); setLogDate(todayISO()); setShowLogForm(false);
@@ -6254,19 +6294,19 @@ function PropChallengeDetail({ challenge, onBack, onEdit, onUpdateLog, onMarkSta
         {showLogForm && (
           <div className="mb-3 p-3 bg-slate-800/60 rounded-xl space-y-2 border border-slate-700">
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Date"><TextInput type="date" value={logDate} onChange={setLogDate} /></Field>
-              <Field label={`Balance (${cur})`}><TextInput value={logBalance} onChange={setLogBalance} placeholder="e.g. 102500" /></Field>
+              <Field label="Date"><TextInput type="date" value={logDate} onChange={(e) => setLogDate(e.target.value)} /></Field>
+              <Field label={`Balance (${cur})`}><TextInput value={logBalance} onChange={(e) => setLogBalance(e.target.value)} placeholder="e.g. 102500" /></Field>
             </div>
-            <Field label="Note (optional)"><TextInput value={logNote} onChange={setLogNote} placeholder="e.g. Good London session" /></Field>
+            <Field label="Note (optional)"><TextInput value={logNote} onChange={(e) => setLogNote(e.target.value)} placeholder="e.g. Good London session" /></Field>
             <div className="flex gap-2">
-              <button onClick={submitLog} disabled={!logBalance.trim()} className="flex-1 py-2 bg-amber-500 text-slate-950 rounded-xl text-xs font-bold disabled:opacity-40">Save Entry</button>
+              <button onClick={submitLog} disabled={!(logBalance || "").trim()} className="flex-1 py-2 bg-amber-500 text-slate-950 rounded-xl text-xs font-bold disabled:opacity-40">Save Entry</button>
               <button onClick={() => setShowLogForm(false)} className="px-4 py-2 bg-slate-900 border border-slate-700 text-slate-400 rounded-xl text-xs">Cancel</button>
             </div>
           </div>
         )}
 
         {m.log.length === 0 ? (
-          <p className="text-[11px] text-slate-600">No balance entries yet. Log your daily closing balance to track progress.</p>
+          <p className="text-[11px] text-slate-600">No entries yet. Balance will auto-update when you log trades in the Trade Journal.</p>
         ) : (
           <div className="space-y-1.5 max-h-52 overflow-y-auto">
             {[...m.log].reverse().map((e: any, i: number) => {
@@ -6274,9 +6314,10 @@ function PropChallengeDetail({ challenge, onBack, onEdit, onUpdateLog, onMarkSta
               const diff = prev ? (parseFloat(e.balance) || 0) - (parseFloat(prev.balance) || 0) : null;
               return (
                 <div key={e.date} className="flex items-center justify-between py-1.5 border-b border-slate-800/60 last:border-0">
-                  <div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-[11px] text-slate-400 font-medium">{e.date}</span>
-                    {e.note && <span className="text-[10px] text-slate-600 ml-2">{e.note}</span>}
+                    {e.auto && <span className="text-[9px] bg-sky-500/15 text-sky-400 border border-sky-500/30 rounded px-1 py-0.5 font-medium">Auto</span>}
+                    {e.note && !e.auto && <span className="text-[10px] text-slate-600 ml-1">{e.note}</span>}
                   </div>
                   <div className="flex items-center gap-2">
                     {diff !== null && (
