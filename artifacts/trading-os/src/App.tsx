@@ -5336,6 +5336,18 @@ function LiveMarketTicker() {
     if (!el) return;
     el.innerHTML = "";
 
+    /* Suppress cross-origin errors from the TradingView iframe/script.
+       The browser blocks error details for security, resulting in a blank
+       "unknown runtime error" in Vite's overlay — we swallow those here. */
+    const suppressCrossOriginErrors = (e: ErrorEvent) => {
+      if (!e.message || e.message === "Script error." || e.filename === "") {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        return false;
+      }
+    };
+    window.addEventListener("error", suppressCrossOriginErrors as any, true);
+
     const widgetDiv = document.createElement("div");
     widgetDiv.className = "tradingview-widget-container__widget";
     el.appendChild(widgetDiv);
@@ -5371,7 +5383,10 @@ function LiveMarketTicker() {
     });
     el.appendChild(script);
 
-    return () => { el.innerHTML = ""; };
+    return () => {
+      window.removeEventListener("error", suppressCrossOriginErrors as any, true);
+      el.innerHTML = "";
+    };
   }, []);
 
   return (
