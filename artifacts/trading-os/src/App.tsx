@@ -4999,6 +4999,15 @@ function SetupForm({ onClose, onSave, onBack, initial, mode, goTo }) {
 
   return (
     <FullPageShell crumbs={crumbs} onBack={onBack} onClose={() => goTo("home")} onSave={save} saveLabel={mode === "edit" ? "Save" : "Create"} saveDisabled={!(form.name || "").trim()} goTo={goTo}>
+
+      {/* Chart Screenshots — always visible at top so they're never missed */}
+      <div className="mb-4">
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2 flex items-center gap-1.5">
+          <ImageIcon size={11} /> Chart Screenshots
+        </div>
+        <SetupPhotoGallery photos={form.photos || []} onChange={(photos) => setForm((f) => ({ ...f, photos }))} />
+      </div>
+
       <HeroImageUpload image={form.image} onChange={(img) => setForm((f) => ({ ...f, image: img }))} />
 
       {mode === "fromImage" && (
@@ -5080,10 +5089,6 @@ function SetupForm({ onClose, onSave, onBack, initial, mode, goTo }) {
 
         <Accordion id="notes" open={openSection} onToggle={setOpenSection} title="Personal Notes" icon={FileText}>
           <TextArea value={form.notes} onChange={set("notes")} placeholder="Your own observations, exceptions, reminders..." className="min-h-[100px]" />
-        </Accordion>
-
-        <Accordion id="photos" open={openSection} onToggle={setOpenSection} title={`Chart Screenshots (${(form.photos || []).length})`} icon={ImageIcon}>
-          <SetupPhotoGallery photos={form.photos || []} onChange={(photos) => setForm((f) => ({ ...f, photos }))} />
         </Accordion>
 
         <Accordion id="attachments" open={openSection} onToggle={setOpenSection} title={`Attachments (${form.attachments.length})`} icon={Paperclip}>
@@ -5495,7 +5500,7 @@ function SetupDetailModal({ setup, onClose }: { setup: any; onClose: () => void 
   );
 }
 
-function PlaybookAcademy({ data }: { data: any }) {
+function PlaybookAcademy({ data, goTo }: { data: any; goTo?: (tab: string, sub?: string) => void }) {
   const [selected, setSelected] = useState<any>(null);
   const setups: any[] = data.setups || [];
 
@@ -5504,25 +5509,44 @@ function PlaybookAcademy({ data }: { data: any }) {
       <div className="flex flex-col items-center py-14 gap-3">
         <BookMarked size={32} className="text-slate-700" />
         <p className="text-slate-500 text-sm">No setups yet</p>
-        <p className="text-slate-600 text-xs text-center">Add setups in the Setup Library (Library tab) to see your playbook here.</p>
+        <p className="text-slate-600 text-xs text-center px-6">Create setups in Library → Setup Library to see your playbook here with photos.</p>
       </div>
     );
   }
 
+  const hasNoPhotos = setups.every((s) => !(s.photos || []).length && !s.image);
+
   return (
     <div className="space-y-3">
-      <p className="text-xs text-slate-500">Tap a setup to view full details and chart screenshots.</p>
+      {hasNoPhotos && (
+        <div className="rounded-xl bg-sky-500/8 border border-sky-500/20 px-3 py-2.5 flex items-start gap-2.5">
+          <ImageIcon size={14} className="text-sky-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-xs text-sky-300 font-medium">No chart photos yet</p>
+            <p className="text-[11px] text-sky-400/70 mt-0.5">To add photos: go to <strong>Library → Setup Library</strong>, tap a setup, press <strong>Edit</strong>, and upload screenshots at the top of the form.</p>
+          </div>
+          {goTo && (
+            <button onClick={() => goTo("library", "Setups")}
+              className="shrink-0 text-[11px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1.5 rounded-lg whitespace-nowrap">
+              Go →
+            </button>
+          )}
+        </div>
+      )}
+      <p className="text-xs text-slate-500">Tap a setup to view full details and all chart screenshots.</p>
       <div className="grid grid-cols-2 gap-2.5">
         {setups.map((s) => {
           const thumb = (s.photos || [])[0]?.url || s.image || null;
+          const photoCount = (s.photos || []).length;
           return (
             <button key={s.id} onClick={() => setSelected(s)}
               className="text-left rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden hover:border-amber-500/40 transition group">
               {thumb ? (
                 <img src={thumb} alt={s.name} className="w-full h-24 object-cover bg-slate-950 group-hover:opacity-90 transition" />
               ) : (
-                <div className="w-full h-24 bg-slate-950 flex items-center justify-center">
-                  <ImageIcon size={20} className="text-slate-700" />
+                <div className="w-full h-24 bg-slate-950 flex flex-col items-center justify-center gap-1">
+                  <ImageIcon size={18} className="text-slate-700" />
+                  <span className="text-[10px] text-slate-700">No photo</span>
                 </div>
               )}
               <div className="p-2.5">
@@ -5533,9 +5557,9 @@ function PlaybookAcademy({ data }: { data: any }) {
                     s.marketBias === "Bullish" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                       : s.marketBias === "Bearish" ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
                       : "bg-slate-800 text-slate-500 border-slate-700")}>{s.marketBias}</span>}
-                  {(s.photos || []).length > 0 && (
+                  {photoCount > 0 && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-sky-500/10 text-sky-400 border border-sky-500/20 flex items-center gap-0.5">
-                      <ImageIcon size={9} />{s.photos.length}
+                      <ImageIcon size={9} />{photoCount}
                     </span>
                   )}
                 </div>
@@ -5549,7 +5573,7 @@ function PlaybookAcademy({ data }: { data: any }) {
   );
 }
 
-function AcademyTab({ data, setData, subTab, setSubTab }) {
+function AcademyTab({ data, setData, subTab, setSubTab, goTo }) {
   return (
     <div className="space-y-4">
       <div className="flex gap-1.5 bg-slate-900 border border-slate-800 rounded-xl p-1">
@@ -5569,7 +5593,7 @@ function AcademyTab({ data, setData, subTab, setSubTab }) {
       </SectionTitle>
       {subTab === "Price Action" ? <PriceActionAcademy />
         : subTab === "Smart Money" ? <SmartMoneyAcademy data={data} setData={setData} />
-        : <PlaybookAcademy data={data} />}
+        : <PlaybookAcademy data={data} goTo={goTo} />}
     </div>
   );
 }
@@ -7735,7 +7759,7 @@ export default function App() {
         {activeTab === "home" && <Dashboard data={data} setData={setData} goTo={goTo} />}
         {activeTab === "journal" && <JournalTab data={data} setData={setData} />}
         {activeTab === "library" && <LibraryTab data={data} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} />}
-        {activeTab === "academy" && <AcademyTab data={data} setData={setData} subTab={academySubTab} setSubTab={setAcademySubTab} />}
+        {activeTab === "academy" && <AcademyTab data={data} setData={setData} subTab={academySubTab} setSubTab={setAcademySubTab} goTo={goTo} />}
         {activeTab === "more" && <MoreTab data={data} setData={setData} subTab={moreSubTab} setSubTab={setMoreSubTab} goTo={goTo} />}
       </div>
 
