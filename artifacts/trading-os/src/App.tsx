@@ -1497,6 +1497,18 @@ function getSpec(symbol) {
   return INSTRUMENT_SPECS[upper] || null;
 }
 
+/* ── Quick SL/TP pip helper ── */
+function getPipInfo(symbol: string): { pip: number; dec: number; label: string } {
+  const s = (symbol || "").toUpperCase();
+  if (/JPY/.test(s)) return { pip: 0.01, dec: 3, label: "pips" };
+  if (/XAU|GOLD/.test(s)) return { pip: 0.1, dec: 2, label: "pts" };
+  if (/XAG|SILVER/.test(s)) return { pip: 0.001, dec: 4, label: "pts" };
+  if (/US30|DJI|DOW|US100|NAS(100)?|NDX|US500|SP(X|500)|DAX|FTSE|CAC|NIKKEI/.test(s)) return { pip: 1, dec: 0, label: "pts" };
+  if (/OIL|WTI|BRENT/.test(s)) return { pip: 0.01, dec: 3, label: "pts" };
+  if (/BTC|ETH|SOL|XRP|ADA|LTC/.test(s)) return { pip: 1, dec: 0, label: "pts" };
+  return { pip: 0.0001, dec: 5, label: "pips" };
+}
+
 function calcPositionSize({ symbol, accountBalance, riskPct, entry, sl }) {
   const spec = getSpec(symbol);
   const bal = parseFloat(accountBalance);
@@ -5707,6 +5719,43 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
               </Field>
             </div>
 
+            {/* Quick SL strip — pip presets */}
+            {(() => {
+              const entry = parseFloat(form.entry);
+              if (!entry || isNaN(entry)) return null;
+              const { pip, dec, label } = getPipInfo(form.symbol);
+              const isLong = form.side === "Buy";
+              const SL_PIPS = [5, 10, 15, 20, 30, 50];
+              return (
+                <div className="rounded-xl bg-rose-500/5 border border-rose-500/20 p-3 -mt-1 mb-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShieldAlert size={11} className="text-rose-400" />
+                    <span className="text-[10px] uppercase tracking-wide text-rose-400 font-semibold">Quick SL</span>
+                    <span className={cx("text-[10px] font-medium ml-0.5", isLong ? "text-emerald-400" : "text-rose-400")}>
+                      · {isLong ? "↓ Buy (SL below entry)" : "↑ Sell (SL above entry)"}
+                    </span>
+                    <span className="text-[10px] text-slate-700 ml-auto">1 {label} = {pip}</span>
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {SL_PIPS.map((n) => {
+                      const slPrice = isLong ? entry - n * pip : entry + n * pip;
+                      const slStr = slPrice.toFixed(dec);
+                      const active = form.sl === slStr;
+                      return (
+                        <button key={n} type="button" onClick={() => setForm((f) => ({ ...f, sl: slStr }))}
+                          className={cx("px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition",
+                            active
+                              ? "bg-rose-500/25 border-rose-500/50 text-rose-300"
+                              : "bg-slate-900 border-slate-800 text-slate-400 hover:border-rose-500/40 hover:text-rose-300")}>
+                          {n} {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Row 2: TP + Exit price */}
             <div className="grid grid-cols-2 gap-3">
               <Field label="Take Profit">
@@ -5718,6 +5767,45 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                   enterKeyHint="next" value={form.exit} onChange={set("exit")} onKeyDown={nf("tf-pnl")} />
               </Field>
             </div>
+
+            {/* Quick TP strip — R:R presets */}
+            {(() => {
+              const entry = parseFloat(form.entry);
+              const sl = parseFloat(form.sl);
+              if (!entry || !sl || isNaN(entry) || isNaN(sl) || Math.abs(entry - sl) < 1e-10) return null;
+              const { pip, dec, label } = getPipInfo(form.symbol);
+              const isLong = form.side === "Buy";
+              const slDist = Math.abs(entry - sl);
+              const slPips = (slDist / pip).toFixed(1);
+              const RR_PRESETS = [1, 1.5, 2, 3, 4];
+              return (
+                <div className="rounded-xl bg-emerald-500/5 border border-emerald-500/20 p-3 -mt-1 mb-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Target size={11} className="text-emerald-400" />
+                    <span className="text-[10px] uppercase tracking-wide text-emerald-400 font-semibold">Quick TP</span>
+                    <span className="text-[10px] text-slate-600">· SL = {slPips} {label} from entry</span>
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {RR_PRESETS.map((rr) => {
+                      const tpPrice = isLong ? entry + rr * slDist : entry - rr * slDist;
+                      const tpStr = tpPrice.toFixed(dec);
+                      const active = form.tp === tpStr;
+                      const potGain = rr * slDist;
+                      return (
+                        <button key={rr} type="button" onClick={() => setForm((f) => ({ ...f, tp: tpStr }))}
+                          className={cx("flex flex-col items-center px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition",
+                            active
+                              ? "bg-emerald-500/25 border-emerald-500/50 text-emerald-300"
+                              : "bg-slate-900 border-slate-800 text-slate-400 hover:border-emerald-500/40 hover:text-emerald-300")}>
+                          <span>{rr}:1</span>
+                          <span className="text-[9px] opacity-60 font-normal">{tpStr}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Actual P/L — the most important field */}
             <div className="rounded-2xl bg-emerald-500/5 border border-emerald-500/20 p-4 mb-1">
@@ -5839,6 +5927,33 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                 </div>
               </div>
             </div>
+            {/* Quick Risk % buttons */}
+            <div className="rounded-xl bg-amber-500/5 border border-amber-500/20 p-3 mb-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Zap size={11} className="text-amber-400" />
+                <span className="text-[10px] uppercase tracking-wide text-amber-400 font-semibold">Quick Risk %</span>
+                <span className="text-[10px] text-slate-600">· tap to set</span>
+              </div>
+              <div className="flex gap-1.5 flex-wrap">
+                {[0.25, 0.5, 1, 1.5, 2, 3].map((pct) => {
+                  const bal = parseFloat(String(acc.startingBalance));
+                  const amt = !isNaN(bal) && bal > 0 ? (pct / 100) * bal : null;
+                  const active = form.riskPct === String(pct);
+                  return (
+                    <button key={pct} type="button"
+                      onClick={() => setForm((f) => ({ ...f, riskPct: String(pct) }))}
+                      className={cx("flex flex-col items-center px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition min-w-[44px]",
+                        active
+                          ? "bg-amber-500/25 border-amber-500/50 text-amber-300"
+                          : "bg-slate-900 border-slate-800 text-slate-400 hover:border-amber-500/40 hover:text-amber-300")}>
+                      <span>{pct}%</span>
+                      {amt !== null && <span className="text-[9px] font-normal opacity-60">{cur}{Math.round(amt)}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <Field label="Risk %" hint="% of account risked"><TextInput type="number" step="any" placeholder="1" value={form.riskPct} onChange={set("riskPct")} /></Field>
               <Field label="Position Size" hint="Units or lots"><TextInput type="number" step="any" placeholder="1.0" value={form.positionSize} onChange={set("positionSize")} /></Field>
