@@ -3961,7 +3961,7 @@ function HeroTopBar({ a, cur }: { a: any; cur: string }) {
   );
 }
 
-function Dashboard({ data, setData, goTo }) {
+function Dashboard({ data, setData, goTo, onQuickLog }) {
   const a = useMemo(() => computeAnalytics(data), [data.trades, data.strategies, data.setups]);
   const acc = data.account || { startingBalance: 1000, currency: "€" };
   const cur = acc.currency || "€";
@@ -3982,6 +3982,7 @@ function Dashboard({ data, setData, goTo }) {
   const toneClass = { emerald: "text-emerald-400", rose: "text-rose-400", amber: "text-amber-400", slate: "text-slate-100" };
 
   return (
+    <>
     <div className="space-y-3 pb-4">
 
       {/* ── HEADER ── */}
@@ -4148,6 +4149,17 @@ function Dashboard({ data, setData, goTo }) {
       <DailyRulesReminder />
 
     </div>
+
+    {/* ── Floating Quick-Log button ── */}
+    <button
+      onClick={onQuickLog}
+      className="fixed bottom-20 right-4 z-50 w-14 h-14 rounded-full bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 shadow-lg shadow-amber-900/40 flex items-center justify-center transition-all"
+      style={{ boxShadow: "0 0 20px rgba(245,158,11,0.35)" }}
+      aria-label="Log Trade"
+    >
+      <Plus size={26} strokeWidth={2.5} />
+    </button>
+    </>
   );
 }
 
@@ -4488,8 +4500,10 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
           {form.symbol && <p className="text-[11px] text-slate-500">{form.symbol} · {form.side} · {form.date}</p>}
         </div>
         <div className="text-right">
-          <div className="text-xs font-bold text-amber-400">{fmtBal(parseFloat(acc.startingBalance) + (live.pnl || 0), cur)}</div>
-          <div className="text-[10px] text-slate-600">Balance</div>
+          <div className="text-[10px] text-slate-500 font-medium">Step</div>
+          <div className="text-base font-black text-amber-400 leading-tight">
+            {step + 1}<span className="text-slate-600 font-normal text-xs"> / {STEPS.length}</span>
+          </div>
         </div>
       </div>
 
@@ -5172,9 +5186,13 @@ function TradeReplayModal({ trade, data, onClose, onSave }) {
   );
 }
 
-function JournalTab({ data, setData }) {
+function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {} }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+
+  useEffect(() => {
+    if (autoOpen) { setEditing(null); setFormOpen(true); onAutoOpenDone(); }
+  }, [autoOpen]);
   const [confirmId, setConfirmId] = useState(null);
   const [marketFilter, setMarketFilter] = useState("All");
   const [resultFilter, setResultFilter] = useState("All");
@@ -9188,6 +9206,7 @@ export default function App() {
   const [academySubTab, setAcademySubTab] = useState("Price Action");
   const [moreSubTab, setMoreSubTab] = useState("Plans");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [quickLogOpen, setQuickLogOpen] = useState(false);
   const [riskAlert, setRiskAlert] = useState<RiskAlert | null>(null);
   const dismissedAtRef = useRef<number>(0);  // tracks loss level when user dismissed
   const saveTimer = useRef(null);
@@ -9319,8 +9338,8 @@ export default function App() {
             <Search size={17} />
           </button>
         </div>
-        {activeTab === "home" && <Dashboard data={data} setData={setData} goTo={goTo} />}
-        {activeTab === "journal" && <JournalTab data={data} setData={setData} />}
+        {activeTab === "home" && <Dashboard data={data} setData={setData} goTo={goTo} onQuickLog={() => { setActiveTab("journal"); setQuickLogOpen(true); }} />}
+        {activeTab === "journal" && <JournalTab data={data} setData={setData} autoOpen={quickLogOpen} onAutoOpenDone={() => setQuickLogOpen(false)} />}
         {activeTab === "library" && <LibraryTab data={data} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} />}
         {activeTab === "academy" && <AcademyTab data={data} setData={setData} subTab={academySubTab} setSubTab={setAcademySubTab} goTo={goTo} />}
         {activeTab === "more" && <MoreTab data={data} setData={setData} subTab={moreSubTab} setSubTab={setMoreSubTab} goTo={goTo} />}
