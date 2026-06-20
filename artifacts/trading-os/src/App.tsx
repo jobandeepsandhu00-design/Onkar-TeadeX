@@ -5,7 +5,8 @@ import {
   Upload, Image as ImageIcon, FileText, Crown, AlertTriangle, CheckCircle2, ListChecks,
   BookMarked, Brain, ShieldAlert, Download, RotateCcw, Filter, Paperclip, ChevronUp,
   ChevronLeft, MoreHorizontal, Wallet, ClipboardList, ArrowLeft, Copy, Check, Sparkles,
-  Trophy, Flame, Gauge, DollarSign, Smile, Zap, AlertCircle, CalendarDays, Activity, Calculator
+  Trophy, Flame, Gauge, DollarSign, Smile, Zap, AlertCircle, CalendarDays, Activity, Calculator,
+  Play, Eye, EyeOff, Repeat2
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line
@@ -3988,6 +3989,350 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
 /* ============================================================
    JOURNAL TAB
    ============================================================ */
+/* ============================================================
+   TRADE REPLAY MODE
+   ============================================================ */
+const REPLAY_STEPS = [
+  { id: "setup",      title: "The Setup",        sub: "Reconstruct your context before looking at numbers" },
+  { id: "entry",      title: "Your Entry",        sub: "Price levels and execution details" },
+  { id: "management", title: "Trade Management",  sub: "What happened during the trade" },
+  { id: "outcome",    title: "The Outcome",        sub: "The result — revealed" },
+  { id: "review",     title: "Review & Reflect",   sub: "Grade your execution and log lessons" },
+];
+
+function TradeReplayModal({ trade, data, onClose, onSave }) {
+  const [step, setStep] = useState(0);
+  const [grade, setGrade] = useState(trade.grade || "");
+  const [mistakes, setMistakes] = useState<string[]>(trade.mistakes || []);
+  const [reviewNotes, setReviewNotes] = useState(trade.reviewNotes || "");
+  const [rulesViolated, setRulesViolated] = useState(trade.rulesViolated || false);
+
+  const c = computeTrade(trade);
+  const setup = data.setups.find((s: any) => s.id === trade.setupId);
+  const strategy = data.strategies.find((s: any) => s.id === trade.strategyId);
+
+  const fmtPrice = (v: string) => v ? parseFloat(v).toFixed(5) : "—";
+  const fmt2 = (n: number | null) => n !== null ? n.toFixed(2) : "—";
+
+  const goNext = () => setStep((s) => Math.min(s + 1, REPLAY_STEPS.length - 1));
+  const goPrev = () => setStep((s) => Math.max(s - 1, 0));
+
+  const toggleMistake = (m: string) =>
+    setMistakes((ms) => ms.includes(m) ? ms.filter((x) => x !== m) : [...ms, m]);
+
+  const handleSave = () => {
+    onSave({ ...trade, grade, mistakes, reviewNotes, rulesViolated });
+    onClose();
+  };
+
+  const ResultBanner = () => {
+    if (!c.result) return <div className="text-slate-500 text-sm">Trade not yet closed</div>;
+    const cfg = {
+      Win:       { bg: "bg-emerald-500/10 border-emerald-500/30", text: "text-emerald-400", emoji: "🏆" },
+      Loss:      { bg: "bg-rose-500/10 border-rose-500/30",       text: "text-rose-400",    emoji: "📉" },
+      Breakeven: { bg: "bg-slate-800 border-slate-700",           text: "text-slate-300",   emoji: "⚖️" },
+    }[c.result] || { bg: "bg-slate-800 border-slate-700", text: "text-slate-400", emoji: "—" };
+    return (
+      <div className={cx("rounded-2xl border px-6 py-5 text-center", cfg.bg)}>
+        <div className="text-4xl mb-2">{cfg.emoji}</div>
+        <div className={cx("text-3xl font-black tracking-tight mb-1", cfg.text)}>{c.result.toUpperCase()}</div>
+        {c.rMultiple !== null && (
+          <div className={cx("text-5xl font-black mt-2", cfg.text)}>
+            {c.rMultiple >= 0 ? "+" : ""}{c.rMultiple.toFixed(2)}R
+          </div>
+        )}
+        {c.netPnl !== null && (
+          <div className="text-slate-400 text-sm mt-1">
+            Net P/L: <span className={cfg.text}>{c.netPnl >= 0 ? "+" : ""}{c.netPnl.toFixed(2)}</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-sm flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 pt-safe-top pt-4 pb-3 border-b border-slate-800">
+        <div className="flex items-center gap-2">
+          <Repeat2 size={16} className="text-amber-400" />
+          <span className="text-sm font-semibold text-slate-200" style={{ fontFamily: "'Sora', sans-serif" }}>Trade Replay</span>
+          <span className="text-xs text-slate-600">— {trade.symbol || "Untitled"} · {trade.date}</span>
+        </div>
+        <button onClick={onClose} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200">
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* Step dots */}
+      <div className="flex items-center justify-center gap-2 py-3">
+        {REPLAY_STEPS.map((s, i) => (
+          <button key={s.id} onClick={() => setStep(i)}
+            className={cx("rounded-full transition-all duration-300", i === step ? "w-6 h-2 bg-amber-500" : i < step ? "w-2 h-2 bg-amber-500/40" : "w-2 h-2 bg-slate-700")} />
+        ))}
+      </div>
+
+      {/* Step label */}
+      <div className="px-4 pb-3">
+        <div className="text-xs font-bold text-amber-400 uppercase tracking-wider">{REPLAY_STEPS[step].title}</div>
+        <div className="text-[10px] text-slate-500 mt-0.5">{REPLAY_STEPS[step].sub}</div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
+
+        {/* ── Step 0: Setup ── */}
+        {step === 0 && (
+          <div className="space-y-3">
+            {/* Direction badge */}
+            <div className={cx("rounded-2xl border px-5 py-4 text-center",
+              trade.side === "Buy" ? "bg-emerald-500/10 border-emerald-500/30" : "bg-rose-500/10 border-rose-500/30")}>
+              <div className={cx("text-4xl font-black tracking-tighter", trade.side === "Buy" ? "text-emerald-400" : "text-rose-400")}>
+                {trade.side === "Buy" ? "▲ BUY" : "▼ SELL"}
+              </div>
+              <div className="text-2xl font-bold text-slate-100 mt-1">{trade.symbol || "—"}</div>
+            </div>
+            {/* Details grid */}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: "Date",     value: trade.date || "—" },
+                { label: "Market",   value: trade.market || "—" },
+                { label: "Session",  value: trade.session || "—" },
+                { label: "Type",     value: trade.tradeType || "Normal" },
+              ].map(({ label, value }) => (
+                <div key={label} className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
+                  <div className="text-[9px] text-slate-500 uppercase tracking-wide mb-0.5">{label}</div>
+                  <div className="text-sm font-semibold text-slate-200">{value}</div>
+                </div>
+              ))}
+            </div>
+            {(setup || strategy) && (
+              <div className="space-y-2">
+                {setup && (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
+                    <div className="text-[9px] text-slate-500 uppercase tracking-wide mb-0.5">Setup Used</div>
+                    <div className="text-sm font-semibold text-slate-200">{setup.name}</div>
+                    {setup.trend && <div className="text-[10px] text-slate-500 mt-0.5">Trend: {setup.trend}</div>}
+                  </div>
+                )}
+                {strategy && (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
+                    <div className="text-[9px] text-slate-500 uppercase tracking-wide mb-0.5">Strategy</div>
+                    <div className="text-sm font-semibold text-slate-200">{strategy.name}</div>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2.5">
+              <p className="text-[11px] text-amber-400/70 italic">Before moving to the next step — recall your thesis. Why did you take this trade? What was your bias and what did price need to do to confirm your entry?</p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 1: Entry ── */}
+        {step === 1 && (
+          <div className="space-y-3">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl px-5 py-4 text-center">
+              <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Entry Price</div>
+              <div className="text-4xl font-black text-slate-100 tracking-tight">{fmtPrice(trade.entry)}</div>
+              {trade.entryTime && <div className="text-xs text-slate-500 mt-1">@ {trade.entryTime}</div>}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: "Stop Loss",  value: fmtPrice(trade.sl),          color: "text-rose-400" },
+                { label: "Take Profit", value: fmtPrice(trade.tp),          color: "text-emerald-400" },
+                { label: "Planned R:R", value: c.plannedRR ? `1:${fmt2(c.plannedRR)}` : "—", color: "text-amber-400" },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="bg-slate-900 border border-slate-800 rounded-xl px-2 py-2.5 text-center">
+                  <div className="text-[9px] text-slate-500 uppercase tracking-wide mb-1">{label}</div>
+                  <div className={cx("text-sm font-bold", color)}>{value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: "Risk %",       value: trade.riskPct ? `${trade.riskPct}%` : "—" },
+                { label: "Position Size", value: trade.positionSize ? `${trade.positionSize} lots` : "—" },
+              ].map(({ label, value }) => (
+                <div key={label} className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
+                  <div className="text-[9px] text-slate-500 uppercase tracking-wide mb-0.5">{label}</div>
+                  <div className="text-sm font-semibold text-slate-200">{value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2.5">
+              <p className="text-[11px] text-amber-400/70 italic">Did you enter at your planned level? Was your stop loss in the right place? Was the R:R worth taking?</p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 2: Management ── */}
+        {step === 2 && (
+          <div className="space-y-3">
+            {trade.notes ? (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-3">
+                <div className="text-[9px] text-slate-500 uppercase tracking-wide mb-2">Trade Notes</div>
+                <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{trade.notes}</p>
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-4 text-center">
+                <p className="text-slate-600 text-sm">No notes were logged for this trade.</p>
+              </div>
+            )}
+            {trade.tradeType && trade.tradeType !== "Normal" && (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 flex items-center gap-2">
+                <div className="text-[9px] text-slate-500 uppercase tracking-wide">Trade Type</div>
+                <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/20 text-amber-400 text-[10px] font-semibold">{trade.tradeType}</span>
+              </div>
+            )}
+            {c.holdMinutes !== null && (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
+                <div className="text-[9px] text-slate-500 uppercase tracking-wide mb-0.5">Hold Duration</div>
+                <div className="text-sm font-semibold text-slate-200">
+                  {c.holdMinutes < 60 ? `${Math.round(c.holdMinutes)}m` : `${Math.floor(c.holdMinutes/60)}h ${Math.round(c.holdMinutes%60)}m`}
+                </div>
+              </div>
+            )}
+            <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2.5">
+              <p className="text-[11px] text-amber-400/70 italic">How did you manage this trade? Did you move your stop? Take partial profit? Close early? Before you see the outcome, reflect on your mid-trade decisions.</p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 3: Outcome ── */}
+        {step === 3 && (
+          <div className="space-y-3">
+            <ResultBanner />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
+                <div className="text-[9px] text-slate-500 uppercase tracking-wide mb-0.5">Exit Price</div>
+                <div className="text-sm font-semibold text-slate-200">{fmtPrice(trade.exit)}</div>
+                {trade.exitTime && <div className="text-[10px] text-slate-600">{trade.exitDate || trade.date} @ {trade.exitTime}</div>}
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
+                <div className="text-[9px] text-slate-500 uppercase tracking-wide mb-0.5">Raw P/L</div>
+                <div className={cx("text-sm font-semibold", c.pnl === null ? "text-slate-500" : c.pnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                  {c.pnl !== null ? `${c.pnl >= 0 ? "+" : ""}${c.pnl.toFixed(2)}` : "—"}
+                </div>
+              </div>
+              {c.pctMove !== null && (
+                <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
+                  <div className="text-[9px] text-slate-500 uppercase tracking-wide mb-0.5">Price Move</div>
+                  <div className="text-sm font-semibold text-slate-200">{c.pctMove >= 0 ? "+" : ""}{c.pctMove.toFixed(4)}%</div>
+                </div>
+              )}
+              {c.holdMinutes !== null && (
+                <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
+                  <div className="text-[9px] text-slate-500 uppercase tracking-wide mb-0.5">Held For</div>
+                  <div className="text-sm font-semibold text-slate-200">
+                    {c.holdMinutes < 60 ? `${Math.round(c.holdMinutes)}m` : `${Math.floor(c.holdMinutes/60)}h ${Math.round(c.holdMinutes%60)}m`}
+                  </div>
+                </div>
+              )}
+            </div>
+            {trade.grade && (
+              <div className={cx("rounded-xl border px-3 py-2.5", GRADE_CONFIG[trade.grade]?.bg, GRADE_CONFIG[trade.grade]?.ring)}>
+                <div className="text-[9px] text-slate-500 uppercase tracking-wide mb-0.5">Current Grade</div>
+                <div className={cx("text-sm font-bold", GRADE_CONFIG[trade.grade]?.text)}>
+                  {trade.grade} — {GRADE_CONFIG[trade.grade]?.label}
+                </div>
+              </div>
+            )}
+            <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2.5">
+              <p className="text-[11px] text-amber-400/70 italic">Now that you see the outcome — does it match what you expected? Does a win or loss change how you feel about your execution? The result doesn't define the quality of your process.</p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 4: Review ── */}
+        {step === 4 && (
+          <div className="space-y-4">
+            {/* Grade */}
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Execution Grade</div>
+              <div className="grid grid-cols-4 gap-2">
+                {TRADE_GRADES.map((g) => {
+                  const cfg = GRADE_CONFIG[g];
+                  return (
+                    <button key={g} onClick={() => setGrade(grade === g ? "" : g)}
+                      className={cx("py-3 rounded-xl border text-sm font-bold transition",
+                        grade === g ? `${cfg.bg} ${cfg.ring} ${cfg.text}` : "bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600")}>
+                      {g}
+                    </button>
+                  );
+                })}
+              </div>
+              {grade && <p className="text-[10px] text-slate-500 mt-1.5">{GRADE_CONFIG[grade]?.label}</p>}
+            </div>
+
+            {/* Mistakes */}
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Mistake Tags</div>
+              <div className="flex flex-wrap gap-1.5">
+                {MISTAKE_TAGS.map((m) => (
+                  <button key={m} onClick={() => toggleMistake(m)}
+                    className={cx("px-2.5 py-1 rounded-lg border text-[10px] font-medium transition",
+                      mistakes.includes(m)
+                        ? "bg-rose-500/15 border-rose-500/30 text-rose-400"
+                        : "bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600")}>
+                    {mistakes.includes(m) ? "✗ " : ""}{m}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Review notes */}
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Lessons / Reflection</div>
+              <textarea value={reviewNotes} onChange={(e) => setReviewNotes(e.target.value)} rows={4}
+                placeholder="What did this trade teach you? What would you do differently next time?"
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 outline-none resize-none focus:border-amber-500/50" />
+            </div>
+
+            {/* Rules violated */}
+            <button onClick={() => setRulesViolated((v) => !v)}
+              className={cx("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition",
+                rulesViolated ? "bg-rose-500/10 border-rose-500/30" : "bg-slate-900 border-slate-800")}>
+              <span className="text-sm font-medium text-slate-300">Rules violated on this trade</span>
+              <div className={cx("w-5 h-5 rounded border-2 flex items-center justify-center transition",
+                rulesViolated ? "bg-rose-500 border-rose-500" : "border-slate-600")}>
+                {rulesViolated && <Check size={12} className="text-white" />}
+              </div>
+            </button>
+
+            <button onClick={handleSave}
+              className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm py-3.5 rounded-xl transition">
+              Save Review & Close
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Navigation */}
+      <div className="flex items-center gap-3 px-4 pb-safe-bottom pb-6 pt-3 border-t border-slate-800">
+        <button onClick={goPrev} disabled={step === 0}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 disabled:opacity-30 text-sm font-medium">
+          <ChevronLeft size={15} /> Back
+        </button>
+        <div className="flex-1 text-center text-[10px] text-slate-600">
+          Step {step + 1} of {REPLAY_STEPS.length}
+        </div>
+        {step < REPLAY_STEPS.length - 1 ? (
+          <button onClick={goNext}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-bold text-sm">
+            Next <ChevronRight size={15} />
+          </button>
+        ) : (
+          <button onClick={onClose}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 text-sm font-medium">
+            Close
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function JournalTab({ data, setData }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -3996,6 +4341,7 @@ function JournalTab({ data, setData }) {
   const [resultFilter, setResultFilter] = useState("All");
   const [csvImportOpen, setCsvImportOpen] = useState(false);
   const [reviewTrade, setReviewTrade] = useState(null);
+  const [replayTrade, setReplayTrade] = useState(null);
 
   const trades = useMemo(() => {
     let list = [...data.trades].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
