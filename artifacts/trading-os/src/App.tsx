@@ -5162,8 +5162,10 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-full bg-slate-950 flex flex-col" style={{ fontFamily: "'Inter', sans-serif" }}>
-      <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-800 bg-slate-950/95 backdrop-blur shrink-0">
+    <div className="w-full bg-slate-950" style={{ fontFamily: "'Inter', sans-serif", minHeight: "100dvh" }}>
+      {/* Fixed top header */}
+      <div className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3.5 border-b border-slate-800 bg-slate-950/95 backdrop-blur"
+        style={{ paddingTop: "max(0.875rem, env(safe-area-inset-top))" }}>
         <div className="flex items-center gap-2">
           <Crown size={18} className="text-amber-400" />
           <span className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>SRC Trading OS</span>
@@ -5173,7 +5175,12 @@ export default function App() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 pb-24">
+      {/* Scrollable content — padded to clear fixed header (≈57px) and fixed bottom nav (≈60px + safe area) */}
+      <div className="overflow-y-auto px-4 py-4"
+        style={{
+          paddingTop: "calc(57px + max(0px, env(safe-area-inset-top)))",
+          paddingBottom: "calc(72px + env(safe-area-inset-bottom))",
+        }}>
         {activeTab === "home" && <Dashboard data={data} setData={setData} goTo={goTo} />}
         {activeTab === "journal" && <JournalTab data={data} setData={setData} />}
         {activeTab === "library" && <LibraryTab data={data} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} />}
@@ -5181,12 +5188,16 @@ export default function App() {
         {activeTab === "more" && <MoreTab data={data} setData={setData} subTab={moreSubTab} setSubTab={setMoreSubTab} goTo={goTo} />}
       </div>
 
-      <div className="grid grid-cols-5 border-t border-slate-800 bg-slate-950/95 backdrop-blur shrink-0">
+      {/* Fixed bottom navigation — always visible, respects iPhone home indicator */}
+      <div
+        className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-5 border-t border-slate-800 bg-slate-950/95 backdrop-blur"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.key;
           return (
-            <button key={item.key} onClick={() => setActiveTab(item.key)} className="flex flex-col items-center justify-center gap-1 py-2.5">
+            <button key={item.key} onClick={() => setActiveTab(item.key)}
+              className="flex flex-col items-center justify-center gap-1 py-2.5">
               <Icon size={19} className={isActive ? "text-amber-400" : "text-slate-500"} />
               <span className={cx("text-[10px] font-medium", isActive ? "text-amber-400" : "text-slate-500")}>{item.label}</span>
             </button>
