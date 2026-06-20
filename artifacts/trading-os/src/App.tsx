@@ -4391,6 +4391,19 @@ function JournalTab({ data, setData }) {
     return <TradeReviewPanel trade={reviewTrade} onClose={() => setReviewTrade(null)} onSave={saveReview} />;
   }
 
+  if (replayTrade) {
+    return (
+      <TradeReplayModal
+        trade={replayTrade}
+        data={data}
+        onClose={() => setReplayTrade(null)}
+        onSave={(updated) => {
+          setData((d: any) => ({ ...d, trades: d.trades.map((t: any) => t.id === updated.id ? updated : t) }));
+          setReplayTrade(null);
+        }} />
+    );
+  }
+
   return (
     <div className="space-y-4">
       <SectionTitle sub={`${trades.length} trade${trades.length === 1 ? "" : "s"}`}
@@ -4460,6 +4473,11 @@ function JournalTab({ data, setData }) {
                         {t.grade || "★"}
                       </button>
                     )}
+                    <button onClick={(e) => { e.stopPropagation(); setReplayTrade(t); }}
+                      title="Replay this trade"
+                      className="p-1.5 rounded-lg border bg-slate-900 border-slate-700 text-slate-500 hover:text-amber-400 hover:border-amber-500/40 transition">
+                      <Play size={12} />
+                    </button>
                     <button onClick={(e) => { e.stopPropagation(); setConfirmId(t.id); }} className="p-1 text-slate-600 hover:text-rose-400">
                       <Trash2 size={14} />
                     </button>
