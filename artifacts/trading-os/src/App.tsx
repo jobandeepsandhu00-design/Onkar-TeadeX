@@ -11604,12 +11604,15 @@ function SettingsPanel({ data, setData }) {
   const sections: { id: string; label: string; icon: string }[] = [
     { id: "theme",     label: "Theme & Colors",        icon: "🎨" },
     { id: "dashboard", label: "Dashboard Sections",     icon: "🏠" },
+    { id: "account",   label: "Account & Broker",       icon: "🏦" },
     { id: "journal",   label: "Journal Defaults",       icon: "📝" },
     { id: "risk",      label: "Risk Rules & Alerts",    icon: "⚠️" },
     { id: "display",   label: "Display Preferences",    icon: "🖥️" },
     { id: "behaviour", label: "App Behaviour",          icon: "⚙️" },
     { id: "nav",       label: "Navigation Visibility",  icon: "🧭" },
     { id: "notifs",    label: "Notifications",          icon: "🔔" },
+    { id: "ai",        label: "AI & Features",          icon: "🤖" },
+    { id: "privacy",   label: "Privacy & App",          icon: "🔐" },
   ];
 
   return (
@@ -11965,6 +11968,160 @@ function SettingsPanel({ data, setData }) {
                 ))}
               </div>
             )}
+
+            {/* ── ACCOUNT & BROKER ── */}
+            {open && id === "account" && (
+              <div className="px-4 pb-4 border-t border-slate-800">
+                <SettingRow label="Broker / Firm" sub="Your broker or prop firm name">
+                  <input value={settings.brokerName || ""} onChange={(e) => upd({ brokerName: e.target.value })}
+                    placeholder="e.g. FTMO, IC Markets"
+                    className="w-36 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-slate-500 text-right" />
+                </SettingRow>
+                <SettingRow label="Account Type">
+                  <ChipSelect options={["Live", "Demo", "Prop"]} value={settings.accountType || "Live"} onChange={(v) => upd({ accountType: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Platform">
+                  <ChipSelect options={["MT4", "MT5", "cTrader", "TradingView", "Other"]} value={settings.platform || "MT4"} onChange={(v) => upd({ platform: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Leverage" sub="Your account leverage">
+                  <ChipSelect options={["1:10", "1:20", "1:50", "1:100", "1:200", "1:500"]} value={settings.leverage || "1:100"} onChange={(v) => upd({ leverage: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Timezone" sub="Your local trading timezone">
+                  <ChipSelect options={["UTC", "UTC+1", "UTC+2", "UTC+3", "UTC+5:30", "UTC+8", "UTC+9", "UTC-5", "UTC-8"]} value={settings.timezone || "UTC"} onChange={(v) => upd({ timezone: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Currency Symbol" sub="Shown on balance displays">
+                  <ChipSelect options={["$", "€", "£", "¥", "₹", "₦"]} value={settings.currencySymbol || "€"} onChange={(v) => upd({ currencySymbol: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Trading Style">
+                  <ChipSelect options={["Scalper", "Day Trader", "Swing", "Position"]} value={settings.tradingStyle || "Day Trader"} onChange={(v) => upd({ tradingStyle: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Experience Level">
+                  <ChipSelect options={["Beginner", "Intermediate", "Advanced", "Professional"]} value={settings.experienceLevel || "Intermediate"} onChange={(v) => upd({ experienceLevel: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Favourite Pairs" sub="Comma-separated pair list">
+                  <input value={settings.favouritePairs || ""} onChange={(e) => upd({ favouritePairs: e.target.value })}
+                    placeholder="EURUSD,GBPJPY"
+                    className="w-40 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-slate-500 text-right uppercase" />
+                </SettingRow>
+                <SettingRow label="Profit Target / Month %" sub="Monthly goal for dashboard badge">
+                  <input type="number" min="0" max="100" step="0.5"
+                    value={settings.monthlyTargetPct || ""}
+                    onChange={(e) => upd({ monthlyTargetPct: e.target.value })}
+                    placeholder="e.g. 8"
+                    className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-slate-500 text-right" />
+                </SettingRow>
+              </div>
+            )}
+
+            {/* ── AI & FEATURES ── */}
+            {open && id === "ai" && (
+              <div className="px-4 pb-4 border-t border-slate-800">
+                {(() => {
+                  const ef: Record<string,boolean> = settings.enabledFeatures || {};
+                  const freeF = FEATURES_CATALOG.filter((f) => f.tier === "free");
+                  const paidF = FEATURES_CATALOG.filter((f) => f.tier === "paid");
+                  const enabledFree = freeF.filter((f) => ef[f.id] === true).length;
+                  const enabledPaid = paidF.filter((f) => ef[f.id] === true).length;
+                  const setAll = (features: typeof FEATURES_CATALOG, val: boolean) => {
+                    const patch: Record<string,boolean> = {};
+                    features.forEach((f) => { patch[f.id] = val; });
+                    upd({ enabledFeatures: { ...ef, ...patch } });
+                  };
+                  return (
+                    <>
+                      <div className="grid grid-cols-2 gap-2 pt-3 pb-4">
+                        <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-center">
+                          <div className="text-xl font-bold text-emerald-400">{enabledFree}<span className="text-slate-500 text-sm font-normal">/{freeF.length}</span></div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">🆓 Free Active</div>
+                        </div>
+                        <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-center">
+                          <div className="text-xl font-bold text-amber-400">{enabledPaid}<span className="text-slate-500 text-sm font-normal">/{paidF.length}</span></div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">💳 Paid Active</div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mb-4">
+                        <button onClick={() => setAll(freeF, true)}
+                          className="flex-1 py-2 rounded-xl text-xs font-semibold bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20 transition">
+                          Enable All Free
+                        </button>
+                        <button onClick={() => upd({ enabledFeatures: {} })}
+                          className="flex-1 py-2 rounded-xl text-xs font-semibold bg-slate-800 border border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-500/30 transition">
+                          Disable All
+                        </button>
+                      </div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 mb-1">🆓 Free Features</div>
+                      {freeF.map((f) => {
+                        const on = ef[f.id] === true;
+                        return (
+                          <div key={f.id} className="flex items-center gap-3 py-2.5 border-b border-slate-800/50 last:border-0">
+                            <span className="text-base shrink-0 w-6 text-center">{f.icon}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className={cx("text-sm font-medium leading-tight", on ? "text-slate-200" : "text-slate-500")}>{f.label}</div>
+                              <div className="text-[10px] text-slate-600 truncate">{f.desc}</div>
+                            </div>
+                            <ToggleSwitch on={on} accent="#10b981" onChange={() => updNested("enabledFeatures", f.id, !on)} />
+                          </div>
+                        );
+                      })}
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-1 mt-4">💳 Paid AI Features</div>
+                      <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2 mb-3 text-[11px] text-amber-400/70">
+                        Paid features require AI to be configured by owner. Toggle here to show/hide in the AI Lab.
+                      </div>
+                      {paidF.map((f) => {
+                        const on = ef[f.id] === true;
+                        return (
+                          <div key={f.id} className="flex items-center gap-3 py-2.5 border-b border-slate-800/50 last:border-0">
+                            <span className="text-base shrink-0 w-6 text-center">{f.icon}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className={cx("text-sm font-medium leading-tight", on ? "text-slate-200" : "text-slate-500")}>{f.label}</div>
+                              <div className="text-[10px] text-slate-600 truncate">{f.desc}</div>
+                              {f.cost && <div className="text-[9px] text-amber-500/60">{f.cost}</div>}
+                            </div>
+                            <ToggleSwitch on={on} accent={accent} onChange={() => updNested("enabledFeatures", f.id, !on)} />
+                          </div>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* ── PRIVACY & APP ── */}
+            {open && id === "privacy" && (
+              <div className="px-4 pb-4 border-t border-slate-800">
+                <SettingRow label="Sound Effects" sub="Audio feedback on logs and alerts">
+                  <ToggleSwitch on={settings.soundEnabled !== false} accent={accent} onChange={() => upd({ soundEnabled: settings.soundEnabled === false })} />
+                </SettingRow>
+                <SettingRow label="Vibration / Haptic" sub="Vibrate on alerts (mobile)">
+                  <ToggleSwitch on={settings.hapticEnabled !== false} accent={accent} onChange={() => upd({ hapticEnabled: settings.hapticEnabled === false })} />
+                </SettingRow>
+                <SettingRow label="Show Balance on Home" sub="Display account P&L on dashboard">
+                  <ToggleSwitch on={settings.showPnlOnHome !== false} accent={accent} onChange={() => upd({ showPnlOnHome: settings.showPnlOnHome === false })} />
+                </SettingRow>
+                <SettingRow label="Show % Column in Tables" sub="Add % column alongside currency">
+                  <ToggleSwitch on={!!settings.showPctColumn} accent={accent} onChange={() => upd({ showPctColumn: !settings.showPctColumn })} />
+                </SettingRow>
+                <SettingRow label="UI Animations" sub="Smooth transitions and chart animations">
+                  <ToggleSwitch on={settings.animations !== false} accent={accent} onChange={() => upd({ animations: settings.animations === false })} />
+                </SettingRow>
+                <SettingRow label="Confirm Before Delete" sub="Require confirmation on trade delete">
+                  <ToggleSwitch on={settings.confirmDelete !== false} accent={accent} onChange={() => upd({ confirmDelete: settings.confirmDelete === false })} />
+                </SettingRow>
+                <SettingRow label="Auto-Lock Owner Panel" sub="Lock owner panel when switching tabs">
+                  <ToggleSwitch on={!!settings.autoLockOwner} accent={accent} onChange={() => upd({ autoLockOwner: !settings.autoLockOwner })} />
+                </SettingRow>
+                <SettingRow label="Show Grade on Cards" sub="Display A/B/C grade badge on trade cards">
+                  <ToggleSwitch on={settings.showGradeOnCards !== false} accent={accent} onChange={() => upd({ showGradeOnCards: settings.showGradeOnCards === false })} />
+                </SettingRow>
+                <SettingRow label="Blur Sensitive Numbers" sub="Hide P&L values (screenshot mode)">
+                  <ToggleSwitch on={!!settings.blurNumbers} accent={accent} onChange={() => upd({ blurNumbers: !settings.blurNumbers })} />
+                </SettingRow>
+                <SettingRow label="App Language" sub="UI display language">
+                  <ChipSelect options={["English", "Punjabi", "Hindi"]} value={settings.appLanguage || "English"} onChange={(v) => upd({ appLanguage: v })} accent={accent} />
+                </SettingRow>
+              </div>
+            )}
           </div>
         );
       })}
@@ -12175,14 +12332,15 @@ function OwnerPanel({ data, setData }: any) {
   }
 
   const OWNER_SECTIONS = [
-    { id: "stats",     label: "Stats",     icon: BarChart3  },
-    { id: "trading",   label: "Trading",   icon: Activity   },
-    { id: "risk",      label: "Risk",      icon: ShieldAlert },
+    { id: "stats",     label: "Stats",     icon: BarChart3    },
+    { id: "access",    label: "Access",    icon: Crown        },
+    { id: "trading",   label: "Trading",   icon: Activity     },
+    { id: "risk",      label: "Risk",      icon: ShieldAlert  },
     { id: "emergency", label: "Emergency", icon: AlertTriangle },
-    { id: "backup",    label: "Backup",    icon: Download   },
-    { id: "import",    label: "Import",    icon: Upload     },
-    { id: "data",      label: "Data",      icon: Trash2     },
-    { id: "settings",  label: "Settings",  icon: Shield     },
+    { id: "backup",    label: "Backup",    icon: Download     },
+    { id: "import",    label: "Import",    icon: Upload       },
+    { id: "data",      label: "Data",      icon: Trash2       },
+    { id: "settings",  label: "Settings",  icon: Shield       },
   ];
 
   return (
@@ -12241,6 +12399,151 @@ function OwnerPanel({ data, setData }: any) {
           <p className="text-[11px] text-slate-600 text-center pt-1">Onkar TradeX · Owner Build</p>
         </div>
       )}
+
+      {/* ─────────── ACCESS & PERMISSIONS ─────────── */}
+      {activeSection === "access" && (() => {
+        const s = (data as any).settings || {};
+        const ef: Record<string,boolean> = s.enabledFeatures || {};
+        const setFeaturesMap = (patch: Record<string,boolean>) => {
+          setData((d: any) => ({
+            ...d,
+            settings: { ...(d.settings || {}), enabledFeatures: { ...(d.settings?.enabledFeatures || {}), ...patch } }
+          }));
+        };
+        const freeF = FEATURES_CATALOG.filter((f) => f.tier === "free");
+        const paidF = FEATURES_CATALOG.filter((f) => f.tier === "paid");
+        const enabledPaidCount = paidF.filter((f) => ef[f.id] === true).length;
+        const enabledFreeCount = freeF.filter((f) => ef[f.id] === true).length;
+        const allPaidEnabled = enabledPaidCount === paidF.length;
+
+        return (
+          <div className="space-y-3">
+            {/* Plan tier banner */}
+            <Card>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ background: allPaidEnabled ? accent + "25" : "#1e293b" }}>
+                  <Crown size={22} style={{ color: allPaidEnabled ? accent : "#64748b" }} />
+                </div>
+                <div className="flex-1">
+                  <div className="text-base font-black" style={{ color: allPaidEnabled ? accent : "#94a3b8" }}>
+                    {allPaidEnabled ? "👑 All-Access Mode" : "🆓 Free Mode"}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {enabledFreeCount}/{freeF.length} free · {enabledPaidCount}/{paidF.length} paid features active
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    const patch: Record<string,boolean> = {};
+                    FEATURES_CATALOG.forEach((f) => { patch[f.id] = true; });
+                    setFeaturesMap(patch);
+                    showToast("👑 All 50 features unlocked — Full Access granted");
+                  }}
+                  className="py-3.5 rounded-xl font-black text-sm transition active:scale-95 text-slate-950"
+                  style={{ background: accent }}>
+                  👑 Unlock All 50
+                </button>
+                <button
+                  onClick={() => {
+                    const patch: Record<string,boolean> = {};
+                    paidF.forEach((f) => { patch[f.id] = false; });
+                    setFeaturesMap(patch);
+                    showToast("🔒 Paid features locked — Free tier only");
+                  }}
+                  className="py-3.5 rounded-xl font-semibold text-sm bg-slate-800 border border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-500/30 transition">
+                  Lock to Free
+                </button>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    const patch: Record<string,boolean> = {};
+                    freeF.forEach((f) => { patch[f.id] = true; });
+                    setFeaturesMap(patch);
+                    showToast("✅ All 25 free features enabled");
+                  }}
+                  className="py-2.5 rounded-xl text-xs font-semibold bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20 transition">
+                  Enable All Free (25)
+                </button>
+                <button
+                  onClick={() => {
+                    const patch: Record<string,boolean> = {};
+                    paidF.forEach((f) => { patch[f.id] = true; });
+                    setFeaturesMap(patch);
+                    showToast("✅ All 25 paid AI features unlocked");
+                  }}
+                  className="py-2.5 rounded-xl text-xs font-semibold bg-amber-500/10 border border-amber-500/25 text-amber-400 hover:bg-amber-500/20 transition">
+                  Unlock All Paid (25)
+                </button>
+              </div>
+            </Card>
+
+            {/* FREE features */}
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-sm font-bold text-slate-200">🆓 Free Features</div>
+                  <div className="text-[10px] text-slate-500">{enabledFreeCount} of {freeF.length} active</div>
+                </div>
+                <div className="flex gap-1.5">
+                  <button onClick={() => { const p: Record<string,boolean> = {}; freeF.forEach((f) => { p[f.id] = true; }); setFeaturesMap(p); showToast("✅ All free features on"); }}
+                    className="text-[10px] px-2.5 py-1 rounded-lg font-semibold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition">All On</button>
+                  <button onClick={() => { const p: Record<string,boolean> = {}; freeF.forEach((f) => { p[f.id] = false; }); setFeaturesMap(p); showToast("🔒 All free features off"); }}
+                    className="text-[10px] px-2.5 py-1 rounded-lg font-semibold text-slate-400 bg-slate-800 hover:text-rose-400 transition">All Off</button>
+                </div>
+              </div>
+              {freeF.map((f) => {
+                const on = ef[f.id] === true;
+                return (
+                  <div key={f.id} className="flex items-center gap-3 py-2.5 border-b border-slate-800/50 last:border-0">
+                    <span className="text-base shrink-0 w-6 text-center">{f.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className={cx("text-sm font-medium leading-tight", on ? "text-slate-200" : "text-slate-500")}>{f.label}</div>
+                      <div className="text-[10px] text-slate-600 truncate">{f.desc}</div>
+                    </div>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 bg-emerald-500/15 text-emerald-500">FREE</span>
+                    <ToggleSwitch on={on} accent="#10b981" onChange={() => setFeaturesMap({ ...ef, [f.id]: !on })} />
+                  </div>
+                );
+              })}
+            </Card>
+
+            {/* PAID features */}
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-sm font-bold text-slate-200">💳 Paid AI Features</div>
+                  <div className="text-[10px] text-slate-500">{enabledPaidCount} of {paidF.length} active</div>
+                </div>
+                <div className="flex gap-1.5">
+                  <button onClick={() => { const p: Record<string,boolean> = {}; paidF.forEach((f) => { p[f.id] = true; }); setFeaturesMap(p); showToast("👑 All paid AI features unlocked"); }}
+                    className="text-[10px] px-2.5 py-1 rounded-lg font-semibold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition">All On</button>
+                  <button onClick={() => { const p: Record<string,boolean> = {}; paidF.forEach((f) => { p[f.id] = false; }); setFeaturesMap(p); showToast("🔒 All paid features off"); }}
+                    className="text-[10px] px-2.5 py-1 rounded-lg font-semibold text-slate-400 bg-slate-800 hover:text-rose-400 transition">All Off</button>
+                </div>
+              </div>
+              {paidF.map((f) => {
+                const on = ef[f.id] === true;
+                return (
+                  <div key={f.id} className="flex items-center gap-3 py-2.5 border-b border-slate-800/50 last:border-0">
+                    <span className="text-base shrink-0 w-6 text-center">{f.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className={cx("text-sm font-medium leading-tight", on ? "text-slate-200" : "text-slate-500")}>{f.label}</div>
+                      <div className="text-[10px] text-slate-600 truncate">{f.desc}</div>
+                      {f.cost && <div className="text-[9px] text-amber-500/60">{f.cost}</div>}
+                    </div>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 bg-amber-500/15 text-amber-500">PAID</span>
+                    <ToggleSwitch on={on} accent={accent} onChange={() => setFeaturesMap({ ...ef, [f.id]: !on })} />
+                  </div>
+                );
+              })}
+            </Card>
+          </div>
+        );
+      })()}
 
       {/* ─────────── TRADING CONTROL ─────────── */}
       {activeSection === "trading" && (() => {
