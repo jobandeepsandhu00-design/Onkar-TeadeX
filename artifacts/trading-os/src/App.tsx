@@ -3337,7 +3337,7 @@ function emptyTrade() {
     entry: "", exit: "", sl: "", tp: "", riskPct: "", positionSize: "",
     strategyId: "", setupId: "", notes: "", attachments: [],
     session: "", entryTime: "", exitDate: "", exitTime: "", fees: "", commission: "",
-    tradeType: "Normal", grade: "", mistakes: [], reviewNotes: "",
+    tradeType: "Normal", grade: "", mistakes: [], reviewNotes: "", rulesViolated: false,
   };
 }
 
@@ -3361,12 +3361,13 @@ function TradeReviewPanel({ trade, onClose, onSave }) {
   const [grade, setGrade]   = useState(trade.grade || "");
   const [mistakes, setMistakes] = useState<string[]>(trade.mistakes || []);
   const [reviewNotes, setReviewNotes] = useState(trade.reviewNotes || "");
+  const [rulesViolated, setRulesViolated] = useState<boolean>(!!trade.rulesViolated);
 
   const toggleMistake = (tag: string) =>
     setMistakes((prev) => prev.includes(tag) ? prev.filter((m) => m !== tag) : [...prev, tag]);
 
   const save = () => {
-    onSave({ ...trade, grade, mistakes, reviewNotes });
+    onSave({ ...trade, grade, mistakes, reviewNotes, rulesViolated });
     onClose();
   };
 
@@ -3457,6 +3458,33 @@ function TradeReviewPanel({ trade, onClose, onSave }) {
           )}
         </div>
 
+        {/* Rules violation toggle */}
+        <div>
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Rules Violation</div>
+          <button
+            onClick={() => setRulesViolated((v) => !v)}
+            className={cx(
+              "w-full flex items-center justify-between px-4 py-3.5 rounded-xl border-2 transition font-medium text-sm",
+              rulesViolated
+                ? "bg-rose-500/10 border-rose-500/50 text-rose-400"
+                : "bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-300"
+            )}>
+            <div className="flex items-center gap-2">
+              <span className="text-base">{rulesViolated ? "🚨" : "✅"}</span>
+              <div className="text-left">
+                <div>{rulesViolated ? "Rules violated on this trade" : "No rules violated"}</div>
+                <div className="text-[10px] font-normal opacity-70 mt-0.5">
+                  {rulesViolated ? "This trade will count toward your violation P&L cost" : "Tap to flag if you broke a trading rule"}
+                </div>
+              </div>
+            </div>
+            <div className={cx("w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center",
+              rulesViolated ? "bg-rose-500 border-rose-500" : "border-slate-600")}>
+              {rulesViolated && <span className="text-white text-[10px] font-bold">✓</span>}
+            </div>
+          </button>
+        </div>
+
         {/* Review notes */}
         <div>
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Post-Trade Notes</div>
@@ -3491,18 +3519,58 @@ function MistakeCostPanel({ trades }) {
   });
 
   const rows = Object.entries(costMap)
-    .sort(([, a], [, b]) => a.pnl - b.pnl) // worst first
+    .sort(([, a], [, b]) => a.pnl - b.pnl)
     .slice(0, 8);
 
   const graded = trades.filter((t) => t.grade);
   const gradeDist: Record<string, number> = {};
   graded.forEach((t) => { gradeDist[t.grade] = (gradeDist[t.grade] || 0) + 1; });
 
-  if (!rows.length && !graded.length) return null;
+  // Rules violations summary
+  const violated = trades.filter((t) => t.rulesViolated);
+  const violationPnl = violated.reduce((s, t) => s + (computeTrade(t).pnl || 0), 0);
+  const cleanTrades = trades.filter((t) => !t.rulesViolated && computeTrade(t).pnl !== null);
+  const cleanPnl = cleanTrades.reduce((s, t) => s + (computeTrade(t).pnl || 0), 0);
+
+  if (!rows.length && !graded.length && !violated.length) return null;
 
   return (
     <Card>
       <SectionTitle sub="Based on your post-trade reviews">Trade Review Insights</SectionTitle>
+
+      {/* Rules violations summary */}
+      {violated.length > 0 && (
+        <div className="mb-4 rounded-xl border border-rose-500/25 bg-rose-500/5 px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-rose-400 uppercase tracking-wide">🚨 Rules Violations</span>
+            <span className="text-[10px] text-slate-500">{violated.length} trade{violated.length !== 1 ? "s" : ""} flagged</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2 text-center">
+              <div className={cx("text-sm font-bold", violationPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                {fmtSigned(violationPnl)}
+              </div>
+              <div className="text-[10px] text-slate-600 mt-0.5">P&L on violations</div>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2 text-center">
+              <div className={cx("text-sm font-bold", cleanPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                {fmtSigned(cleanPnl)}
+              </div>
+              <div className="text-[10px] text-slate-600 mt-0.5">P&L — rule-compliant</div>
+            </div>
+          </div>
+          {violationPnl < 0 && (
+            <p className="text-[10px] text-rose-400/80">
+              Breaking your rules has cost you {fmtSigned(violationPnl)} — eliminate these trades and keep only the clean ones.
+            </p>
+          )}
+          {violationPnl >= 0 && (
+            <p className="text-[10px] text-slate-500">
+              Your rule-break trades are in profit, but they add unnecessary risk. Track them over time.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Grade distribution */}
       {graded.length > 0 && (
@@ -4050,6 +4118,14 @@ function JournalTab({ data, setData }) {
                     </button>
                   </div>
                 </div>
+                {/* Rules violation flag */}
+                {t.rulesViolated && (
+                  <div className="mt-2">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-[10px] font-semibold text-rose-400">
+                      🚨 Rules violated
+                    </span>
+                  </div>
+                )}
                 {/* Mistake tags */}
                 {t.mistakes && t.mistakes.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
