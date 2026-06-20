@@ -87,7 +87,19 @@ function computeTrade(t) {
   if (!isNaN(entry) && !isNaN(tp) && riskPerUnit) {
     plannedRR = Math.abs(tp - entry) / riskPerUnit;
   }
-  if (!isNaN(entry) && !isNaN(exit)) {
+
+  // If the user entered a manual P/L (from their broker), always use that
+  const manualPnlNum = t.manualPnl !== undefined && t.manualPnl !== "" ? parseFloat(t.manualPnl) : null;
+  if (manualPnlNum !== null && !isNaN(manualPnlNum)) {
+    pnl = manualPnlNum;
+    if (riskPerUnit && !isNaN(entry) && !isNaN(exit)) {
+      rMultiple = ((exit - entry) * dir) / riskPerUnit;
+      if (entry !== 0) pctMove = ((exit - entry) / Math.abs(entry)) * dir * 100;
+    }
+    if (pnl > 0.0000001) result = "Win";
+    else if (pnl < -0.0000001) result = "Loss";
+    else result = "Breakeven";
+  } else if (!isNaN(entry) && !isNaN(exit)) {
     pnl = (exit - entry) * dir * size;
     if (riskPerUnit) rMultiple = ((exit - entry) * dir) / riskPerUnit;
     if (entry !== 0) pctMove = ((exit - entry) / Math.abs(entry)) * dir * 100;
@@ -3436,6 +3448,7 @@ function emptyTrade() {
     strategyId: "", setupId: "", notes: "", attachments: [],
     session: "", entryTime: "", exitDate: "", exitTime: "", fees: "", commission: "",
     tradeType: "Normal", grade: "", mistakes: [], reviewNotes: "", rulesViolated: false,
+    manualPnl: "",
   };
 }
 
@@ -3851,6 +3864,22 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
               <Field label="Entry Price"><TextInput type="number" step="any" placeholder="0.00000" value={form.entry} onChange={set("entry")} /></Field>
               <Field label="Exit Price" hint="Leave blank if still open"><TextInput type="number" step="any" placeholder="0.00000" value={form.exit} onChange={set("exit")} /></Field>
             </div>
+
+            {/* Actual P/L — the most important field */}
+            <div className="rounded-2xl bg-emerald-500/5 border border-emerald-500/20 p-4 mb-1">
+              <div className="flex items-center gap-2 mb-2">
+                <DollarSign size={13} className="text-emerald-400" />
+                <span className="text-[11px] uppercase tracking-wide text-emerald-400 font-semibold">Actual P/L from Broker</span>
+              </div>
+              <TextInput
+                type="number" step="any"
+                placeholder="e.g. 250.00 or -120.00"
+                value={form.manualPnl}
+                onChange={(e) => setForm((f) => ({ ...f, manualPnl: e.target.value }))}
+              />
+              <p className="text-[10px] text-slate-600 mt-1.5">Enter the exact profit/loss shown on your broker. Negative = loss. This drives all stats and balance.</p>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <Field label="Stop Loss"><TextInput type="number" step="any" placeholder="0.00000" value={form.sl} onChange={set("sl")} /></Field>
               <Field label="Take Profit"><TextInput type="number" step="any" placeholder="0.00000" value={form.tp} onChange={set("tp")} /></Field>
@@ -3917,9 +3946,9 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
             <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 mt-2">
               <div className="text-[11px] uppercase tracking-wide text-slate-500 font-medium mb-3">Live Trade Calculation</div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-slate-800 rounded-xl p-3 text-center">
+                <div className={cx("rounded-xl p-3 text-center", live.pnl !== null && form.manualPnl !== "" ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-slate-800")}>
                   <div className={cx("text-lg font-semibold", live.pnl === null ? "text-slate-500" : live.pnl >= 0 ? "text-emerald-400" : "text-rose-400")}>{live.pnl === null ? "—" : fmtBal(live.pnl, cur)}</div>
-                  <div className="text-[10px] text-slate-500 mt-0.5">P/L</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">{form.manualPnl !== "" ? "P/L (broker)" : "P/L"}</div>
                 </div>
                 <div className="bg-slate-800 rounded-xl p-3 text-center">
                   <div className="text-lg font-semibold text-slate-200">{live.plannedRR === null ? "—" : fmt2(live.plannedRR) + "R"}</div>
