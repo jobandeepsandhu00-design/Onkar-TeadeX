@@ -841,6 +841,34 @@ const DEFAULT_SETTINGS = () => ({
     Backup:     true,
     Report:     true,
   },
+  /* ── Notification toggles ── */
+  notifications: {
+    dailyLossLimit:        true,
+    singleTradeLoss:       true,
+    overtradingWarning:    true,
+    maxOpenTrades:         true,
+    losingStreak:          true,
+    winningStreak:         true,
+    winRateDropping:       true,
+    profitFactorBelow1:    true,
+    propDailyLossApproach: true,
+    propDailyLossHit:      true,
+    propTargetReached:     true,
+    propMaxDrawdown:       true,
+    drawdownWarning:       true,
+    newAllTimeHigh:        true,
+    bigWin:                true,
+    bigLoss:               true,
+    ungradedTrades:        true,
+    weeklyGreen:           true,
+    weeklyRed:             true,
+    monthlyReview:         true,
+    tradesMilestone:       true,
+    psychologyReminder:    true,
+    vaultReminder:         true,
+    dailyGoalHit:          true,
+    bestSetupAlert:        true,
+  },
 });
 
 const DEFAULT_DATA = () => ({
@@ -1679,6 +1707,337 @@ function computeAnalytics(data) {
     computedTrades: computed, closedTrades: closed,
     dayPnl, weekPnl, monthPnl,
   };
+}
+
+/* ============================================================
+   NOTIFICATION ENGINE
+   ============================================================ */
+type OTXNotif = {
+  id: string;
+  key: string;        // matches DEFAULT_SETTINGS().notifications key
+  title: string;
+  body: string;
+  tone: "rose" | "amber" | "emerald" | "sky" | "violet" | "slate";
+  icon: string;       // emoji
+  ts: number;         // Date.now() when generated
+  read: boolean;
+};
+
+function computeNotifications(data: any, enabled: Record<string, boolean>): OTXNotif[] {
+  const notifs: OTXNotif[] = [];
+  const push = (key: string, id: string, title: string, body: string, tone: OTXNotif["tone"], icon: string) => {
+    if (enabled[key] === false) return;
+    notifs.push({ id, key, title, body, tone, icon, ts: Date.now(), read: false });
+  };
+
+  const today = todayISO();
+  const a = computeAnalytics(data);
+  const acc = data.account || { startingBalance: 1000, currency: "€" };
+  const startBal = parseFloat(String(acc.startingBalance)) || 0;
+  const cur = acc.currency || "€";
+  const settings = { ...DEFAULT_SETTINGS(), ...(data.settings || {}) };
+  const trades = data.trades || [];
+  const closed = a.closedTrades || [];
+
+  const todayTrades = closed.filter((t: any) => t.date === today);
+  const todayPnl = todayTrades.reduce((s: number, t: any) => s + (t.c?.pnl || 0), 0);
+  const todayCount = trades.filter((t: any) => t.date === today).length;
+  const openTrades = trades.filter((t: any) => !t.exit).length;
+  const weekStart = (() => { const d = new Date(today + "T12:00:00"); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); })();
+  const weekTrades = closed.filter((t: any) => t.date >= weekStart && t.date <= today);
+  const weekPnl = weekTrades.reduce((s: number, t: any) => s + (t.c?.pnl || 0), 0);
+
+  /* ── RISK ALERTS ── */
+  const maxDailyLossPct = parseFloat(settings.maxDailyLossPct || "") || 0;
+  if (maxDailyLossPct > 0 && startBal > 0) {
+    const limitAmt = (maxDailyLossPct / 100) * startBal;
+    const todayLoss = Math.max(0, -todayPnl);
+    if (todayLoss >= limitAmt) {
+      push("dailyLossLimit", "daily_loss_hit", "🛑 Daily Loss Limit Hit",
+        `You've lost ${cur}${todayLoss.toFixed(2)} today — max allowed: ${cur}${limitAmt.toFixed(2)} (${maxDailyLossPct}%). Stop trading.`, "rose", "🛑");
+    }
+  }
+
+  const singleAlertPct = parseFloat(settings.singleTradeLossAlertPct || "") || 3;
+  if (startBal > 0) {
+    const sortedToday = [...todayTrades].sort((a: any, b: any) => (b.date || "").localeCompare(a.date || ""));
+    const lastLoss = sortedToday.find((t: any) => (t.c?.pnl || 0) < 0);
+    if (lastLoss) {
+      const pct = (Math.abs(lastLoss.c.pnl) / startBal) * 100;
+      if (pct >= singleAlertPct) {
+        push("singleTradeLoss", "single_trade_loss", "⚠ Large Single-Trade Loss",
+          `${lastLoss.symbol || "A trade"} lost ${cur}${Math.abs(lastLoss.c.pnl).toFixed(2)} (${pct.toFixed(1)}% of account). Was this in your plan?`, "rose", "⚠");
+      }
+    }
+  }
+
+  const maxTrades = parseInt(settings.maxTradesPerDay || "") || 0;
+  if (maxTrades > 0 && todayCount >= maxTrades) {
+    push("overtradingWarning", "overtrading", "⚠ Max Trades Reached",
+      `You've placed ${todayCount} trades today — your limit is ${maxTrades}. No more trades.`, "amber", "⚠");
+  }
+
+  const maxOpen = parseInt(settings.maxOpenTrades || "") || 0;
+  if (maxOpen > 0 && openTrades >= maxOpen) {
+    push("maxOpenTrades", "max_open", "⚠ Max Open Trades",
+      `${openTrades} trades currently open — your limit is ${maxOpen}. Close some before opening new ones.`, "amber", "⚠");
+  }
+
+  /* ── STREAKS ── */
+  const streak = a.currentStreakLength || 0;
+  const streakType = a.currentStreakType;
+  if (streakType === "Loss" && streak >= 3) {
+    push("losingStreak", "losing_streak", "🩸 Losing Streak",
+      `${streak} consecutive losses. Step back, review your entries, and reset your mindset before the next trade.`, "rose", "🩸");
+  }
+  if (streakType === "Win" && streak >= 3) {
+    push("winningStreak", "winning_streak", "🔥 Winning Streak",
+      `${streak} wins in a row! Stay disciplined — don't let confidence turn into overtrading.`, "emerald", "🔥");
+  }
+
+  /* ── EDGE / ANALYTICS ALERTS ── */
+  const last10 = closed.slice(-10);
+  if (last10.length >= 5) {
+    const wr10 = last10.filter((t: any) => t.c?.result === "Win").length / last10.length * 100;
+    if (wr10 < 40) {
+      push("winRateDropping", "wr_drop", "📉 Win Rate Dropping",
+        `Last 10 trades: ${wr10.toFixed(0)}% win rate. Review your setup criteria — your edge may be slipping.`, "amber", "📉");
+    }
+  }
+
+  if (a.profitFactor !== null && a.profitFactor !== Infinity && a.profitFactor < 1 && closed.length >= 5) {
+    push("profitFactorBelow1", "pf_below1", "🚨 Profit Factor Below 1",
+      `Profit factor is ${a.profitFactor.toFixed(2)} — you're losing more than you're making. System review needed.`, "rose", "🚨");
+  }
+
+  /* ── PROP CHALLENGE ALERTS ── */
+  (data.propChallenges || []).filter((c: any) => c.status === "active").forEach((ch: any) => {
+    const size = parseFloat(ch.accountSize) || 0;
+    const maxDD = parseFloat(ch.maxDrawdown) || 0;
+    const dailyDD = parseFloat(ch.dailyDrawdown) || 0;
+    const target = parseFloat(ch.profitTarget) || 0;
+    const logs = ch.dailyLog || [];
+    const lastBal = logs.length ? parseFloat(logs[logs.length - 1].balance) || size : size;
+    const todayLog = logs.find((l: any) => l.date === today);
+    const todayLoss = todayLog ? Math.max(0, size - parseFloat(todayLog.balance || "0")) : 0;
+
+    if (dailyDD > 0 && size > 0) {
+      const dailyLimitAmt = (dailyDD / 100) * size;
+      if (todayLoss >= dailyLimitAmt) {
+        push("propDailyLossHit", `prop_daily_hit_${ch.id}`, `🛑 Prop Daily Loss Hit — ${ch.name}`,
+          `Daily drawdown limit reached on "${ch.name}". STOP trading immediately to protect the account.`, "rose", "🛑");
+      } else if (todayLoss >= dailyLimitAmt * 0.8) {
+        push("propDailyLossApproach", `prop_daily_approach_${ch.id}`, `⚠ Prop DD Limit Approaching — ${ch.name}`,
+          `You're 80%+ into your daily drawdown limit on "${ch.name}". Trade with extreme caution.`, "amber", "⚠");
+      }
+    }
+
+    if (target > 0 && size > 0 && lastBal >= size + (target / 100) * size) {
+      push("propTargetReached", `prop_target_${ch.id}`, `🏆 Prop Target Reached — ${ch.name}`,
+        `"${ch.name}" has hit its profit target! Request payout or move to the next phase.`, "emerald", "🏆");
+    }
+
+    if (maxDD > 0 && size > 0) {
+      const maxDDamt = (maxDD / 100) * size;
+      const totalLoss = size - lastBal;
+      if (totalLoss >= maxDDamt * 0.9) {
+        push("propMaxDrawdown", `prop_maxdd_${ch.id}`, `🚨 Prop Max Drawdown — ${ch.name}`,
+          `"${ch.name}" is within 10% of max drawdown limit. One bad trade could fail the challenge.`, "rose", "🚨");
+      }
+    }
+  });
+
+  /* ── ACCOUNT HEALTH ── */
+  if (startBal > 0 && closed.length >= 5) {
+    const peak = closed.reduce((p: number, t: any) => {
+      return Math.max(p, startBal + closed.slice(0, closed.indexOf(t) + 1).reduce((s: number, x: any) => s + (x.c?.pnl || 0), 0));
+    }, startBal);
+    const current = startBal + a.totalPnl;
+    const ddPct = peak > 0 ? ((peak - current) / peak) * 100 : 0;
+    if (ddPct >= 5) {
+      push("drawdownWarning", "account_drawdown", "⚠ Account Drawdown",
+        `You're ${ddPct.toFixed(1)}% below your account peak. Review position sizing and risk management.`, "amber", "⚠");
+    }
+    if (current > peak && peak > startBal) {
+      push("newAllTimeHigh", "ath", "🚀 New Account High!",
+        `Account is at ${cur}${current.toFixed(2)} — a new all-time high. Stay disciplined and keep compounding.`, "emerald", "🚀");
+    }
+  }
+
+  /* ── TRADE QUALITY ── */
+  const last5Trades = [...trades].sort((a: any, b: any) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
+  const bigWin = last5Trades.find((t: any) => { const c = computeTrade(t); return c.rMultiple !== null && c.rMultiple >= 3; });
+  if (bigWin) {
+    const c = computeTrade(bigWin);
+    push("bigWin", "big_win", "💰 Big Winner!",
+      `${bigWin.symbol || "Last trade"} hit +${c.rMultiple?.toFixed(1)}R — ${cur}${(c.pnl || 0).toFixed(2)}. Great execution!`, "emerald", "💰");
+  }
+  const bigLoss = last5Trades.find((t: any) => { const c = computeTrade(t); return c.rMultiple !== null && c.rMultiple <= -2; });
+  if (bigLoss) {
+    const c = computeTrade(bigLoss);
+    push("bigLoss", "big_loss", "🩸 Large Loss",
+      `${bigLoss.symbol || "Last trade"} lost ${c.rMultiple?.toFixed(1)}R — ${cur}${Math.abs(c.pnl || 0).toFixed(2)}. Debrief this trade.`, "rose", "🩸");
+  }
+
+  const ungradedCount = trades.filter((t: any) => !t.grade && t.exit).length;
+  if (ungradedCount >= 3) {
+    push("ungradedTrades", "ungraded", "📝 Ungraded Trades",
+      `${ungradedCount} closed trades have no grade. Review and score them to track your execution quality.`, "sky", "📝");
+  }
+
+  /* ── WEEKLY REVIEW ── */
+  const dayOfWeek = new Date().getDay();
+  if (dayOfWeek === 5) {
+    if (weekPnl > 0 && weekTrades.length > 0) {
+      push("weeklyGreen", "weekly_green", "✅ Green Week!",
+        `You finished this week +${cur}${weekPnl.toFixed(2)} with ${weekTrades.length} closed trades. Well done!`, "emerald", "✅");
+    }
+    if (weekPnl < 0 && weekTrades.length > 0) {
+      push("weeklyRed", "weekly_red", "📉 Red Week",
+        `This week closed at ${cur}${weekPnl.toFixed(2)}. Review your mistakes this weekend before trading Monday.`, "rose", "📉");
+    }
+  }
+
+  /* ── MONTHLY REVIEW ── */
+  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+  if (new Date().getDate() === daysInMonth) {
+    push("monthlyReview", "monthly_review", "📋 Month Ending Tomorrow",
+      `Do your monthly performance review before the month closes. Check statistics and set goals for next month.`, "sky", "📋");
+  }
+
+  /* ── MILESTONES ── */
+  const milestones = [10, 25, 50, 100, 250, 500, 1000];
+  const milestone = milestones.find((m) => trades.length === m);
+  if (milestone) {
+    push("tradesMilestone", `milestone_${milestone}`, `🎯 ${milestone} Trades Logged!`,
+      `You've now logged ${milestone} trades in Onkar TradeX. Check your Statistics to see how your edge has evolved.`, "violet", "🎯");
+  }
+
+  /* ── HABIT REMINDERS ── */
+  const lastPsych = (data.psychology || []).slice().sort((a: any, b: any) => (b.date || "").localeCompare(a.date || ""))[0];
+  if (!lastPsych || (today > (lastPsych.date || "") && (new Date(today).getTime() - new Date(lastPsych.date || today).getTime()) / 86400000 >= 7)) {
+    push("psychologyReminder", "psych_reminder", "🧠 Psychology Log",
+      `No mindset entry in the last 7 days. Log how you're feeling about your trading — mental edge matters.`, "violet", "🧠");
+  }
+
+  const lastVault = (data.vault || []).slice().sort((a: any, b: any) => (b.updatedAt || b.id || "").localeCompare(a.updatedAt || a.id || ""))[0];
+  if (!lastVault || (new Date(today).getTime() - new Date(lastVault.updatedAt || lastVault.id?.slice(0, 10) || today).getTime()) / 86400000 >= 14) {
+    push("vaultReminder", "vault_reminder", "📒 Vault Review",
+      `Your vault hasn't been updated in 14+ days. Review your notes and knowledge base to stay sharp.`, "slate", "📒");
+  }
+
+  /* ── DAILY GOAL ── */
+  const todayCheckin = (data.checkins || []).find((c: any) => c.date === today);
+  const dailyGoalAmt = parseFloat(todayCheckin?.dailyGoal || "") || 0;
+  if (dailyGoalAmt > 0 && todayPnl >= dailyGoalAmt) {
+    push("dailyGoalHit", "daily_goal_hit", "✅ Daily Goal Hit!",
+      `Today's P&L (${cur}${todayPnl.toFixed(2)}) has reached your daily goal of ${cur}${dailyGoalAmt.toFixed(2)}. Consider stopping here.`, "emerald", "✅");
+  }
+
+  /* ── BEST SETUP ── */
+  if (a.bestSetup && a.bestSetup.pnl > 0 && a.bestSetup.count >= 3) {
+    push("bestSetupAlert", "best_setup", "🏅 Your Best Setup",
+      `"${a.bestSetup.label}" is your most profitable setup with ${cur}${a.bestSetup.pnl.toFixed(2)} P&L across ${a.bestSetup.count} trades. Trade it more.`, "emerald", "🏅");
+  }
+
+  return notifs;
+}
+
+/* ============================================================
+   NOTIFICATION CENTRE UI
+   ============================================================ */
+const NOTIF_TONE_STYLES: Record<string, { bg: string; border: string; text: string }> = {
+  rose:    { bg: "rgba(239,68,68,0.08)",    border: "rgba(239,68,68,0.25)",    text: "#f87171" },
+  amber:   { bg: "rgba(245,158,11,0.08)",   border: "rgba(245,158,11,0.25)",   text: "#fbbf24" },
+  emerald: { bg: "rgba(16,185,129,0.08)",   border: "rgba(16,185,129,0.25)",   text: "#34d399" },
+  sky:     { bg: "rgba(14,165,233,0.08)",   border: "rgba(14,165,233,0.25)",   text: "#38bdf8" },
+  violet:  { bg: "rgba(139,92,246,0.08)",   border: "rgba(139,92,246,0.25)",   text: "#a78bfa" },
+  slate:   { bg: "rgba(100,116,139,0.08)",  border: "rgba(100,116,139,0.25)",  text: "#94a3b8" },
+};
+
+function NotificationCentre({ notifs, onMarkAllRead, onDismiss, onClose, accent }: any) {
+  const unread = notifs.filter((n: OTXNotif) => !n.read).length;
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950">
+      <div className="flex items-center justify-between px-4 py-4 border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-3">
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-200"><ArrowLeft size={20} /></button>
+          <div>
+            <h2 className="text-base font-semibold text-slate-100">Notifications</h2>
+            <p className="text-[11px] text-slate-500">{unread > 0 ? `${unread} unread` : "All caught up"}</p>
+          </div>
+        </div>
+        {notifs.length > 0 && (
+          <button onClick={onMarkAllRead} className="text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200">
+            Mark all read
+          </button>
+        )}
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+        {notifs.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+            <span className="text-4xl">🔔</span>
+            <p className="text-slate-400 font-medium">No notifications right now</p>
+            <p className="text-slate-600 text-sm">Alerts will appear here as you trade — risk limits, streaks, milestones and more.</p>
+          </div>
+        )}
+        {notifs.map((n: OTXNotif) => {
+          const s = NOTIF_TONE_STYLES[n.tone] || NOTIF_TONE_STYLES.slate;
+          return (
+            <div key={n.id}
+              className="relative flex gap-3 p-3.5 rounded-2xl border transition"
+              style={{ background: n.read ? "transparent" : s.bg, borderColor: n.read ? "#1e293b" : s.border }}>
+              {!n.read && <div className="absolute top-3 right-3 w-2 h-2 rounded-full" style={{ background: s.text }} />}
+              <div className="text-xl leading-none pt-0.5 shrink-0">{n.icon}</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-slate-100 leading-snug">{n.title}</p>
+                <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{n.body}</p>
+              </div>
+              <button onClick={() => onDismiss(n.id)} className="text-slate-700 hover:text-slate-500 shrink-0 mt-0.5"><X size={14} /></button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ── Bell button with badge ── */
+function NotifBell({ count, onClick, accent }: any) {
+  return (
+    <button onClick={onClick} className="relative p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 transition">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      {count > 0 && (
+        <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5 rounded-full text-[9px] font-bold flex items-center justify-center text-slate-950"
+          style={{ background: accent || "#f59e0b" }}>
+          {count > 9 ? "9+" : count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/* ── Toast notification bar ── */
+function NotifToast({ notif, onDismiss }: { notif: OTXNotif; onDismiss: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 4500);
+    return () => clearTimeout(t);
+  }, [notif.id]);
+  const s = NOTIF_TONE_STYLES[notif.tone] || NOTIF_TONE_STYLES.slate;
+  return (
+    <div className="fixed top-4 left-4 right-4 z-[999] flex items-start gap-3 p-3.5 rounded-2xl border shadow-2xl shadow-black/60 animate-[slideDown_0.3s_ease]"
+      style={{ background: "#0f172a", borderColor: s.border }}>
+      <span className="text-lg leading-none shrink-0">{notif.icon}</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold leading-snug" style={{ color: s.text }}>{notif.title}</p>
+        <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2">{notif.body}</p>
+      </div>
+      <button onClick={onDismiss} className="text-slate-600 hover:text-slate-400 shrink-0"><X size={14} /></button>
+    </div>
+  );
 }
 
 /* ============================================================
@@ -9251,6 +9610,14 @@ function SettingsPanel({ data, setData }) {
   const [openSection, setOpenSection] = useState<string>("theme");
   const toggle = (s: string) => setOpenSection((prev) => prev === s ? "" : s);
 
+  const notifSettings = { ...DEFAULT_SETTINGS().notifications, ...(settings.notifications || {}) };
+  const updNotif = (key: string, val: boolean) => {
+    setData((d: any) => {
+      const s = { ...DEFAULT_SETTINGS(), ...(d.settings || {}) };
+      return { ...d, settings: { ...s, notifications: { ...DEFAULT_SETTINGS().notifications, ...(s.notifications || {}), [key]: val } } };
+    });
+  };
+
   const sections: { id: string; label: string; icon: string }[] = [
     { id: "theme",     label: "Theme & Colors",        icon: "🎨" },
     { id: "dashboard", label: "Dashboard Sections",     icon: "🏠" },
@@ -9259,6 +9626,7 @@ function SettingsPanel({ data, setData }) {
     { id: "display",   label: "Display Preferences",    icon: "🖥️" },
     { id: "behaviour", label: "App Behaviour",          icon: "⚙️" },
     { id: "nav",       label: "Navigation Visibility",  icon: "🧭" },
+    { id: "notifs",    label: "Notifications",          icon: "🔔" },
   ];
 
   return (
@@ -9495,6 +9863,66 @@ function SettingsPanel({ data, setData }) {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* ── NOTIFICATIONS ── */}
+            {open && id === "notifs" && (
+              <div className="px-4 pb-4 border-t border-slate-800">
+                <div className="flex justify-between items-center pt-3 pb-2">
+                  <span className="text-xs text-slate-500">Toggle which alerts appear as toasts and in the bell inbox</span>
+                  <button onClick={() => {
+                    Object.keys(DEFAULT_SETTINGS().notifications).forEach((k) => updNotif(k, true));
+                  }} className="text-xs font-medium" style={{ color: accent }}>Enable all</button>
+                </div>
+                {([
+                  { key: "dailyLossLimit",        icon: "🛑", label: "Daily Loss Limit Hit",           group: "Risk" },
+                  { key: "singleTradeLoss",        icon: "⚠",  label: "Large Single-Trade Loss",        group: "Risk" },
+                  { key: "overtradingWarning",     icon: "⚠",  label: "Max Trades Per Day Reached",     group: "Risk" },
+                  { key: "maxOpenTrades",          icon: "⚠",  label: "Max Open Trades Reached",        group: "Risk" },
+                  { key: "losingStreak",           icon: "🩸", label: "Losing Streak (3+ losses)",      group: "Streaks" },
+                  { key: "winningStreak",          icon: "🔥", label: "Winning Streak (3+ wins)",       group: "Streaks" },
+                  { key: "winRateDropping",        icon: "📉", label: "Win Rate Dropping",              group: "Edge" },
+                  { key: "profitFactorBelow1",     icon: "🚨", label: "Profit Factor Below 1",          group: "Edge" },
+                  { key: "bigWin",                 icon: "💰", label: "Big Winner (3R+)",               group: "Trades" },
+                  { key: "bigLoss",                icon: "🩸", label: "Large Loss (2R+)",               group: "Trades" },
+                  { key: "ungradedTrades",         icon: "📝", label: "Ungraded Trades Reminder",       group: "Trades" },
+                  { key: "dailyGoalHit",           icon: "✅", label: "Daily Goal Reached",             group: "Trades" },
+                  { key: "propDailyLossApproach",  icon: "⚠",  label: "Prop Daily DD Approaching",     group: "Prop" },
+                  { key: "propDailyLossHit",       icon: "🛑", label: "Prop Daily Loss Limit Hit",      group: "Prop" },
+                  { key: "propTargetReached",      icon: "🏆", label: "Prop Challenge Target Hit",      group: "Prop" },
+                  { key: "propMaxDrawdown",        icon: "🚨", label: "Prop Max Drawdown Near",         group: "Prop" },
+                  { key: "drawdownWarning",        icon: "⚠",  label: "Account Drawdown (5%+)",         group: "Account" },
+                  { key: "newAllTimeHigh",         icon: "🚀", label: "New Account All-Time High",      group: "Account" },
+                  { key: "weeklyGreen",            icon: "✅", label: "Green Week Summary",             group: "Weekly" },
+                  { key: "weeklyRed",              icon: "📉", label: "Red Week Summary",               group: "Weekly" },
+                  { key: "monthlyReview",          icon: "📋", label: "Monthly Review Reminder",        group: "Monthly" },
+                  { key: "tradesMilestone",        icon: "🎯", label: "Trade Count Milestones",         group: "Monthly" },
+                  { key: "bestSetupAlert",         icon: "🏅", label: "Best Setup Performance",         group: "Insights" },
+                  { key: "psychologyReminder",     icon: "🧠", label: "Psychology Log Reminder",        group: "Habits" },
+                  { key: "vaultReminder",          icon: "📒", label: "Vault Review Reminder",          group: "Habits" },
+                ] as { key: string; icon: string; label: string; group: string }[]).reduce((acc: any[], item) => {
+                  const last = acc[acc.length - 1];
+                  if (!last || last.group !== item.group) acc.push({ group: item.group, items: [item] });
+                  else last.items.push(item);
+                  return acc;
+                }, []).map(({ group, items }: any) => (
+                  <div key={group} className="mb-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-600 mb-1 mt-2">{group}</div>
+                    {items.map(({ key, icon: ic, label: l }: any) => {
+                      const on = notifSettings[key] !== false;
+                      return (
+                        <div key={key} className="flex items-center justify-between py-2 border-b border-slate-800/40 last:border-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm w-5 text-center">{ic}</span>
+                            <span className={cx("text-sm", on ? "text-slate-200" : "text-slate-500")}>{l}</span>
+                          </div>
+                          <ToggleSwitch on={on} accent={accent} onChange={() => updNotif(key, !on)} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -10157,8 +10585,14 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [quickLogOpen, setQuickLogOpen] = useState(false);
   const [riskAlert, setRiskAlert] = useState<RiskAlert | null>(null);
-  const dismissedAtRef = useRef<number>(0);  // tracks loss level when user dismissed
+  const dismissedAtRef = useRef<number>(0);
   const saveTimer = useRef(null);
+
+  /* ── Notification state ── */
+  const [notifCentreOpen, setNotifCentreOpen] = useState(false);
+  const [notifs, setNotifs] = useState<OTXNotif[]>([]);
+  const [toastQueue, setToastQueue] = useState<OTXNotif[]>([]);
+  const prevNotifIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     (async () => {
@@ -10205,6 +10639,25 @@ export default function App() {
     document.documentElement.style.setProperty("--otx-accent", accent);
     document.documentElement.style.setProperty("--otx-card-bg", cardBg);
   }, [(data as any)?.settings?.accentColor, (data as any)?.settings?.cardBg]);
+
+  /* ── Notification engine — re-runs whenever data changes ── */
+  useEffect(() => {
+    if (!data || !loaded) return;
+    const enabled = { ...DEFAULT_SETTINGS().notifications, ...((data as any).settings?.notifications || {}) };
+    const fresh = computeNotifications(data as any, enabled);
+    setNotifs((prev) => {
+      // preserve read state for existing notifs; add new ones as toasts
+      const prevMap = new Map(prev.map((n) => [n.id, n]));
+      const merged = fresh.map((n) => prevMap.has(n.id) ? { ...n, read: prevMap.get(n.id)!.read } : n);
+      // find truly new ids (not seen before across any render)
+      const newOnes = merged.filter((n) => !prevNotifIds.current.has(n.id));
+      newOnes.forEach((n) => prevNotifIds.current.add(n.id));
+      if (newOnes.length > 0) {
+        setToastQueue((q) => [...q, ...newOnes].slice(-5)); // cap at 5 queued
+      }
+      return merged;
+    });
+  }, [data, loaded]);
 
   /* ── Live risk monitor — fires whenever trades or account change ── */
   useEffect(() => {
@@ -10285,15 +10738,29 @@ export default function App() {
           paddingBottom: "calc(72px + env(safe-area-inset-bottom))",
         }}>
         {/* Inline top header — scrolls away to give full screen to content */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <img src="/onkar-tradex-logo.png" alt="Onkar TradeX" className="w-7 h-7 object-contain drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
-            <span className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>Onkar TradeX</span>
-          </div>
-          <button onClick={() => setSearchOpen(true)} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400">
-            <Search size={17} />
-          </button>
-        </div>
+        {(() => {
+          const accent = (data as any)?.settings?.accentColor || "#f59e0b";
+          const unreadCount = notifs.filter((n) => !n.read).length;
+          return (
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <img src="/onkar-tradex-logo.png" alt="Onkar TradeX" className="w-7 h-7 object-contain drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
+                <span className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>Onkar TradeX</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <NotifBell count={unreadCount} accent={accent} onClick={() => {
+                  setNotifCentreOpen(true);
+                  setNotifs((n) => n.map((x) => ({ ...x, read: true })));
+                }} />
+                {(data as any)?.settings?.showSearchBar !== false && (
+                  <button onClick={() => setSearchOpen(true)} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400">
+                    <Search size={17} />
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
         {activeTab === "home" && <Dashboard data={data} setData={setData} goTo={goTo} onQuickLog={() => { setActiveTab("journal"); setQuickLogOpen(true); }} />}
         {activeTab === "journal" && <JournalTab data={data} setData={setData} autoOpen={quickLogOpen} onAutoOpenDone={() => setQuickLogOpen(false)} />}
         {activeTab === "library" && <LibraryTab data={data} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} />}
@@ -10326,6 +10793,25 @@ export default function App() {
       })()}
 
       {searchOpen && <SearchOverlay data={data} onClose={() => setSearchOpen(false)} onJump={goTo} />}
+
+      {/* ── Notification Centre ── */}
+      {notifCentreOpen && (
+        <NotificationCentre
+          notifs={notifs}
+          accent={(data as any)?.settings?.accentColor || "#f59e0b"}
+          onClose={() => setNotifCentreOpen(false)}
+          onMarkAllRead={() => setNotifs((n) => n.map((x) => ({ ...x, read: true })))}
+          onDismiss={(id: string) => setNotifs((n) => n.filter((x) => x.id !== id))}
+        />
+      )}
+
+      {/* ── Toast queue — shows newest first, auto-dismisses ── */}
+      {toastQueue.length > 0 && !notifCentreOpen && !riskAlert && (
+        <NotifToast
+          notif={toastQueue[0]}
+          onDismiss={() => setToastQueue((q) => q.slice(1))}
+        />
+      )}
 
       {/* ── Live Risk Alert — auto fires when loss limit is breached ── */}
       {riskAlert && (
