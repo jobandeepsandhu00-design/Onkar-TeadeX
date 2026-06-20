@@ -5309,20 +5309,832 @@ function StrategiesPanel({ data, setData, goTo }) {
 }
 
 /* ============================================================
+   FOREX BLUEPRINT DATA
+   ============================================================ */
+const FOREX_BLUEPRINT_TOPICS = [
+  // ── FOUNDATIONS ──────────────────────────────────────────
+  {
+    id: "what-is-forex",
+    category: "Foundations",
+    color: "emerald",
+    title: "What is Forex Trading?",
+    emoji: "🌍",
+    summary: "Forex (Foreign Exchange) is the global decentralized marketplace where currencies are bought and sold. It is the largest and most liquid financial market in the world, operating 24 hours/day, 5 days/week.",
+    keyPoints: [
+      "Forex = speculating on the price movement of one currency relative to another",
+      "Traded as currency pairs: EUR/USD, GBP/USD, USD/JPY, etc.",
+      "Market is decentralized — no central exchange; trades happen over-the-counter (OTC)",
+      "Over $6 trillion in daily trading volume — the most liquid market on earth",
+      "Operates in 4 major sessions: Sydney, Tokyo, London, New York",
+      "CFDs (Contracts for Difference) allow speculation without owning the underlying currency",
+      "You can profit in both rising AND falling markets (buy or sell)",
+    ],
+    rules: [
+      "Never trade a pair you don't understand the behavior of",
+      "Know which session your pair is most active in",
+      "Always use a regulated broker",
+    ],
+  },
+  {
+    id: "currency-pairs",
+    category: "Foundations",
+    color: "emerald",
+    title: "Currency Pairs & Pips",
+    emoji: "💱",
+    summary: "Every Forex trade involves buying one currency while simultaneously selling another. The price of a pair tells you how much of the quote currency is needed to buy one unit of the base currency.",
+    keyPoints: [
+      "Base currency = first currency (EUR in EUR/USD); Quote currency = second (USD)",
+      "Major pairs: EUR/USD, GBP/USD, USD/JPY, USD/CHF, AUD/USD, USD/CAD — highest liquidity",
+      "Minor pairs: EUR/GBP, EUR/AUD — no USD, decent liquidity",
+      "Exotic pairs: USD/TRY, EUR/ZAR — lower liquidity, higher spreads, higher volatility",
+      "Pip = smallest price increment (0.0001 for most pairs; 0.01 for JPY pairs)",
+      "Spread = difference between Ask price (you buy) and Bid price (you sell)",
+      "Ask price used when opening a buy; Bid price used when opening a sell",
+    ],
+    rules: [
+      "Start with majors — tighter spreads, more analysis available",
+      "Factor spread cost into every trade's risk calculation",
+      "Know the pip value for each pair before sizing your position",
+    ],
+  },
+  {
+    id: "market-participants",
+    category: "Foundations",
+    color: "emerald",
+    title: "Market Participants",
+    emoji: "🏦",
+    summary: "Multiple types of participants drive Forex price movement — from central banks and commercial banks down to retail traders like you. Understanding who moves the market helps you trade with the right context.",
+    keyPoints: [
+      "Central Banks: Set monetary policy, control interest rates — can move markets significantly",
+      "Commercial Banks: Largest volume; execute trades for clients & themselves (interbank market)",
+      "Hedge Funds & Investment Funds: Speculate with large capital; can create trends",
+      "Multinational Corporations: Convert currencies for international business — predictable flows",
+      "Retail Traders: Smallest portion of volume; trade via brokers using CFDs or spot Forex",
+      "Market Makers (Brokers): Provide liquidity by offering bid/ask prices at all times",
+    ],
+    rules: [
+      "Retail traders should trade WITH institutional flow, not against it",
+      "News events = central bank actions — always be aware of the economic calendar",
+      "High liquidity = tighter spreads = better fills for retail traders",
+    ],
+  },
+  {
+    id: "trading-edge",
+    category: "Foundations",
+    color: "emerald",
+    title: "What is a Trading Edge?",
+    emoji: "🎯",
+    summary: "A trading edge is any technique, observation, or approach that gives you a statistical advantage over other market participants over hundreds of trades. Like a casino's house edge — it doesn't win every bet, but wins over time.",
+    keyPoints: [
+      "Edge = winning probability slightly better than 50/50 over a large sample of trades",
+      "Casino analogy: European roulette gives casino a 51.35% edge vs player's 48.65% — the house always wins long-term",
+      "In trading you DON'T need to win >50% of trades — your win rate × avg win must exceed loss rate × avg loss",
+      "Edge comes from: key levels + candlestick patterns + market context + risk management combined",
+      "A trading edge is only valid over hundreds of trades — judge it statistically, not trade-by-trade",
+      "You must backtest your edge to verify it works before trading real capital",
+    ],
+    rules: [
+      "Never judge your edge by a single trade outcome — only by statistics over 100+ trades",
+      "Document every trade to measure your edge numerically",
+      "A positive expected value strategy = (Win Rate × Avg Win) − (Loss Rate × Avg Loss) > 0",
+    ],
+    example: "If you win 40% of trades but make 3R when you win and lose 1R when you lose: Edge = (0.4 × 3) − (0.6 × 1) = 1.2 − 0.6 = 0.6R positive expectancy per trade.",
+  },
+
+  // ── MARKET STRUCTURE ──────────────────────────────────────
+  {
+    id: "market-trends",
+    category: "Market Structure",
+    color: "sky",
+    title: "Market Trends",
+    emoji: "📈",
+    summary: "Price can move in 3 directions: up, down, or sideways. Identifying the correct trend is the first and most important step before executing any trade.",
+    keyPoints: [
+      "Uptrend: Series of Higher Highs (HH) and Higher Lows (HL) — bullish bias",
+      "Downtrend: Series of Lower Highs (LH) and Lower Lows (LL) — bearish bias",
+      "Sideways/Range: Price oscillates between a ceiling (resistance) and floor (support) — no clear trend",
+      "Trends change when structure breaks: uptrend fails to make a new HH or breaks a HL",
+      "Trading WITH the trend = higher probability setups (trend continuation)",
+      "Trading AGAINST the trend = counter-trend/reversal = lower probability, needs stronger confirmation",
+      "A strategy that works well in trending markets often struggles in ranging markets — know your environment",
+    ],
+    rules: [
+      "Always identify the trend on your higher timeframe FIRST before looking for entries",
+      "In an uptrend: look for acceptance of support & breaks of resistance",
+      "In a downtrend: look for acceptance of resistance & breaks of support",
+      "Assume the trend continues until clear evidence says otherwise",
+    ],
+    example: "EUR/USD on the 4H chart making HH and HL → bullish trend. Drop to 1H to find a buy setup at the next higher low / support zone.",
+  },
+  {
+    id: "support-resistance",
+    category: "Market Structure",
+    color: "sky",
+    title: "Support & Resistance",
+    emoji: "📊",
+    summary: "Support and resistance are horizontal price levels where the market has previously reversed or paused. They represent supply (resistance) and demand (support) zones that the market is likely to respect again.",
+    keyPoints: [
+      "Support = price level where buying interest historically emerged, stopping price from falling further",
+      "Resistance = price level where selling interest historically emerged, stopping price from rising further",
+      "The more times a level is tested, the stronger it becomes (and also the more likely to break eventually)",
+      "Support can become resistance after a breakout (role reversal) — and vice versa",
+      "Draw as ZONES (not exact lines) to account for wicks and slight price variations",
+      "Key levels: swing highs, swing lows, round numbers (psychological levels), prior consolidation areas",
+      "How to identify: identify swing highs/lows → draw short horizontal lines → extend to connect 2+ touches",
+    ],
+    rules: [
+      "A level is valid when at least 2 significant price reactions have occurred at it",
+      "Delete levels that have been clearly violated and not reacted to",
+      "Support/resistance levels work on ALL timeframes — higher TF levels carry more weight",
+      "Avoid drawing too many levels — focus on the most significant ones",
+    ],
+    example: "Price repeatedly bounces off 1.0800 on EUR/USD = strong support zone. Price violates it, pulls back to 1.0800, and now rejects from below = support has become resistance.",
+  },
+  {
+    id: "trendlines",
+    category: "Market Structure",
+    color: "sky",
+    title: "Trendlines",
+    emoji: "📐",
+    summary: "Trendlines are diagonal support (in uptrends) or resistance (in downtrends) lines drawn by connecting a series of swing lows or highs. They act as dynamic key levels.",
+    keyPoints: [
+      "Trendline = diagonal S/R — same concepts as horizontal S/R but angled",
+      "Uptrend trendline: connect at least 2 swing lows → acts as SUPPORT → extended into future",
+      "Downtrend trendline: connect at least 2 swing highs → acts as RESISTANCE → extended into future",
+      "Rule: confirmed valid when price touches it a THIRD time",
+      "Can be drawn using wicks, closing prices, or a combination of both",
+      "Trendlines need ADJUSTMENT as new price data forms — do not force an old trendline on new data",
+      "3 scenarios at a trendline: (1) Acceptance (bounce), (2) Break, (3) Retest after break",
+      "Steep trendlines are less reliable than gradual ones — the shallower the angle, the more valid",
+    ],
+    rules: [
+      "Do not force a trendline if the data points don't connect naturally",
+      "A trendline break doesn't always mean a trend reversal — look for confirmation",
+      "Adjust trendlines as price evolves rather than abandoning them entirely",
+      "Trendlines work best when price approaches them in a gradual, orderly manner",
+    ],
+  },
+  {
+    id: "sr-scenarios",
+    category: "Market Structure",
+    color: "sky",
+    title: "3 Trading Scenarios at S/R",
+    emoji: "🎪",
+    summary: "Every key level (horizontal S/R or trendline) presents 3 potential trading opportunities. Each has a different risk profile and timing.",
+    keyPoints: [
+      "Scenario 1 — ACCEPTANCE: Price reaches S/R zone and reverses. Enter in direction of rejection. Confirmation via candlestick pattern at the level.",
+      "Scenario 2 — BREAKOUT: Price violates the S/R level with momentum. Enter in direction of break. Risk = fakeout. Volume confirms strength.",
+      "Scenario 3 — RETEST: Price breaks S/R, continues, then pulls back to test the level from the other side. Previous resistance becomes support (and vice versa). Wait for acceptance candle at the retest level.",
+      "Retest = lowest risk of the three (more confirmation) but may miss the initial move",
+      "Breakout = fastest entry but highest fakeout risk",
+      "Acceptance = most common — requires strong reversal candlestick at the zone",
+      "Trend context determines which scenario to favor: uptrend → accept support + break resistance",
+    ],
+    rules: [
+      "Always determine the trend first — it tells you which scenario to look for",
+      "For breakouts: wait for a candle to CLOSE beyond the level, not just wick through it",
+      "For retests: the retest candle must show clear rejection (pin bar or engulfing) at the old level",
+      "Fakeouts are unavoidable — solid stop loss placement is your protection",
+    ],
+    example: "Uptrend. Price breaks above key resistance at 1.1000. Pulls back to 1.1000. Bullish engulfing candle forms as 1.1000 is now support → ENTER LONG with stop below 1.0980.",
+  },
+
+  // ── CANDLESTICK READING ───────────────────────────────────
+  {
+    id: "candlestick-basics",
+    category: "Candlestick Reading",
+    color: "amber",
+    title: "Japanese Candlesticks Basics",
+    emoji: "🕯️",
+    summary: "Japanese candlesticks show four data points per timeframe: Open, High, Low, Close (OHLC). The body and wicks tell the story of the battle between buyers (bulls) and sellers (bears) during that period.",
+    keyPoints: [
+      "Body = difference between Open and Close price",
+      "Bullish (green) candle: Close > Open — buyers won the period",
+      "Bearish (red) candle: Close < Open — sellers won the period",
+      "Upper wick = highest price reached during the period",
+      "Lower wick = lowest price reached during the period",
+      "Large body = strong directional momentum in that period",
+      "Small body + long wicks = indecision / battle between bulls and bears",
+      "No wick = price moved cleanly without being pushed back (strongest signal)",
+    ],
+    rules: [
+      "Do not interpret every single candle — look for clusters and context",
+      "Always read candles in context of: trend, key levels, and surrounding candles",
+      "A single candle never gives the full picture — patterns of 2-3 candles are more meaningful",
+    ],
+  },
+  {
+    id: "candle-body-analysis",
+    category: "Candlestick Reading",
+    color: "amber",
+    title: "Candlestick Body & Wick Analysis",
+    emoji: "📏",
+    summary: "The SIZE of the body tells you HOW STRONG the move was. The LENGTH of the wicks tells you HOW MUCH CONTEST there was. The POSITION of the body within the range tells you WHO WON.",
+    keyPoints: [
+      "LARGE body + small wicks = strong directional conviction, minimal contest",
+      "SMALL body + large wicks = high contest, indecision — the fight is close",
+      "LONG upper wick = bulls pushed high but bears rejected the move back down",
+      "LONG lower wick = bears pushed low but bulls rejected the move back up",
+      "Body in UPPER half of range = bullish strength despite any lower wick",
+      "Body in LOWER half of range = bearish strength despite any upper wick",
+      "Body in CENTER = balanced — indecision, neither side dominating",
+      "Increasing body size in a trend = acceleration and momentum building",
+      "Decreasing body size in a trend = momentum fading, possible reversal ahead",
+    ],
+    rules: [
+      "Strong trend candle: large body, close near high (bull) or low (bear), tiny wicks",
+      "Reversal signal: large wick in the direction of trend with close near opposite end",
+      "Indecision: doji or spinning top — wait for next candle to confirm direction",
+    ],
+  },
+  {
+    id: "bullish-engulfing",
+    category: "Candlestick Reading",
+    color: "amber",
+    title: "Bullish Engulfing Pattern",
+    emoji: "🟢",
+    summary: "One of the most reliable and common reversal patterns. A large bullish candle completely engulfs the body of the previous bearish candle, signaling a powerful shift from sellers to buyers.",
+    keyPoints: [
+      "2-candle pattern: Candle 1 = bearish | Candle 2 = bullish and engulfs Candle 1",
+      "Occurs at the BOTTOM of a downtrend or at a support level",
+      "Engulfing candle opens at or below the close of the previous candle",
+      "Engulfing candle closes above the OPEN of the previous candle (real body engulf)",
+      "Stronger version: engulfing candle closes above the TOTAL RANGE (high) of previous candle",
+      "Quality: engulfing candle should close in top 1/3 or top 1/4 of its own range",
+      "Size matters: a larger pattern relative to surrounding candles = stronger signal",
+      "Confirmation is BUILT INTO the pattern (the engulfing candle IS the confirmation)",
+    ],
+    rules: [
+      "Entry at Open: buy at open of candle AFTER the engulfing candle closes",
+      "Entry at Break: place pending buy order 1 pip above the high of the engulfing candle",
+      "Stop Loss: just below the TOTAL LOW of the entire 2-candle pattern",
+      "Best used at a key support level, in a pullback within an uptrend, or at major S/R",
+      "Context filter: ignore engulfing candles that appear mid-range with no key level nearby",
+    ],
+    example: "Price in downtrend hits support at 1.0800. Small bearish candle forms. Next candle opens below close and closes aggressively above the open of the previous bearish candle, engulfing it fully, and closes in top 25% of its range → strong buy signal.",
+  },
+  {
+    id: "hammer",
+    category: "Candlestick Reading",
+    color: "amber",
+    title: "Hammer (Bullish Pin Bar)",
+    emoji: "🔨",
+    summary: "The hammer is a single-candle reversal pattern with a long lower shadow and small body near the top. It signals that bears pushed price sharply down but bulls aggressively rejected the move and closed near the open.",
+    keyPoints: [
+      "1-candle pattern — requires CONFIRMATION from the following candle",
+      "Body: small, located at the TOP of the candlestick range",
+      "Lower shadow: at least 2× the size of the real body",
+      "Upper shadow: none or very minimal (close to zero)",
+      "Body can be green (stronger) or red (needs stronger confirmation)",
+      "Occurs at the BOTTOM of a downtrend or at a support zone",
+      "RED hammer: needs next candle to close BULLISH ABOVE the hammer body to be valid",
+      "GREEN hammer: the hammer itself can self-confirm (body closes above previous candle's open)",
+    ],
+    rules: [
+      "Never enter on the hammer candle itself — WAIT for confirmation close",
+      "Entry at Open: buy at open of candle after confirmation closes bullishly",
+      "Entry at Break: pending buy order 1 pip above the high of the confirmation candle",
+      "Stop Loss: below the LOWER WICK of the hammer (with a small buffer)",
+      "Larger hammer relative to surroundings = stronger reversal signal",
+      "Best used at key support, psychological levels, or trendline bounces",
+    ],
+    example: "GBP/USD in downtrend. Price hits strong support at 1.2500. A candle forms with a tiny body near the top and a long lower shadow reaching 1.2430 (70 pips rejected). Next candle closes bullishly above the hammer body → confirmation → ENTER LONG.",
+  },
+  {
+    id: "morning-star",
+    category: "Candlestick Reading",
+    color: "amber",
+    title: "Morning Star",
+    emoji: "⭐",
+    summary: "The Morning Star is a powerful 3-candle bullish reversal pattern. It shows a decisive transition from bearish control to bullish control through a period of indecision in the middle.",
+    keyPoints: [
+      "3-candle pattern: Large bearish candle → Small indecision candle (Doji/Spinning Top) → Large bullish candle",
+      "Candle 1: Large bearish candle — sellers in control",
+      "Candle 2: Small body (Doji or small bullish/bearish candle) — indecision, neither side winning",
+      "Candle 3: Large bullish candle closing above the MIDPOINT of Candle 1's real body",
+      "The third candle is the confirmation — its body must reach at least 50% into Candle 1",
+      "Occurs at the bottom of a downtrend",
+      "The middle candle ideally gaps below Candle 1's close (more visible on daily charts)",
+    ],
+    rules: [
+      "Entry: Buy at open of candle after Candle 3 closes (or at close of Candle 3)",
+      "Stop Loss: Below the low of Candle 2 (the indecision candle)",
+      "Stronger signal if it occurs at a key support level",
+      "The larger Candle 3 relative to Candle 1, the more decisive the reversal",
+    ],
+  },
+  {
+    id: "bearish-engulfing",
+    category: "Candlestick Reading",
+    color: "amber",
+    title: "Bearish Engulfing Pattern",
+    emoji: "🔴",
+    summary: "The mirror image of the Bullish Engulfing. A large bearish candle completely engulfs the previous bullish candle, signaling a powerful shift from buyers to sellers at a resistance zone.",
+    keyPoints: [
+      "2-candle pattern: Candle 1 = bullish | Candle 2 = bearish and engulfs Candle 1",
+      "Occurs at the TOP of an uptrend or at a resistance level",
+      "Bearish candle opens at or above the close of the previous candle",
+      "Bearish candle closes below the OPEN of the previous candle (real body engulf)",
+      "Stronger version: closes below the TOTAL RANGE (low) of the previous candle",
+      "Quality: bearish candle should close in the bottom 1/3 or bottom 1/4 of its range",
+      "The pattern itself is the confirmation — no additional candle needed",
+    ],
+    rules: [
+      "Entry at Open: sell at open of candle AFTER the bearish engulfing candle closes",
+      "Entry at Break: pending sell order 1 pip below the low of the engulfing candle",
+      "Stop Loss: just above the TOTAL HIGH of the entire 2-candle pattern",
+      "Best used at key resistance, in a pullback within a downtrend, or at major S/R",
+    ],
+    example: "Price rallies into a major resistance zone at 1.1200. A bullish candle forms. Next candle opens above the previous close and collapses, closing far below the open of the previous bullish candle → strong sell signal.",
+  },
+  {
+    id: "shooting-star",
+    category: "Candlestick Reading",
+    color: "amber",
+    title: "Shooting Star (Bearish Pin Bar)",
+    emoji: "💫",
+    summary: "The mirror image of the Hammer. A long upper shadow with a small body near the bottom signals that bulls pushed price up sharply, but bears aggressively rejected the move and closed near the open.",
+    keyPoints: [
+      "1-candle pattern — requires confirmation from the following candle",
+      "Body: small, located at the BOTTOM of the candlestick range",
+      "Upper shadow: at least 2× the size of the real body",
+      "Lower shadow: none or very minimal",
+      "Body can be red (stronger) or green (needs stronger confirmation)",
+      "Occurs at the TOP of an uptrend or at a resistance zone",
+      "RED shooting star: stronger signal — sellers dominated from open to close",
+    ],
+    rules: [
+      "Wait for confirmation candle to close BEARISHLY below the shooting star body",
+      "Entry at Open: sell at open of candle after bearish confirmation",
+      "Entry at Break: pending sell order 1 pip below the low of the confirmation candle",
+      "Stop Loss: above the UPPER WICK of the shooting star (with buffer)",
+      "Best used at key resistance, psychological levels, or trendline rejections",
+    ],
+  },
+
+  // ── TRADE EXECUTION ───────────────────────────────────────
+  {
+    id: "breakout-fakeout",
+    category: "Trade Execution",
+    color: "violet",
+    title: "Breakout & Fakeout",
+    emoji: "💥",
+    summary: "A breakout occurs when price violates a key S/R level with conviction, suggesting the move will continue in the breakout direction. A fakeout is a false breakout where price reverses immediately after breaking the level.",
+    keyPoints: [
+      "Breakout: price closes BEYOND a key level (not just wicks through it)",
+      "Valid breakout signals: strong momentum candle, high volume, wide spread from level",
+      "Fakeout: price appears to break the level but reverses within 1-3 candles — trapping breakout traders",
+      "Volume confirmation: high volume on breakout = more likely to be genuine",
+      "Low volume breakout = higher fakeout risk",
+      "Breakout traders risk being trapped in fakeouts — always use stop losses",
+      "To avoid fakeouts: wait for candle CLOSE beyond level (not just wick), check volume",
+      "Fakeouts are actually excellent trading opportunities for retest traders",
+    ],
+    rules: [
+      "Never enter a breakout on a wick through the level — wait for CANDLE CLOSE",
+      "Check volume: high volume breakout = more reliable",
+      "Always have a stop loss — fakeouts WILL happen, it is unavoidable",
+      "If you miss the initial breakout, wait for the retest instead",
+    ],
+    example: "EUR/USD repeatedly fails to break 1.1000 resistance. A strong bullish candle closes convincingly above 1.1000 on high volume → breakout entry. Stop loss below 1.0975. If price comes back to 1.1000 and holds → retest confirmation.",
+  },
+  {
+    id: "retest-trading",
+    category: "Trade Execution",
+    color: "violet",
+    title: "Retest Trading",
+    emoji: "🔁",
+    summary: "Retest trading is entering AFTER a breakout when price pulls back to test the broken level as new support or resistance. Lower risk than breakout entries — you get extra confirmation before entering.",
+    keyPoints: [
+      "After a bullish breakout: price pulls back to previous resistance → now support → enter long",
+      "After a bearish breakout: price pulls back to previous support → now resistance → enter short",
+      "The retest validates the role reversal of the level (S becomes R, or R becomes S)",
+      "Wait for a reversal candlestick (hammer, engulfing) AT the retest level before entering",
+      "Successful retest = the broken level holds on the pullback and price continues breakout direction",
+      "Failed retest = price pushes through the broken level again (possible fakeout scenario)",
+      "Retest trades: LOWER risk, MORE confirmation, but you may miss big moves if price doesn't pull back",
+    ],
+    rules: [
+      "Do not enter at the broken level immediately — wait for a confirmation candle",
+      "Stop loss below the retest level (for long) or above it (for short)",
+      "Retest with a clear candlestick pattern = highest quality entry",
+      "If price blasts through the retest level, the original breakout may have been a fakeout",
+    ],
+    example: "GBP/USD breaks below support at 1.2800. Price falls to 1.2720, then pulls back up to 1.2800. A bearish engulfing candle forms at 1.2800 (now resistance) → ENTER SHORT. Stop above 1.2825.",
+  },
+  {
+    id: "entry-methods",
+    category: "Trade Execution",
+    color: "violet",
+    title: "Entry Methods",
+    emoji: "⏱️",
+    summary: "Two primary entry techniques: Entry at Open (more immediate, lower R/R) and Entry at Break (higher confirmation, better R/R but requires monitoring or pending orders).",
+    keyPoints: [
+      "ENTRY AT OPEN: Buy/sell at the open of the candle immediately following your pattern's confirmation",
+      "Entry at Open pros: immediate fill, no monitoring needed after placing order",
+      "Entry at Open cons: slightly less confirmation, slightly worse price",
+      "ENTRY AT BREAK: Place a pending order just above the high (long) or below the low (short) of the pattern",
+      "Entry at Break pros: additional confirmation (price must prove itself), better R/R",
+      "Entry at Break cons: requires monitoring or pending order setup; may not trigger if price reverses",
+      "Market Order: executes immediately at current market price — for Entry at Open",
+      "Limit/Stop Order: executes when price reaches a specific level — for Entry at Break",
+    ],
+    rules: [
+      "For Entry at Break: place pending order 1 pip above the signal candle high (long) or 1 pip below the low (short)",
+      "Always set stop loss and take profit BEFORE placing the entry order",
+      "Entry at Open is simpler and preferred for beginners",
+      "Entry at Break reduces fakeout risk but may miss some trades",
+    ],
+  },
+
+  // ── RISK MANAGEMENT ──────────────────────────────────────
+  {
+    id: "risk-reward",
+    category: "Risk Management",
+    color: "rose",
+    title: "Risk / Reward Ratio",
+    emoji: "⚖️",
+    summary: "The Risk/Reward ratio measures how much you stand to make vs. how much you risk on each trade. A positive R/R means you make more when you win than you lose when you lose — the cornerstone of profitable trading.",
+    keyPoints: [
+      "R/R = potential profit ÷ potential loss on a single trade",
+      "Example: 1:2 R/R = risk 50 pips to potentially make 100 pips",
+      "At 1:2 R/R, you only need a 34% win rate to break even",
+      "At 1:3 R/R, you only need a 25% win rate to break even",
+      "You do NOT need to win more than 50% of trades to be profitable with good R/R",
+      "Minimum recommended R/R: 1:1.5 or 1:2 — avoid trades with R/R below 1:1",
+      "R/R depends on your strategy — reversal setups can get higher R/R than continuation",
+      "Use previous structure for stop loss & take profit levels rather than arbitrary pip amounts",
+    ],
+    rules: [
+      "Only take trades with at least 1:1.5 R/R minimum (ideally 1:2 or better)",
+      "Never move your stop loss to increase risk mid-trade (only move in your favor)",
+      "Calculate R/R BEFORE entering any trade — if it doesn't meet your criteria, skip it",
+      "Use the position size calculator to ensure your stop loss = your intended % risk",
+    ],
+    example: "Trade setup: Entry 1.0800, Stop Loss 1.0770 (30 pips risk), Take Profit 1.0860 (60 pips reward). R/R = 60/30 = 1:2. At 40% win rate: (0.4 × 60) − (0.6 × 30) = 24 − 18 = +6 pips per trade average.",
+  },
+  {
+    id: "position-sizing",
+    category: "Risk Management",
+    color: "rose",
+    title: "Position Sizing",
+    emoji: "🎛️",
+    summary: "Position sizing determines how many lots you trade so that a stop loss equals exactly your target % risk. This is non-negotiable — correct sizing protects your account from catastrophic losses.",
+    keyPoints: [
+      "General guideline: risk 0.5%–1% per trade for beginners; max 2%–3% for experienced traders",
+      "Never risk more than 3% of account on a single trade",
+      "Lot size is NOT fixed — it changes with every trade based on stop loss distance",
+      "Formula: Lot Size = (Account × Risk%) ÷ (Stop Loss in pips × Pip value)",
+      "Use a Position Size Calculator for every trade (myfxbook.com/forex-calculators/position-size)",
+      "Example: $10,000 account, 1% risk = $100 max loss. 50-pip SL on EUR/USD → 0.2 lots",
+      "Percentage-based risk grows your position during winning streaks and shrinks during losing streaks = compound effect",
+      "Fixed dollar risk misses the compounding benefit and declines faster in drawdowns",
+    ],
+    rules: [
+      "ALWAYS calculate position size before entering any trade — never guess",
+      "Use percentage-based risk, not fixed dollar amounts",
+      "Account for spread in your stop loss distance calculation",
+      "The position size calculator must become a daily habit",
+    ],
+    example: "Account: $5,000. Risk: 1% = $50. Stop Loss: 40 pips on GBP/USD (pip value ≈ $1 per 0.01 lot = $10/lot). Lots = $50 ÷ (40 × $10) = $50 ÷ $400 = 0.125 lots ≈ 0.12 lots.",
+  },
+  {
+    id: "drawdown",
+    category: "Risk Management",
+    color: "rose",
+    title: "Drawdown Management",
+    emoji: "📉",
+    summary: "Drawdown is how far your account falls from its peak before recovering. Managing drawdowns is critical — the bigger the drawdown, the harder it is to recover. A 50% drawdown requires a 100% gain to break even.",
+    keyPoints: [
+      "Drawdown = (Peak balance − Current balance) ÷ Peak balance × 100%",
+      "10% drawdown: needs 11.1% gain to recover",
+      "25% drawdown: needs 33.3% gain to recover",
+      "50% drawdown: needs 100% gain to recover — catastrophic",
+      "Set a MAXIMUM DRAWDOWN limit based on your backtested strategy performance",
+      "If max drawdown is hit: STOP trading, review strategy, identify what went wrong",
+      "Daily/weekly loss limits prevent emotion-driven revenge trading",
+      "Consecutive losing streaks are normal — even the best strategies face 5-10 loss streaks",
+    ],
+    rules: [
+      "Define your max drawdown limit BEFORE you start live trading",
+      "If daily loss limit is hit: stop for the day — come back tomorrow",
+      "Never try to 'win it back' in the same session — this is revenge trading",
+      "Track drawdown in your journal — if it exceeds backtested max, something changed",
+    ],
+  },
+  {
+    id: "risk-rules",
+    category: "Risk Management",
+    color: "rose",
+    title: "Core Risk Rules",
+    emoji: "🛡️",
+    summary: "A complete set of risk management rules that must be embedded into your trading plan. These protect your account during losing streaks and preserve capital to keep you in the game.",
+    keyPoints: [
+      "Risk per trade: 0.5%–1% (beginners), max 2%–3% (experienced)",
+      "Max open trades at once: e.g., 3 simultaneous positions = 3% total risk exposure",
+      "Currency exposure limit: avoid multiple pairs with the same base currency (correlated risk)",
+      "Maximum drawdown: derived from backtesting — if hit, stop and review",
+      "Daily loss limit: stop trading for the day if X% is lost (prevents revenge trading)",
+      "Never move SL in the wrong direction (to take more risk)",
+      "Only move SL in your favor (to protect profits or break even)",
+      "Protect profits with trailing stops or partial closes at 1:1 milestone",
+    ],
+    rules: [
+      "Write ALL risk rules in your trading plan — they must be rules, not suggestions",
+      "Following your risk rules is NOT optional — treat it like a professional obligation",
+      "Losing streaks are normal — risk rules prevent them from ending your account",
+      "Violating risk rules even once trains bad habits — hold the line",
+    ],
+  },
+
+  // ── STRATEGY & PSYCHOLOGY ─────────────────────────────────
+  {
+    id: "backtesting",
+    category: "Strategy & Psychology",
+    color: "indigo",
+    title: "Backtesting",
+    emoji: "🔬",
+    summary: "Backtesting is manually reviewing historical charts one candle at a time to test how your strategy would have performed in the past. It is one of the most underutilized and powerful tools in trading.",
+    keyPoints: [
+      "Purpose: prove your strategy works BEFORE risking real money",
+      "Manual backtesting: rewind chart on TradingView/MetaTrader, play forward candle-by-candle, take every valid signal",
+      "Target: 200–300+ trades minimum for statistically reliable results; 500–1,000 is ideal",
+      "Track: P/L, win rate, max drawdown, open trades at once, R/R, entry times, currency pairs",
+      "Backtesting also develops pattern recognition — hours on charts = massive skill acceleration",
+      "Be HONEST: don't skip losing trades or invent reasons why a signal was 'not valid'",
+      "Cheating in backtesting only hurts you in live trading",
+      "Past performance does not guarantee future results — but it's the best tool available",
+    ],
+    rules: [
+      "Record EVERY trade signal including losses — no cherry-picking",
+      "Use a spreadsheet to log each trade: date, pair, direction, entry, SL, TP, result, notes",
+      "Backtest across different market conditions: trending, ranging, high/low volatility",
+      "Do not modify strategy rules DURING a backtest — adjust rules and re-test from scratch",
+    ],
+  },
+  {
+    id: "trading-plan",
+    category: "Strategy & Psychology",
+    color: "indigo",
+    title: "The Trading Plan",
+    emoji: "📋",
+    summary: "A trading plan is the complete rulebook for your trading. It defines everything: what you trade, when you trade, how you enter and exit, and how you manage risk. Without a plan, you trade on emotion.",
+    keyPoints: [
+      "1. TRADING THESIS: What is the core reason you believe a trade opportunity exists? (trend + key level + pattern)",
+      "2. MARKET SELECTION: Which pairs and timeframes does your strategy apply to?",
+      "3. TIMEFRAME: Your analysis timeframe vs. your entry timeframe (top-down approach)",
+      "4. INDICATORS: Which indicators (if any) do you use and what specific purpose do they serve?",
+      "5. ENTRY: Exact conditions required to enter — be specific, nothing vague",
+      "6. EXIT & TRADE MANAGEMENT: Fixed R/R or structure-based? Partial exits? Trailing stop?",
+      "7. RISK: Risk per trade %, max open trades, max drawdown, daily loss limit, currency exposure limit",
+      "8. OTHER RULES: News avoidance, trading hours, no-trading days, etc.",
+    ],
+    rules: [
+      "Write your trading plan in full — it must be specific enough that another trader could follow it",
+      "A plan is RULES, not guidelines — follow it without discretion unless you have a formal rule for discretion",
+      "Review and update your plan after every 50–100 trades based on performance data",
+      "If your plan says skip the trade — SKIP THE TRADE, no exceptions",
+    ],
+    example: "Bad plan: 'I'll buy when it looks like it's going up.' Good plan: '4H uptrend (HH/HL) confirmed. 1H price pulls back to previous resistance-turned-support. Bullish engulfing or hammer forms on 1H at that level. Entry at open of next candle. SL: 5 pips below pattern low. TP: next 4H resistance. Min R/R: 1:2. Risk: 1% per trade.'",
+  },
+  {
+    id: "trading-psychology",
+    category: "Strategy & Psychology",
+    color: "indigo",
+    title: "Trading Psychology",
+    emoji: "🧠",
+    summary: "Your biggest enemy in trading is yourself. Emotions — fear, greed, overconfidence, revenge — override your plan and destroy consistent profitability. Psychological discipline is a non-negotiable skill.",
+    keyPoints: [
+      "Revenge trading: taking impulsive trades after a loss to 'win it back' — breaks every rule, amplifies losses",
+      "FOMO (Fear of Missing Out): chasing trades that have already moved — usually late entries with poor R/R",
+      "Overconfidence: after a winning streak, risking more or breaking rules — wins are not skill guarantees",
+      "Fear: avoiding valid trades after losses — leads to missed opportunities and inconsistency",
+      "Tilt: emotional state where rational decision-making collapses — STOP trading immediately",
+      "Discipline = following your rules when emotions say otherwise — this is what separates pros from amateurs",
+      "Journaling: writing down emotions and thoughts after each trade builds self-awareness",
+      "Process vs. outcome: a perfectly executed trade that loses is still a GOOD trade — judge the process",
+    ],
+    rules: [
+      "If you feel emotional about a trade, do not take it — wait until you are calm",
+      "After 2 consecutive losses: pause, review, breathe before the next trade",
+      "Daily loss limit hit: close the platform — do not override this rule",
+      "Never increase risk to recover losses — this is the fastest path to blowing an account",
+      "Review your trade journal weekly to identify emotional patterns",
+    ],
+  },
+];
+
+/* ── Forex Blueprint helper components ── */
+const BLUEPRINT_CATEGORY_COLORS: Record<string, string> = {
+  Foundations: "emerald",
+  "Market Structure": "sky",
+  "Candlestick Reading": "amber",
+  "Trade Execution": "violet",
+  "Risk Management": "rose",
+  "Strategy & Psychology": "indigo",
+};
+const BLUEPRINT_COLOR_MAP: Record<string, { bg: string; border: string; text: string; badge: string; dot: string; divider: string }> = {
+  emerald: { bg: "bg-emerald-500/10", border: "border-emerald-500/25", text: "text-emerald-400", badge: "bg-emerald-500/20 text-emerald-300", dot: "bg-emerald-400", divider: "bg-emerald-500/20" },
+  sky: { bg: "bg-sky-500/10", border: "border-sky-500/25", text: "text-sky-400", badge: "bg-sky-500/20 text-sky-300", dot: "bg-sky-400", divider: "bg-sky-500/20" },
+  amber: { bg: "bg-amber-500/10", border: "border-amber-500/25", text: "text-amber-400", badge: "bg-amber-500/20 text-amber-300", dot: "bg-amber-400", divider: "bg-amber-500/20" },
+  violet: { bg: "bg-violet-500/10", border: "border-violet-500/25", text: "text-violet-400", badge: "bg-violet-500/20 text-violet-300", dot: "bg-violet-400", divider: "bg-violet-500/20" },
+  rose: { bg: "bg-rose-500/10", border: "border-rose-500/25", text: "text-rose-400", badge: "bg-rose-500/20 text-rose-300", dot: "bg-rose-400", divider: "bg-rose-500/20" },
+  indigo: { bg: "bg-indigo-500/10", border: "border-indigo-500/25", text: "text-indigo-400", badge: "bg-indigo-500/20 text-indigo-300", dot: "bg-indigo-400", divider: "bg-indigo-500/20" },
+};
+
+function BlueprintTopicCard({ topic }: { topic: typeof FOREX_BLUEPRINT_TOPICS[0] }) {
+  const [open, setOpen] = useState(false);
+  const c = BLUEPRINT_COLOR_MAP[topic.color] || BLUEPRINT_COLOR_MAP.amber;
+  return (
+    <div className={cx("rounded-xl border transition-all", c.border, open ? c.bg : "border-slate-800 bg-slate-900 hover:border-slate-700")}>
+      <button className="w-full flex items-center gap-3 px-4 py-3.5 text-left" onClick={() => setOpen(!open)}>
+        <span className="text-xl shrink-0">{topic.emoji}</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-slate-100 text-sm leading-tight">{topic.title}</div>
+          {!open && <div className="text-xs text-slate-500 mt-0.5 line-clamp-1">{topic.summary}</div>}
+        </div>
+        <span className={cx("text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0", c.badge)}>{topic.category}</span>
+        <ChevronDown size={14} className={cx("text-slate-500 shrink-0 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="px-4 pb-4 space-y-3 border-t border-slate-800/60 pt-3">
+          <p className="text-sm text-slate-300 leading-relaxed">{topic.summary}</p>
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-2">Key Points</div>
+            <ul className="space-y-1.5">
+              {topic.keyPoints.map((pt, i) => (
+                <li key={i} className="flex gap-2 text-sm text-slate-300 leading-relaxed">
+                  <span className={cx("mt-1 w-1.5 h-1.5 rounded-full shrink-0", c.dot || "bg-amber-400")} />
+                  <span>{pt}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          {topic.rules && topic.rules.length > 0 && (
+            <div className={cx("rounded-lg p-3 border", c.bg, c.border)}>
+              <div className={cx("text-[10px] uppercase tracking-widest font-semibold mb-2", c.text)}>Trading Rules</div>
+              <ul className="space-y-1.5">
+                {topic.rules.map((r, i) => (
+                  <li key={i} className="flex gap-2 text-xs text-slate-300 leading-relaxed">
+                    <ShieldAlert size={11} className={cx("mt-0.5 shrink-0", c.text)} />
+                    <span>{r}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {topic.example && (
+            <div className="bg-slate-950 rounded-lg p-3 border border-slate-800">
+              <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-1.5">Example</div>
+              <p className="text-xs text-slate-400 italic leading-relaxed">{topic.example}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ForexBlueprintLibrary() {
+  const [activeCategory, setActiveCategory] = useState("All");
+  const categories = ["All", ...Array.from(new Set(FOREX_BLUEPRINT_TOPICS.map((t) => t.category)))];
+  const filtered = activeCategory === "All" ? FOREX_BLUEPRINT_TOPICS : FOREX_BLUEPRINT_TOPICS.filter((t) => t.category === activeCategory);
+  return (
+    <div className="space-y-4">
+      <Card className="bg-gradient-to-br from-amber-500/10 to-yellow-600/5 border-amber-500/20">
+        <div className="flex items-start gap-3">
+          <span className="text-2xl">📖</span>
+          <div>
+            <div className="font-bold text-slate-100 text-sm" style={{ fontFamily: "'Sora',sans-serif" }}>SRC Forex Blueprint</div>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Complete reference guide: from Forex basics to advanced risk management. Based on the SRC Guide to Forex &amp; Technical Analysis. Tap any topic to expand.
+            </p>
+          </div>
+        </div>
+      </Card>
+      {/* Category filter */}
+      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+        {categories.map((cat) => {
+          const color = BLUEPRINT_CATEGORY_COLORS[cat];
+          const c = BLUEPRINT_COLOR_MAP[color || "amber"];
+          return (
+            <button key={cat} onClick={() => setActiveCategory(cat)}
+              className={cx("shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition",
+                activeCategory === cat ? (c ? cx(c.bg, c.text, "border", c.border) : "bg-amber-500 text-slate-950") : "bg-slate-900 text-slate-400 border border-slate-800")}>
+              {cat}
+            </button>
+          );
+        })}
+      </div>
+      <div className="space-y-2">
+        {filtered.map((topic) => <BlueprintTopicCard key={topic.id} topic={topic} />)}
+      </div>
+    </div>
+  );
+}
+
+function ForexBlueprintAcademy() {
+  const [activeCategory, setActiveCategory] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
+  const categories = ["All", ...Array.from(new Set(FOREX_BLUEPRINT_TOPICS.map((t) => t.category)))];
+  const filtered = FOREX_BLUEPRINT_TOPICS.filter((t) => {
+    const matchCat = activeCategory === "All" || t.category === activeCategory;
+    const q = searchQuery.toLowerCase();
+    const matchSearch = !q || t.title.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q);
+    return matchCat && matchSearch;
+  });
+
+  const byCat: Record<string, typeof FOREX_BLUEPRINT_TOPICS> = {};
+  filtered.forEach((t) => { (byCat[t.category] = byCat[t.category] || []).push(t); });
+
+  return (
+    <div className="space-y-4">
+      {/* Header banner */}
+      <div className="relative rounded-2xl overflow-hidden border border-amber-500/20 bg-gradient-to-br from-slate-900 via-amber-950/20 to-slate-900 p-5">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full -translate-y-8 translate-x-8" />
+        <div className="relative">
+          <div className="flex items-center gap-2 mb-1">
+            <BookMarked size={16} className="text-amber-400" />
+            <span className="text-xs font-semibold text-amber-400 uppercase tracking-widest">Forex Blueprint</span>
+          </div>
+          <h2 className="text-lg font-bold text-slate-100" style={{ fontFamily: "'Sora',sans-serif" }}>A Guide Into The World of Forex & Technical Analysis</h2>
+          <p className="text-xs text-slate-400 mt-1.5 leading-relaxed max-w-sm">
+            {FOREX_BLUEPRINT_TOPICS.length} topics across {categories.length - 1} categories — from market foundations through to risk management and psychology.
+          </p>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+        <input
+          type="text"
+          placeholder="Search topics…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-amber-500/50"
+        />
+      </div>
+
+      {/* Category pills */}
+      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+        {categories.map((cat) => {
+          const color = BLUEPRINT_CATEGORY_COLORS[cat];
+          const c = BLUEPRINT_COLOR_MAP[color || "amber"];
+          return (
+            <button key={cat} onClick={() => setActiveCategory(cat)}
+              className={cx("shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition",
+                activeCategory === cat ? (c ? cx(c.bg, c.text, "border", c.border) : "bg-amber-500 text-slate-950") : "bg-slate-900 text-slate-400 border border-slate-800")}>
+              {cat === "All" ? "All Topics" : cat}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Topics grouped by category */}
+      {Object.entries(byCat).length === 0 ? (
+        <Card><p className="text-sm text-slate-500 text-center py-4">No topics match your search.</p></Card>
+      ) : activeCategory === "All" ? (
+        Object.entries(byCat).map(([cat, topics]) => {
+          const color = BLUEPRINT_CATEGORY_COLORS[cat];
+          const c = BLUEPRINT_COLOR_MAP[color || "amber"];
+          return (
+            <div key={cat} className="space-y-2">
+              <div className="flex items-center gap-2 pt-1">
+                <div className={cx("h-px flex-1", c?.divider || "bg-amber-500/20")} />
+                <span className={cx("text-[10px] uppercase tracking-widest font-bold px-2", c?.text || "text-amber-400")}>{cat}</span>
+                <div className={cx("h-px flex-1", c?.divider || "bg-amber-500/20")} />
+              </div>
+              {topics.map((topic) => <BlueprintTopicCard key={topic.id} topic={topic} />)}
+            </div>
+          );
+        })
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((topic) => <BlueprintTopicCard key={topic.id} topic={topic} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    LIBRARY TAB (wraps Setups / Strategies)
    ============================================================ */
 function LibraryTab({ data, setData, subTab, setSubTab, goTo }) {
   return (
     <div className="space-y-4">
       <div className="flex gap-2 bg-slate-900 border border-slate-800 rounded-xl p-1">
-        {["Setups", "Strategies"].map((s) => (
+        {["Setups", "Strategies", "Forex Blueprint"].map((s) => (
           <button key={s} onClick={() => setSubTab(s)}
-            className={cx("flex-1 py-2 rounded-lg text-sm font-medium transition", subTab === s ? "bg-amber-500 text-slate-950" : "text-slate-400")}>
+            className={cx("flex-1 py-2 rounded-lg text-xs font-medium transition", subTab === s ? "bg-amber-500 text-slate-950" : "text-slate-400")}>
             {s}
           </button>
         ))}
       </div>
-      {subTab === "Setups" ? <SetupsPanel data={data} setData={setData} goTo={goTo} /> : <StrategiesPanel data={data} setData={setData} goTo={goTo} />}
+      {subTab === "Setups" ? <SetupsPanel data={data} setData={setData} goTo={goTo} />
+        : subTab === "Strategies" ? <StrategiesPanel data={data} setData={setData} goTo={goTo} />
+        : <ForexBlueprintLibrary />}
     </div>
   );
 }
@@ -5576,24 +6388,27 @@ function PlaybookAcademy({ data, goTo }: { data: any; goTo?: (tab: string, sub?:
 function AcademyTab({ data, setData, subTab, setSubTab, goTo }) {
   return (
     <div className="space-y-4">
-      <div className="flex gap-1.5 bg-slate-900 border border-slate-800 rounded-xl p-1">
-        {["Price Action", "Smart Money", "Playbook"].map((s) => (
+      <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1">
+        {["Price Action", "Smart Money", "Playbook", "Forex Blueprint"].map((s) => (
           <button key={s} onClick={() => setSubTab(s)}
-            className={cx("flex-1 py-2 rounded-lg text-xs font-medium transition", subTab === s ? "bg-amber-500 text-slate-950" : "text-slate-400")}>
+            className={cx("flex-1 py-2 rounded-lg text-[10px] font-medium transition leading-tight", subTab === s ? "bg-amber-500 text-slate-950" : "text-slate-400")}>
             {s}
           </button>
         ))}
       </div>
-      <SectionTitle sub={
-        subTab === "Price Action" ? "The full SRC reference guide"
-          : subTab === "Smart Money" ? "Order-flow terminology & your notes"
-          : "Your named setups with photos"
-      }>
-        {subTab === "Price Action" ? "Price Action Academy" : subTab === "Smart Money" ? "Smart Money Concepts" : "Playbook"}
-      </SectionTitle>
+      {subTab !== "Forex Blueprint" && (
+        <SectionTitle sub={
+          subTab === "Price Action" ? "The full SRC reference guide"
+            : subTab === "Smart Money" ? "Order-flow terminology & your notes"
+            : "Your named setups with photos"
+        }>
+          {subTab === "Price Action" ? "Price Action Academy" : subTab === "Smart Money" ? "Smart Money Concepts" : "Playbook"}
+        </SectionTitle>
+      )}
       {subTab === "Price Action" ? <PriceActionAcademy />
         : subTab === "Smart Money" ? <SmartMoneyAcademy data={data} setData={setData} />
-        : <PlaybookAcademy data={data} goTo={goTo} />}
+        : subTab === "Playbook" ? <PlaybookAcademy data={data} goTo={goTo} />
+        : <ForexBlueprintAcademy />}
     </div>
   );
 }
