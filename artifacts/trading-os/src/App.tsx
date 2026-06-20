@@ -12694,18 +12694,23 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     if (!data || !loaded) return;
     const enabled = { ...DEFAULT_SETTINGS().notifications, ...((data as any).settings?.notifications || {}) };
     const fresh = computeNotifications(data as any, enabled);
+
+    // Compute new notifications HERE (effect scope) — never inside a state updater.
+    // React 18 Strict Mode runs updater functions twice, so any ref mutation or
+    // setState call inside an updater would fire twice and break the de-dup logic.
+    const newOnes = fresh.filter((n) => !prevNotifIds.current.has(n.id));
+    newOnes.forEach((n) => prevNotifIds.current.add(n.id));
+
+    // Update the notification list, preserving read-state for already-seen items.
     setNotifs((prev) => {
-      // preserve read state for existing notifs; add new ones as toasts
       const prevMap = new Map(prev.map((n) => [n.id, n]));
-      const merged = fresh.map((n) => prevMap.has(n.id) ? { ...n, read: prevMap.get(n.id)!.read } : n);
-      // find truly new ids (not seen before across any render)
-      const newOnes = merged.filter((n) => !prevNotifIds.current.has(n.id));
-      newOnes.forEach((n) => prevNotifIds.current.add(n.id));
-      if (newOnes.length > 0) {
-        setToastQueue((q) => [...q, ...newOnes].slice(-5)); // cap at 5 queued
-      }
-      return merged;
+      return fresh.map((n) => prevMap.has(n.id) ? { ...n, read: prevMap.get(n.id)!.read } : n);
     });
+
+    // Queue every new notification for the toast carousel — no artificial cap.
+    if (newOnes.length > 0) {
+      setToastQueue((q) => [...q, ...newOnes]);
+    }
   }, [data, loaded]);
 
   /* ── Live risk monitor — fires whenever trades or account change ── */
