@@ -13987,10 +13987,11 @@ function FeatureHubPanel({ data, setData }: { data: any; setData: any }) {
 }
 
 function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
-  const ALL_TABS = ["Account", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report", "AI Lab", "Settings", "Owner"];
+  const ALL_TABS = ["Academy", "Account", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report", "AI Lab", "Settings", "Owner"];
   const moreVis = (data as any)?.settings?.moreTabVisibility || {};
-  const tabs = ALL_TABS.filter((t) => t === "Settings" || t === "Owner" || t === "AI Lab" || moreVis[t] !== false);
+  const tabs = ALL_TABS.filter((t) => t === "Settings" || t === "Owner" || t === "AI Lab" || t === "Academy" || moreVis[t] !== false);
   const accent = (data as any)?.settings?.accentColor || "#f59e0b";
+  const [academySub, setAcademySub] = useState("Price Action");
 
   if (subTab === "Report") {
     return <PerformanceReport data={data} onClose={() => setSubTab("Account")} />;
@@ -14005,10 +14006,12 @@ function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
               subTab === t ? "text-slate-950" : "bg-slate-900 border border-slate-800 text-slate-400")}
             style={subTab === t ? { background: t === "Owner" ? accent : accent } : t === "Owner" ? { background: "#0f172a", border: "1px solid #334155" } : {}}>
             {t === "Owner" && <Lock size={11} className={subTab === t ? "text-slate-950" : "text-slate-500"} />}
+            {t === "Academy" && <GraduationCap size={11} className={subTab === t ? "text-slate-950" : "text-slate-500"} />}
             {t}
           </button>
         ))}
       </div>
+      {subTab === "Academy" && <AcademyTab data={data} setData={setData} subTab={academySub} setSubTab={setAcademySub} goTo={goTo} />}
       {subTab === "Account" && <AccountSettings data={data} setData={setData} />}
       {subTab === "Session" && <SessionPlanPanel data={data} setData={setData} />}
       {subTab === "Plans" && <PlansPanel data={data} setData={setData} goTo={goTo} />}
@@ -14114,7 +14117,7 @@ const NAV_ITEMS = [
   { key: "home",      label: "Home",     icon: Home          },
   { key: "journal",   label: "Journal",  icon: BookOpen      },
   { key: "backtest",  label: "Backtest", icon: BarChart3     },
-  { key: "academy",   label: "Academy",  icon: GraduationCap },
+  { key: "library",   label: "Library",  icon: Layers        },
   { key: "more",      label: "More",     icon: MoreHorizontal },
 ];
 
