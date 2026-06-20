@@ -6,7 +6,7 @@ import {
   BookMarked, Brain, ShieldAlert, Download, RotateCcw, Filter, Paperclip, ChevronUp,
   ChevronLeft, MoreHorizontal, Wallet, ClipboardList, ArrowLeft, Copy, Check, Sparkles,
   Trophy, Flame, Gauge, DollarSign, Smile, Zap, AlertCircle, CalendarDays, Activity, Calculator,
-  Play, Eye, EyeOff, Repeat2
+  Play, Eye, EyeOff, Repeat2, Clock
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line
@@ -3342,6 +3342,136 @@ function PropChallengesDashCard({ data, goTo }) {
   );
 }
 
+/* ── Forex Market Session Clock (Vienna / CEST) ── */
+const FX_SESSIONS = [
+  { name: "Sydney",      short: "SYD", utcOpen: 22 * 60, utcClose:  7 * 60, spansMidnight: true,  color: "sky"     },
+  { name: "Tokyo",       short: "TYO", utcOpen:  0 * 60, utcClose:  9 * 60, spansMidnight: false, color: "violet"  },
+  { name: "Pre-London",  short: "PRE", utcOpen:  7 * 60, utcClose:  8 * 60, spansMidnight: false, color: "amber"   },
+  { name: "London",      short: "LON", utcOpen:  8 * 60, utcClose: 17 * 60, spansMidnight: false, color: "emerald" },
+  { name: "New York",    short: "NY",  utcOpen: 13 * 60, utcClose: 22 * 60, spansMidnight: false, color: "blue"    },
+];
+
+function fxIsOpen(s: typeof FX_SESSIONS[0], utcNow: number) {
+  if (s.spansMidnight) return utcNow >= s.utcOpen || utcNow < s.utcClose;
+  return utcNow >= s.utcOpen && utcNow < s.utcClose;
+}
+
+function fxMinsUntil(target: number, utcNow: number) {
+  let d = target - utcNow;
+  if (d < 0) d += 24 * 60;
+  return d;
+}
+
+function fxFmt(mins: number) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function ForexMarketClock() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const now = new Date();
+  const viennaStr = now.toLocaleTimeString("en-GB", { timeZone: "Europe/Vienna", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const viennaDate = now.toLocaleDateString("en-GB", { timeZone: "Europe/Vienna", weekday: "long", day: "numeric", month: "short" });
+
+  const tzLabel = (() => {
+    const parts = now.toLocaleTimeString("en-GB", { timeZone: "Europe/Vienna", timeZoneName: "short" }).split(" ");
+    return parts[parts.length - 1] || "CEST";
+  })();
+
+  const utcNow = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+  const sessions = FX_SESSIONS.map((s) => {
+    const open = fxIsOpen(s, utcNow);
+    const minsToOpen  = open  ? null : fxMinsUntil(s.utcOpen, utcNow);
+    const minsToClose = !open ? null : fxMinsUntil(s.utcClose, utcNow);
+    return { ...s, open, minsToOpen, minsToClose };
+  });
+
+  const londonOpen = sessions.find((s) => s.name === "London")?.open;
+  const nyOpen     = sessions.find((s) => s.name === "New York")?.open;
+  const overlap    = londonOpen && nyOpen;
+
+  const sessionDot: Record<string, string> = {
+    sky: "bg-sky-400", violet: "bg-violet-400", amber: "bg-amber-400",
+    emerald: "bg-emerald-400", blue: "bg-blue-400",
+  };
+  const sessionText: Record<string, string> = {
+    sky: "text-sky-400", violet: "text-violet-400", amber: "text-amber-400",
+    emerald: "text-emerald-400", blue: "text-blue-400",
+  };
+  const sessionBg: Record<string, string> = {
+    sky: "bg-sky-500/10 border-sky-500/30", violet: "bg-violet-500/10 border-violet-500/30",
+    amber: "bg-amber-500/10 border-amber-500/30", emerald: "bg-emerald-500/10 border-emerald-500/30",
+    blue: "bg-blue-500/10 border-blue-500/30",
+  };
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+      {/* Vienna clock header */}
+      <div className="px-4 pt-4 pb-3 flex items-center justify-between border-b border-slate-800">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+            <Clock size={15} className="text-amber-400" />
+          </div>
+          <div>
+            <div className="text-[10px] text-slate-500 font-medium">Vienna, Austria</div>
+            <div className="text-[11px] text-slate-400">{viennaDate}</div>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-xl font-bold text-slate-100 tabular-nums tracking-tight" style={{ fontFamily: "'Sora', sans-serif" }}>{viennaStr}</div>
+          <div className="text-[10px] text-amber-400 font-semibold">{tzLabel}</div>
+        </div>
+      </div>
+
+      {/* Overlap banner */}
+      {overlap && (
+        <div className="mx-3 mt-3 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border border-emerald-500/20 flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-[11px] font-semibold text-emerald-400">London / New York Overlap — highest liquidity</span>
+        </div>
+      )}
+
+      {/* Session rows */}
+      <div className="p-3 space-y-2">
+        {sessions.map((s) => (
+          <div key={s.name}
+            className={cx("flex items-center justify-between px-3 py-2.5 rounded-xl border transition",
+              s.open ? sessionBg[s.color] : "bg-slate-950 border-slate-800/60")}>
+            <div className="flex items-center gap-2.5">
+              <div className={cx("w-2 h-2 rounded-full shrink-0", s.open ? sessionDot[s.color] + " shadow-sm" : "bg-slate-700")}
+                style={s.open ? { boxShadow: `0 0 6px var(--tw-shadow-color)` } : {}} />
+              <div>
+                <span className={cx("text-xs font-semibold", s.open ? sessionText[s.color] : "text-slate-500")}>{s.name}</span>
+                <span className="text-[9px] text-slate-700 ml-1.5 font-mono">{s.short}</span>
+              </div>
+            </div>
+            <div className="text-right">
+              {s.open ? (
+                <div>
+                  <span className={cx("text-[10px] font-bold uppercase tracking-wide", sessionText[s.color])}>OPEN</span>
+                  <span className="text-[10px] text-slate-500 ml-1.5">closes in {fxFmt(s.minsToClose!)}</span>
+                </div>
+              ) : (
+                <div>
+                  <span className="text-[10px] font-medium text-slate-600">CLOSED</span>
+                  <span className="text-[10px] text-slate-700 ml-1.5">opens in {fxFmt(s.minsToOpen!)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DashSectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 pt-2">
@@ -3390,6 +3520,10 @@ function Dashboard({ data, setData, goTo }) {
           <Pencil size={12} /> Account
         </button>
       </div>
+
+      {/* ── SECTION: MARKET SESSIONS ── */}
+      <DashSectionLabel>Forex Market Sessions</DashSectionLabel>
+      <ForexMarketClock />
 
       {/* ── SECTION: ACCOUNT ── */}
       <DashSectionLabel>Account Overview</DashSectionLabel>
