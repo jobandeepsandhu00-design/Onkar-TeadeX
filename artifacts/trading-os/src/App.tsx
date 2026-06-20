@@ -742,6 +742,7 @@ const DEFAULT_DATA = () => ({
   checkins: [],
   preSession: [],
   account: { startingBalance: 1000, currency: "€" },
+  propChallenges: [],
 });
 
 const STORAGE_KEY = "src_trading_os_v1";
@@ -5059,8 +5060,658 @@ function BackupPanel({ data, setData }) {
 /* ============================================================
    MORE TAB (wraps Plans / Psychology / Vault / Backup)
    ============================================================ */
+/* ============================================================
+   PROP FIRM CHALLENGE TRACKER
+   ============================================================ */
+const PROP_FIRM_PRESETS: Record<string, any> = {
+  "FTMO":             { profitTargetPct:"10", maxDailyLossPct:"5",  maxTotalDrawdownPct:"10", minTradingDays:"4",  maxCalendarDays:"30", drawdownType:"initial"  },
+  "The5ers":          { profitTargetPct:"8",  maxDailyLossPct:"4",  maxTotalDrawdownPct:"8",  minTradingDays:"0",  maxCalendarDays:"0",  drawdownType:"initial"  },
+  "MyForexFunds":     { profitTargetPct:"8",  maxDailyLossPct:"5",  maxTotalDrawdownPct:"12", minTradingDays:"0",  maxCalendarDays:"0",  drawdownType:"trailing" },
+  "FundedNext":       { profitTargetPct:"10", maxDailyLossPct:"5",  maxTotalDrawdownPct:"10", minTradingDays:"4",  maxCalendarDays:"30", drawdownType:"trailing" },
+  "True Forex Funds": { profitTargetPct:"10", maxDailyLossPct:"5",  maxTotalDrawdownPct:"10", minTradingDays:"0",  maxCalendarDays:"30", drawdownType:"initial"  },
+  "Apex":             { profitTargetPct:"9",  maxDailyLossPct:"3",  maxTotalDrawdownPct:"6",  minTradingDays:"0",  maxCalendarDays:"0",  drawdownType:"initial"  },
+  "E8 Markets":       { profitTargetPct:"8",  maxDailyLossPct:"5",  maxTotalDrawdownPct:"8",  minTradingDays:"0",  maxCalendarDays:"0",  drawdownType:"initial"  },
+  "Goatfunded":       { profitTargetPct:"10", maxDailyLossPct:"5",  maxTotalDrawdownPct:"10", minTradingDays:"0",  maxCalendarDays:"0",  drawdownType:"trailing" },
+  "Custom":           {},
+};
+
+function emptyChallenge() {
+  return {
+    id: null, name: "", firm: "FTMO", phase: "Evaluation",
+    accountSize: "100000", currency: "USD",
+    profitTargetPct: "10", maxDailyLossPct: "5", maxTotalDrawdownPct: "10",
+    drawdownType: "initial", minTradingDays: "4", maxCalendarDays: "30",
+    startDate: todayISO(), status: "active", notes: "",
+    customRules: [], dailyLog: [],
+  };
+}
+
+function computePropChallenge(c: any) {
+  const accountSize        = parseFloat(c.accountSize)        || 100000;
+  const profitTargetPct    = parseFloat(c.profitTargetPct)    || 10;
+  const maxDailyLossPct    = parseFloat(c.maxDailyLossPct)    || 5;
+  const maxTotalDrawdownPct= parseFloat(c.maxTotalDrawdownPct)|| 10;
+  const minTradingDays     = parseInt(c.minTradingDays)       || 0;
+  const maxCalendarDays    = parseInt(c.maxCalendarDays)      || 0;
+
+  const log = [...(c.dailyLog || [])].sort((a: any, b: any) => a.date.localeCompare(b.date));
+  const lastEntry     = log[log.length - 1];
+  const currentBalance = lastEntry ? (parseFloat(lastEntry.balance) || accountSize) : accountSize;
+  const totalPnl       = currentBalance - accountSize;
+  const totalPnlPct    = (totalPnl / accountSize) * 100;
+  const profitTargetAmt= accountSize * profitTargetPct / 100;
+  const profitProgress = profitTargetAmt > 0 ? Math.min(100, Math.max(0, (totalPnl / profitTargetAmt) * 100)) : 0;
+  const profitTargetMet= totalPnl >= profitTargetAmt;
+
+  // Daily loss — compare last two log entries
+  let todayLossPct = 0, todayLoss = 0;
+  if (log.length >= 2) {
+    const diff = (parseFloat((log[log.length-1] as any).balance)||0) - (parseFloat((log[log.length-2] as any).balance)||0);
+    todayLoss    = Math.max(0, -diff);
+    todayLossPct = accountSize > 0 ? (todayLoss / accountSize) * 100 : 0;
+  }
+  const maxDailyLossAmt  = accountSize * maxDailyLossPct / 100;
+  const dailyLossProgress= maxDailyLossPct > 0 ? Math.min(100, (todayLossPct / maxDailyLossPct) * 100) : 0;
+  const dailyLossViolated= todayLossPct > maxDailyLossPct;
+
+  // Total drawdown
+  const maxTotalDrawdownAmt = accountSize * maxTotalDrawdownPct / 100;
+  let currentDrawdown = 0;
+  if (c.drawdownType === "trailing") {
+    const balances = log.map((e: any) => parseFloat(e.balance) || accountSize);
+    let peak = accountSize;
+    balances.forEach((b: number) => { if (b > peak) peak = b; });
+    currentDrawdown = Math.max(0, peak - currentBalance);
+  } else {
+    currentDrawdown = Math.max(0, accountSize - currentBalance);
+  }
+  const currentDrawdownPct    = accountSize > 0 ? (currentDrawdown / accountSize) * 100 : 0;
+  const totalDrawdownProgress = maxTotalDrawdownPct > 0 ? Math.min(100, (currentDrawdownPct / maxTotalDrawdownPct) * 100) : 0;
+  const totalDrawdownViolated = currentDrawdownPct > maxTotalDrawdownPct;
+
+  // Trading days
+  const daysTraded         = log.length;
+  const minDaysMet         = minTradingDays === 0 || daysTraded >= minTradingDays;
+  const tradingDaysProgress= minTradingDays > 0 ? Math.min(100, (daysTraded / minTradingDays) * 100) : 100;
+
+  // Calendar / deadline
+  const todayStr    = todayISO();
+  const startDate   = c.startDate || todayStr;
+  const daysElapsed = Math.max(0, Math.floor((new Date(todayStr).getTime() - new Date(startDate).getTime()) / 86400000));
+  const daysRemaining = maxCalendarDays > 0 ? Math.max(0, maxCalendarDays - daysElapsed) : null;
+  const deadlineProgress= maxCalendarDays > 0 ? Math.min(100, (daysElapsed / maxCalendarDays) * 100) : 0;
+  const deadlineViolated= maxCalendarDays > 0 && daysElapsed >= maxCalendarDays && !profitTargetMet;
+
+  const hasFailed  = c.status === "failed" || dailyLossViolated || totalDrawdownViolated || deadlineViolated;
+  const hasPassed  = c.status === "passed" || (profitTargetMet && minDaysMet && !hasFailed);
+  const hasWarning = !hasFailed && !hasPassed && (dailyLossProgress >= 75 || totalDrawdownProgress >= 75 || (daysRemaining !== null && daysRemaining <= 5));
+
+  // Win days = days where balance improved vs previous day
+  let winDays = 0;
+  for (let i = 1; i < log.length; i++) {
+    if ((parseFloat((log[i] as any).balance)||0) > (parseFloat((log[i-1] as any).balance)||0)) winDays++;
+  }
+
+  return {
+    accountSize, profitTargetPct, maxDailyLossPct, maxTotalDrawdownPct,
+    minTradingDays, maxCalendarDays, currentBalance, totalPnl, totalPnlPct,
+    profitTargetAmt, profitProgress, profitTargetMet,
+    todayLoss, todayLossPct, maxDailyLossAmt, dailyLossProgress, dailyLossViolated,
+    currentDrawdown, currentDrawdownPct, maxTotalDrawdownAmt, totalDrawdownProgress, totalDrawdownViolated,
+    daysTraded, minDaysMet, tradingDaysProgress,
+    daysElapsed, daysRemaining, deadlineProgress, deadlineViolated,
+    hasFailed, hasPassed, hasWarning, winDays, log,
+  };
+}
+
+/* ── Prop Challenge Form ── */
+function PropChallengeForm({ initial, onSave, onBack }) {
+  const [form, setForm] = useState(() => initial ? { ...initial } : emptyChallenge());
+  const [newRule, setNewRule] = useState("");
+  const set = (k: string) => (v: any) => setForm((f: any) => ({ ...f, [k]: v }));
+
+  const applyPreset = (firm: string) => {
+    const preset = PROP_FIRM_PRESETS[firm] || {};
+    setForm((f: any) => ({ ...f, firm, ...preset }));
+  };
+
+  const addRule = () => {
+    const r = newRule.trim();
+    if (!r) return;
+    setForm((f: any) => ({ ...f, customRules: [...(f.customRules || []), r] }));
+    setNewRule("");
+  };
+  const removeRule = (i: number) =>
+    setForm((f: any) => ({ ...f, customRules: f.customRules.filter((_: any, idx: number) => idx !== i) }));
+
+  const COMMON_RULES = [
+    "No news trading", "No weekend holds", "Max 3 trades/day",
+    "Only trade London/NY session", "No averaging down", "Minimum 1:2 R:R",
+    "No overlapping positions", "Stop after 2 consecutive losses",
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-3 mb-2">
+        <button onClick={onBack} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400">
+          <ArrowLeft size={16} />
+        </button>
+        <h2 className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>
+          {initial?.id ? "Edit Challenge" : "New Challenge"}
+        </h2>
+      </div>
+
+      {/* Firm selector with presets */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Prop Firm</div>
+        <div className="flex flex-wrap gap-2 mb-3">
+          {Object.keys(PROP_FIRM_PRESETS).map((firm) => (
+            <button key={firm} onClick={() => applyPreset(firm)}
+              className={cx("px-3 py-1.5 rounded-xl border text-xs font-medium transition",
+                form.firm === firm
+                  ? "bg-amber-500 border-amber-500 text-slate-950"
+                  : "bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-600")}>
+              {firm}
+            </button>
+          ))}
+        </div>
+        {form.firm === "Custom" && (
+          <TextInput value={form.name} onChange={set("name")} placeholder="Custom firm name" />
+        )}
+      </div>
+
+      {/* Challenge name */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Challenge Name</div>
+        <TextInput value={form.name} onChange={set("name")} placeholder="e.g. FTMO $100k Phase 1" />
+      </div>
+
+      {/* Phase + Currency */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Phase</div>
+          <select value={form.phase} onChange={(e) => set("phase")(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-amber-500/50">
+            {["Evaluation","Verification","Funded"].map((p) => <option key={p}>{p}</option>)}
+          </select>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Currency</div>
+          <select value={form.currency} onChange={(e) => set("currency")(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-amber-500/50">
+            {["USD","EUR","GBP","CAD","AUD"].map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Account size + start date */}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Account Size"><TextInput value={form.accountSize} onChange={set("accountSize")} placeholder="100000" /></Field>
+        <Field label="Start Date"><TextInput type="date" value={form.startDate} onChange={set("startDate")} /></Field>
+      </div>
+
+      {/* Targets */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Rules & Limits</div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Profit Target %"><TextInput value={form.profitTargetPct} onChange={set("profitTargetPct")} placeholder="10" /></Field>
+          <Field label="Max Daily Loss %"><TextInput value={form.maxDailyLossPct} onChange={set("maxDailyLossPct")} placeholder="5" /></Field>
+          <Field label="Max Total Drawdown %"><TextInput value={form.maxTotalDrawdownPct} onChange={set("maxTotalDrawdownPct")} placeholder="10" /></Field>
+          <Field label="Min Trading Days"><TextInput value={form.minTradingDays} onChange={set("minTradingDays")} placeholder="4" /></Field>
+          <Field label="Max Calendar Days (0=none)"><TextInput value={form.maxCalendarDays} onChange={set("maxCalendarDays")} placeholder="30" /></Field>
+        </div>
+      </div>
+
+      {/* Drawdown type */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Drawdown Type</div>
+        <div className="flex gap-2">
+          {["initial","trailing"].map((t) => (
+            <button key={t} onClick={() => set("drawdownType")(t)}
+              className={cx("flex-1 py-2.5 rounded-xl border text-xs font-medium capitalize transition",
+                form.drawdownType === t ? "bg-amber-500/15 border-amber-500/50 text-amber-400" : "bg-slate-900 border-slate-800 text-slate-500")}>
+              {t === "initial" ? "Static (from initial)" : "Trailing (from peak)"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Custom rules */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Trading Rules</div>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {COMMON_RULES.map((r) => {
+            const active = (form.customRules || []).includes(r);
+            return (
+              <button key={r} onClick={() => {
+                if (active) removeRule((form.customRules || []).indexOf(r));
+                else setForm((f: any) => ({ ...f, customRules: [...(f.customRules || []), r] }));
+              }}
+                className={cx("px-2.5 py-1 rounded-lg border text-[10px] font-medium transition",
+                  active ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400" : "bg-slate-900 border-slate-800 text-slate-500")}>
+                {active ? "✓ " : ""}{r}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex gap-2">
+          <input value={newRule} onChange={(e) => setNewRule(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addRule()}
+            placeholder="Add custom rule…"
+            className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 outline-none focus:border-amber-500/50" />
+          <button onClick={addRule} className="px-3 py-2 bg-amber-500 text-slate-950 rounded-xl font-semibold text-sm">Add</button>
+        </div>
+        {(form.customRules || []).filter((r: string) => !COMMON_RULES.includes(r)).map((r: string, i: number) => (
+          <div key={i} className="flex items-center justify-between px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl mt-1.5 text-sm text-slate-300">
+            {r}
+            <button onClick={() => removeRule((form.customRules || []).indexOf(r))} className="text-slate-600 hover:text-rose-400"><X size={13} /></button>
+          </div>
+        ))}
+      </div>
+
+      {/* Notes */}
+      <Field label="Notes">
+        <textarea value={form.notes} onChange={(e) => set("notes")(e.target.value)} rows={3}
+          placeholder="Any additional notes about this challenge…"
+          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 outline-none resize-none focus:border-amber-500/50" />
+      </Field>
+
+      <button onClick={() => onSave({ ...form, id: form.id || uid(), firm: form.firm === "Custom" ? form.name : form.firm })}
+        disabled={!form.name.trim()}
+        className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold text-sm py-3 rounded-xl transition">
+        {initial?.id ? "Save Changes" : "Create Challenge"}
+      </button>
+    </div>
+  );
+}
+
+/* ── Prop Challenge Detail ── */
+function PropChallengeDetail({ challenge, onBack, onEdit, onUpdateLog, onMarkStatus }) {
+  const m = computePropChallenge(challenge);
+  const cur = challenge.currency || "USD";
+  const fmt = (n: number) => `${cur} ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const [showLogForm, setShowLogForm] = useState(false);
+  const [logBalance, setLogBalance] = useState("");
+  const [logNote, setLogNote] = useState("");
+  const [logDate, setLogDate] = useState(todayISO());
+
+  const submitLog = () => {
+    if (!logBalance.trim()) return;
+    const entry = { date: logDate, balance: logBalance, note: logNote };
+    const existing = (challenge.dailyLog || []).filter((e: any) => e.date !== logDate);
+    onUpdateLog([...existing, entry].sort((a: any, b: any) => a.date.localeCompare(b.date)));
+    setLogBalance(""); setLogNote(""); setLogDate(todayISO()); setShowLogForm(false);
+  };
+
+  const removeLog = (date: string) =>
+    onUpdateLog((challenge.dailyLog || []).filter((e: any) => e.date !== date));
+
+  const statusBanner = () => {
+    if (m.hasFailed) return { bg: "bg-rose-500/10 border-rose-500/30", text: "text-rose-400", label: "⛔ Challenge Failed", sub: m.dailyLossViolated ? "Daily loss limit breached" : m.totalDrawdownViolated ? "Max drawdown exceeded" : "Deadline passed" };
+    if (m.hasPassed) return { bg: "bg-emerald-500/10 border-emerald-500/30", text: "text-emerald-400", label: "🏆 Challenge Passed!", sub: `Profit target met · ${m.daysTraded} trading days` };
+    if (m.hasWarning) return { bg: "bg-amber-500/10 border-amber-500/30", text: "text-amber-400", label: "⚠ Approaching Limits", sub: m.dailyLossProgress >= 75 ? "Daily loss near limit" : m.totalDrawdownProgress >= 75 ? "Drawdown near limit" : `${m.daysRemaining} days left on deadline` };
+    return { bg: "bg-sky-500/10 border-sky-500/20", text: "text-sky-400", label: "✅ Active — On Track", sub: `${m.daysTraded} day${m.daysTraded !== 1 ? "s" : ""} logged · ${fmt(m.totalPnl)} P/L` };
+  };
+  const banner = statusBanner();
+
+  const RuleBar = ({ label, value, max, progress, violated, warning, suffix = "" }: any) => {
+    const color = violated ? "#f43f5e" : warning ? "#f59e0b" : "#22c55e";
+    return (
+      <div className={cx("rounded-xl border p-3", violated ? "bg-rose-500/5 border-rose-500/20" : warning ? "bg-amber-500/5 border-amber-500/15" : "bg-slate-900 border-slate-800")}>
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">{label}</span>
+          <span className={cx("text-[10px] font-bold", violated ? "text-rose-400" : warning ? "text-amber-400" : "text-slate-300")}>
+            {value}{suffix} / {max}{suffix}
+          </span>
+        </div>
+        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${progress}%`, background: color }} />
+        </div>
+        {violated && <p className="text-[9px] text-rose-400 mt-1 font-semibold">VIOLATED</p>}
+      </div>
+    );
+  };
+
+  // Chart data
+  const chartData = [
+    { date: challenge.startDate, balance: m.accountSize },
+    ...m.log.map((e: any) => ({ date: e.date.slice(5), balance: parseFloat(e.balance) || m.accountSize })),
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Back + header */}
+      <div className="flex items-center gap-3">
+        <button onClick={onBack} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400">
+          <ArrowLeft size={16} />
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-slate-100 text-sm truncate" style={{ fontFamily: "'Sora', sans-serif" }}>{challenge.name || challenge.firm}</div>
+          <div className="text-[10px] text-slate-500">{challenge.firm} · {challenge.phase} · {cur} {parseFloat(challenge.accountSize).toLocaleString()}</div>
+        </div>
+        <button onClick={onEdit} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400"><Pencil size={15} /></button>
+      </div>
+
+      {/* Status banner */}
+      <div className={cx("rounded-xl border px-4 py-3", banner.bg)}>
+        <div className={cx("font-bold text-sm", banner.text)}>{banner.label}</div>
+        <div className="text-[11px] text-slate-500 mt-0.5">{banner.sub}</div>
+        {!m.hasFailed && !m.hasPassed && (
+          <div className="flex gap-2 mt-2">
+            <button onClick={() => onMarkStatus("passed")} className="px-3 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-semibold">Mark Passed</button>
+            <button onClick={() => onMarkStatus("failed")} className="px-3 py-1 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-400 text-[10px] font-semibold">Mark Failed</button>
+          </div>
+        )}
+      </div>
+
+      {/* Rule progress bars */}
+      <div className="space-y-2">
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Challenge Rules Progress</div>
+        <RuleBar
+          label="Profit Target"
+          value={m.totalPnlPct >= 0 ? `+${m.totalPnlPct.toFixed(2)}` : m.totalPnlPct.toFixed(2)}
+          max={`+${m.profitTargetPct.toFixed(0)}`} suffix="%" progress={m.profitProgress}
+          violated={false} warning={false} />
+        <RuleBar
+          label="Daily Loss (today)"
+          value={m.todayLossPct.toFixed(2)} max={m.maxDailyLossPct.toFixed(0)} suffix="%"
+          progress={m.dailyLossProgress} violated={m.dailyLossViolated} warning={m.dailyLossProgress >= 75 && !m.dailyLossViolated} />
+        <RuleBar
+          label={`Total Drawdown (${challenge.drawdownType === "trailing" ? "trailing" : "from initial"})`}
+          value={m.currentDrawdownPct.toFixed(2)} max={m.maxTotalDrawdownPct.toFixed(0)} suffix="%"
+          progress={m.totalDrawdownProgress} violated={m.totalDrawdownViolated} warning={m.totalDrawdownProgress >= 75 && !m.totalDrawdownViolated} />
+        {m.minTradingDays > 0 && (
+          <RuleBar
+            label="Min Trading Days"
+            value={m.daysTraded.toString()} max={m.minTradingDays.toString()} suffix=" days"
+            progress={m.tradingDaysProgress} violated={false} warning={false} />
+        )}
+        {m.maxCalendarDays > 0 && (
+          <RuleBar
+            label="Calendar Days Used"
+            value={m.daysElapsed.toString()} max={m.maxCalendarDays.toString()} suffix=" days"
+            progress={m.deadlineProgress} violated={m.deadlineViolated}
+            warning={m.daysRemaining !== null && m.daysRemaining <= 5 && !m.hasPassed} />
+        )}
+      </div>
+
+      {/* Quick stats */}
+      <div className="grid grid-cols-2 gap-2">
+        {[
+          { label: "Current Balance", value: fmt(m.currentBalance), color: m.currentBalance >= m.accountSize ? "text-emerald-400" : "text-rose-400" },
+          { label: "Total P/L", value: (m.totalPnl >= 0 ? "+" : "") + fmt(m.totalPnl), color: m.totalPnl >= 0 ? "text-emerald-400" : "text-rose-400" },
+          { label: "Current Drawdown", value: `${m.currentDrawdownPct.toFixed(2)}%`, color: m.currentDrawdownPct > m.maxTotalDrawdownPct * 0.75 ? "text-rose-400" : "text-slate-200" },
+          { label: "Win Days / Logged", value: `${m.winDays} / ${m.daysTraded}`, color: "text-slate-200" },
+          { label: "Profit to Target", value: fmt(Math.max(0, m.profitTargetAmt - m.totalPnl)), color: "text-amber-400" },
+          { label: "Days Remaining", value: m.daysRemaining !== null ? `${m.daysRemaining}d` : "—", color: m.daysRemaining !== null && m.daysRemaining <= 5 ? "text-rose-400" : "text-slate-200" },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
+            <div className={cx("text-sm font-bold", color)}>{value}</div>
+            <div className="text-[10px] text-slate-600 mt-0.5">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Equity curve */}
+      {chartData.length > 1 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-3">Equity Curve</div>
+          <ResponsiveContainer width="100%" height={140}>
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <XAxis dataKey="date" tick={{ fontSize: 9, fill: "#475569" }} />
+              <YAxis tick={{ fontSize: 9, fill: "#475569" }} width={60}
+                tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} />
+              <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8, fontSize: 11 }}
+                formatter={(v: number) => [fmt(v), "Balance"]} />
+              <Line type="monotone" dataKey="balance" stroke="#f59e0b" strokeWidth={2} dot={{ fill: "#f59e0b", r: 3 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Custom rules checklist */}
+      {(challenge.customRules || []).length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Trading Rules</div>
+          <div className="space-y-1.5">
+            {(challenge.customRules || []).map((rule: string, i: number) => (
+              <div key={i} className="flex items-center gap-2 text-sm text-slate-300">
+                <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
+                {rule}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Daily log */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Daily Balance Log</div>
+          <button onClick={() => setShowLogForm((v) => !v)}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 text-[10px] font-bold">
+            <Plus size={11} /> Log Balance
+          </button>
+        </div>
+
+        {showLogForm && (
+          <div className="mb-3 p-3 bg-slate-800/60 rounded-xl space-y-2 border border-slate-700">
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Date"><TextInput type="date" value={logDate} onChange={setLogDate} /></Field>
+              <Field label={`Balance (${cur})`}><TextInput value={logBalance} onChange={setLogBalance} placeholder="e.g. 102500" /></Field>
+            </div>
+            <Field label="Note (optional)"><TextInput value={logNote} onChange={setLogNote} placeholder="e.g. Good London session" /></Field>
+            <div className="flex gap-2">
+              <button onClick={submitLog} disabled={!logBalance.trim()} className="flex-1 py-2 bg-amber-500 text-slate-950 rounded-xl text-xs font-bold disabled:opacity-40">Save Entry</button>
+              <button onClick={() => setShowLogForm(false)} className="px-4 py-2 bg-slate-900 border border-slate-700 text-slate-400 rounded-xl text-xs">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {m.log.length === 0 ? (
+          <p className="text-[11px] text-slate-600">No balance entries yet. Log your daily closing balance to track progress.</p>
+        ) : (
+          <div className="space-y-1.5 max-h-52 overflow-y-auto">
+            {[...m.log].reverse().map((e: any, i: number) => {
+              const prev = [...m.log].reverse()[i + 1];
+              const diff = prev ? (parseFloat(e.balance) || 0) - (parseFloat(prev.balance) || 0) : null;
+              return (
+                <div key={e.date} className="flex items-center justify-between py-1.5 border-b border-slate-800/60 last:border-0">
+                  <div>
+                    <span className="text-[11px] text-slate-400 font-medium">{e.date}</span>
+                    {e.note && <span className="text-[10px] text-slate-600 ml-2">{e.note}</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {diff !== null && (
+                      <span className={cx("text-[10px] font-medium", diff >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                        {diff >= 0 ? "+" : ""}{diff.toFixed(2)}
+                      </span>
+                    )}
+                    <span className="text-xs font-semibold text-slate-200">{fmt(parseFloat(e.balance) || 0)}</span>
+                    <button onClick={() => removeLog(e.date)} className="text-slate-700 hover:text-rose-400"><X size={12} /></button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Notes */}
+      {challenge.notes && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1">Notes</div>
+          <p className="text-xs text-slate-400">{challenge.notes}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Prop Challenges Panel (top-level) ── */
+function PropChallengesPanel({ data, setData }) {
+  const challenges: any[] = data.propChallenges || [];
+  const [view, setView] = useState<"list"|"detail"|"form">("list");
+  const [selected, setSelected] = useState<any>(null);
+
+  const save = (ch: any) => {
+    setData((d: any) => {
+      const exists = d.propChallenges.some((c: any) => c.id === ch.id);
+      const propChallenges = exists
+        ? d.propChallenges.map((c: any) => c.id === ch.id ? ch : c)
+        : [...d.propChallenges, ch];
+      return { ...d, propChallenges };
+    });
+    setSelected(ch);
+    setView("detail");
+  };
+
+  const remove = (id: string) => {
+    setData((d: any) => ({ ...d, propChallenges: d.propChallenges.filter((c: any) => c.id !== id) }));
+    setView("list");
+  };
+
+  const updateLog = (id: string, log: any[]) => {
+    setData((d: any) => ({
+      ...d,
+      propChallenges: d.propChallenges.map((c: any) => c.id === id ? { ...c, dailyLog: log } : c),
+    }));
+    setSelected((s: any) => s ? { ...s, dailyLog: log } : s);
+  };
+
+  const markStatus = (id: string, status: string) => {
+    setData((d: any) => ({
+      ...d,
+      propChallenges: d.propChallenges.map((c: any) => c.id === id ? { ...c, status } : c),
+    }));
+    setSelected((s: any) => s ? { ...s, status } : s);
+  };
+
+  // Sync selected with latest data
+  const liveSelected = selected ? (challenges.find((c) => c.id === selected.id) || selected) : null;
+
+  if (view === "form") {
+    return (
+      <PropChallengeForm
+        initial={selected}
+        onSave={save}
+        onBack={() => setView(selected?.id ? "detail" : "list")} />
+    );
+  }
+
+  if (view === "detail" && liveSelected) {
+    return (
+      <PropChallengeDetail
+        challenge={liveSelected}
+        onBack={() => setView("list")}
+        onEdit={() => { setSelected(liveSelected); setView("form"); }}
+        onUpdateLog={(log: any[]) => updateLog(liveSelected.id, log)}
+        onMarkStatus={(status: string) => markStatus(liveSelected.id, status)} />
+    );
+  }
+
+  // List view
+  const PHASE_COLOR: Record<string, string> = {
+    Evaluation: "bg-sky-500/10 text-sky-400 border-sky-500/20",
+    Verification: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    Funded: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <SectionTitle sub="Track your prop firm evaluations">Prop Challenges</SectionTitle>
+        <button onClick={() => { setSelected(null); setView("form"); }}
+          className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold transition">
+          <Plus size={13} /> New
+        </button>
+      </div>
+
+      {challenges.length === 0 ? (
+        <Card>
+          <div className="text-center py-8">
+            <Trophy size={32} className="text-amber-400/40 mx-auto mb-3" />
+            <p className="text-slate-400 text-sm font-medium">No challenges yet</p>
+            <p className="text-slate-600 text-xs mt-1 mb-4">Add your first prop firm challenge to start tracking your progress.</p>
+            <button onClick={() => { setSelected(null); setView("form"); }}
+              className="px-4 py-2 bg-amber-500 text-slate-950 rounded-xl text-sm font-bold">
+              + Add Challenge
+            </button>
+          </div>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {challenges.map((ch) => {
+            const m = computePropChallenge(ch);
+            const statusColor = m.hasFailed ? "border-rose-500/30" : m.hasPassed ? "border-emerald-500/30" : m.hasWarning ? "border-amber-500/25" : "border-slate-700/60";
+            return (
+              <div key={ch.id} onClick={() => { setSelected(ch); setView("detail"); }}
+                className={cx("rounded-2xl border bg-slate-950 p-4 cursor-pointer active:scale-[0.99] transition-transform", statusColor)}>
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-semibold text-slate-100" style={{ fontFamily: "'Sora', sans-serif" }}>{ch.name || ch.firm}</span>
+                      <span className={cx("px-1.5 py-0.5 rounded text-[9px] font-semibold border", PHASE_COLOR[ch.phase] || PHASE_COLOR.Evaluation)}>{ch.phase}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-500">{ch.firm} · {ch.currency} {parseFloat(ch.accountSize).toLocaleString()} · Started {ch.startDate}</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className={cx("text-sm font-bold", m.totalPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                      {m.totalPnl >= 0 ? "+" : ""}{m.totalPnlPct.toFixed(2)}%
+                    </div>
+                    <div className="text-[9px] text-slate-600">{m.daysTraded}d logged</div>
+                  </div>
+                </div>
+
+                {/* Mini progress bars */}
+                <div className="space-y-1.5">
+                  <div>
+                    <div className="flex justify-between text-[9px] text-slate-600 mb-0.5">
+                      <span>Profit target ({ch.profitTargetPct}%)</span>
+                      <span>{m.totalPnlPct >= 0 ? "+" : ""}{m.totalPnlPct.toFixed(2)}%</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${m.profitProgress}%` }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-[9px] text-slate-600 mb-0.5">
+                      <span>Drawdown used ({ch.maxTotalDrawdownPct}% limit)</span>
+                      <span>{m.currentDrawdownPct.toFixed(2)}%</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all"
+                        style={{ width: `${m.totalDrawdownProgress}%`, background: m.totalDrawdownViolated ? "#f43f5e" : m.totalDrawdownProgress >= 75 ? "#f59e0b" : "#475569" }} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-800/60">
+                  <span className={cx("text-[10px] font-semibold",
+                    m.hasFailed ? "text-rose-400" : m.hasPassed ? "text-emerald-400" : m.hasWarning ? "text-amber-400" : "text-sky-400")}>
+                    {m.hasFailed ? "⛔ Failed" : m.hasPassed ? "🏆 Passed" : m.hasWarning ? "⚠ Warning" : "✅ On Track"}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {m.daysRemaining !== null && !m.hasPassed && !m.hasFailed && (
+                      <span className="text-[10px] text-slate-500">{m.daysRemaining}d left</span>
+                    )}
+                    <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this challenge?")) remove(ch.id); }}
+                      className="text-slate-700 hover:text-rose-400 p-1"><Trash2 size={13} /></button>
+                    <ChevronRight size={14} className="text-slate-600" />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
-  const tabs = ["Account", "Plans", "Psychology", "Vault", "Backup", "Report"];
+  const tabs = ["Account", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report"];
 
   if (subTab === "Report") {
     return <PerformanceReport data={data} onClose={() => setSubTab("Account")} />;
