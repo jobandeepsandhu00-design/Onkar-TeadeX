@@ -886,10 +886,29 @@ const DEFAULT_DATA = () => ({
   preSession: [],
   account: { startingBalance: 1000, currency: "€" },
   tradingAccounts: [],
+  activeAccountId: null as string | null,
   propChallenges: [],
   sessionPlans: [],
   settings: DEFAULT_SETTINGS(),
 });
+
+/* ── Multi-account helpers ─────────────────────────────────── */
+function getEffectiveAccount(data: any): { startingBalance: number; currency: string } {
+  const activeId = data.activeAccountId;
+  const accounts: any[] = data.tradingAccounts || [];
+  const active = activeId ? accounts.find((a: any) => a.id === activeId) : null;
+  if (active) {
+    const bal = parseFloat(active.balance);
+    return { startingBalance: isNaN(bal) ? 0 : bal, currency: active.currency || "USD" };
+  }
+  return data.account || { startingBalance: 1000, currency: "€" };
+}
+
+function getFilteredTrades(data: any): any[] {
+  const activeId = data.activeAccountId;
+  if (!activeId) return data.trades || [];
+  return (data.trades || []).filter((t: any) => t.accountId === activeId);
+}
 
 const STORAGE_KEY = "src_trading_os_v1";
 
@@ -2476,7 +2495,8 @@ function AccountBalanceCard({ account, a }) {
 /* ── Trading Accounts Manager ── */
 function TradingAccountsManager({ data, setData }: any) {
   const accounts: any[] = data.tradingAccounts || [];
-  const emptyTA = () => ({ alias: "", accountNumber: "", platform: "MT4", accountType: "Live", currency: "USD" });
+  const activeId: string | null = data.activeAccountId || null;
+  const emptyTA = () => ({ alias: "", accountNumber: "", platform: "MT4", accountType: "Live", currency: "USD", balance: "" });
   const [form, setForm] = useState<any>(emptyTA());
   const [editId, setEditId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -2487,19 +2507,32 @@ function TradingAccountsManager({ data, setData }: any) {
     if (editId) {
       setData((d: any) => ({ ...d, tradingAccounts: (d.tradingAccounts || []).map((a: any) => a.id === editId ? { ...form, id: editId } : a) }));
     } else {
-      setData((d: any) => ({ ...d, tradingAccounts: [...(d.tradingAccounts || []), { ...form, id: uid() }] }));
+      const newId = uid();
+      setData((d: any) => ({
+        ...d,
+        tradingAccounts: [...(d.tradingAccounts || []), { ...form, id: newId }],
+        activeAccountId: d.activeAccountId || newId, // auto-select first account added
+      }));
     }
     setForm(emptyTA()); setEditId(null); setOpen(false);
   };
 
   const del = (id: string) => {
     if (!confirm("Remove this account?")) return;
-    setData((d: any) => ({ ...d, tradingAccounts: (d.tradingAccounts || []).filter((a: any) => a.id !== id) }));
+    setData((d: any) => ({
+      ...d,
+      tradingAccounts: (d.tradingAccounts || []).filter((a: any) => a.id !== id),
+      activeAccountId: d.activeAccountId === id ? null : d.activeAccountId,
+    }));
   };
 
   const startEdit = (a: any) => {
-    setForm({ alias: a.alias || "", accountNumber: a.accountNumber, platform: a.platform, accountType: a.accountType, currency: a.currency });
+    setForm({ alias: a.alias || "", accountNumber: a.accountNumber, platform: a.platform, accountType: a.accountType, currency: a.currency, balance: a.balance || "" });
     setEditId(a.id); setOpen(true);
+  };
+
+  const makeActive = (id: string) => {
+    setData((d: any) => ({ ...d, activeAccountId: d.activeAccountId === id ? null : id }));
   };
 
   const PLAT_CLR: Record<string, string> = { MT4: "#4fc3f7", MT5: "#29b6f6", TradingView: "#2196f3", cTrader: "#00bcd4", IBKR: "#ff7043" };
@@ -2535,8 +2568,15 @@ function TradingAccountsManager({ data, setData }: any) {
           <Field label="Account Number / Login ID">
             <TextInput placeholder="e.g. 12345678" value={form.accountNumber} onChange={setF("accountNumber")} />
           </Field>
-          <Field label="Nickname" hint="Optional — e.g. My FTMO Live">
-            <TextInput placeholder="My Live Account" value={form.alias} onChange={setF("alias")} />
+          <Field label="Nickname" hint="Optional — e.g. IC Markets Live">
+            <TextInput placeholder="IC Markets" value={form.alias} onChange={setF("alias")} />
+          </Field>
+          <Field label="Starting Balance" hint="How much is in this account right now">
+            <div className="flex gap-2">
+              <span className="flex items-center px-3 bg-slate-800 border border-slate-700 rounded-xl text-amber-400 font-semibold text-sm shrink-0">{form.currency || "USD"}</span>
+              <input type="number" step="0.01" min="0" placeholder="10000" value={form.balance} onChange={setF("balance")}
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500/50" />
+            </div>
           </Field>
           <Field label="Platform / Broker">
             <TextInput list="ta-plat-list" placeholder="MT4, MT5, TradingView..." value={form.platform} onChange={setF("platform")} />
@@ -2575,42 +2615,72 @@ function TradingAccountsManager({ data, setData }: any) {
           <div className="text-3xl mb-2">🏦</div>
           <div className="text-slate-500 text-sm font-medium">No accounts yet</div>
           <div className="text-[11px] text-slate-600 mt-1 leading-relaxed">
-            Add your MT4/MT5 or broker account numbers<br />to tag your trades and prop challenges
+            Add your IC Markets, FP Markets, or any broker accounts.<br />Switching accounts shows only that account's trades & balance.
           </div>
         </div>
       ) : (
         <div className="space-y-2">
           {accounts.map((a: any) => {
+            const isActive = a.id === activeId;
             const platClr = PLAT_CLR[a.platform] || "#64748b";
+            const bal = parseFloat(a.balance);
             return (
-              <div key={a.id} className="flex items-center gap-3 bg-slate-900 rounded-xl px-3 py-2.5 border border-slate-800">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-sm font-bold text-slate-100 tracking-wide">{a.accountNumber}</span>
-                    {a.alias && <span className="text-xs text-slate-500 truncate">{a.alias}</span>}
+              <div key={a.id} className={cx(
+                "rounded-xl border transition",
+                isActive ? "bg-emerald-500/5 border-emerald-500/30" : "bg-slate-900 border-slate-800"
+              )}>
+                {/* Active bar */}
+                {isActive && (
+                  <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-1">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Active Account</span>
                   </div>
-                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border"
-                      style={{ color: platClr, borderColor: platClr + "40", background: platClr + "18" }}>
-                      {a.platform}
-                    </span>
-                    <span className={cx("text-[10px] px-1.5 py-0.5 rounded-md font-medium", TYPE_CLS[a.accountType] || "bg-slate-800 text-slate-400")}>
-                      {a.accountType}
-                    </span>
-                    <span className="text-[10px] text-slate-600">{a.currency}</span>
+                )}
+                <div className="flex items-center gap-3 px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-sm font-bold text-slate-100 tracking-wide">{a.accountNumber}</span>
+                      {a.alias && <span className="text-xs text-slate-400 font-medium">{a.alias}</span>}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border"
+                        style={{ color: platClr, borderColor: platClr + "40", background: platClr + "18" }}>
+                        {a.platform}
+                      </span>
+                      <span className={cx("text-[10px] px-1.5 py-0.5 rounded-md font-medium", TYPE_CLS[a.accountType] || "bg-slate-800 text-slate-400")}>
+                        {a.accountType}
+                      </span>
+                      {!isNaN(bal) && bal > 0 && (
+                        <span className="text-[10px] font-semibold text-slate-300">{a.currency} {bal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={() => startEdit(a)} className="p-1.5 rounded-lg text-slate-600 hover:text-amber-400 hover:bg-slate-800 transition">
-                    <Pencil size={13} />
-                  </button>
-                  <button onClick={() => del(a.id)} className="p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-slate-800 transition">
-                    <Trash2 size={13} />
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => makeActive(a.id)}
+                      className={cx(
+                        "px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition",
+                        isActive
+                          ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:bg-rose-500/10 hover:border-rose-500/30 hover:text-rose-400"
+                          : "bg-slate-800 border-slate-700 text-slate-400 hover:bg-amber-500/15 hover:border-amber-500/30 hover:text-amber-400"
+                      )}>
+                      {isActive ? "✓ Active" : "Switch"}
+                    </button>
+                    <button onClick={() => startEdit(a)} className="p-1.5 rounded-lg text-slate-600 hover:text-amber-400 hover:bg-slate-800 transition">
+                      <Pencil size={13} />
+                    </button>
+                    <button onClick={() => del(a.id)} className="p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-slate-800 transition">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
               </div>
             );
           })}
+          {accounts.length > 1 && (
+            <p className="text-[10px] text-slate-600 text-center pt-1">
+              Tap <span className="text-slate-500 font-medium">Switch</span> to change active account — balance and trade log update instantly
+            </p>
+          )}
         </div>
       )}
     </Card>
@@ -2636,13 +2706,14 @@ function AccountSettings({ data, setData }) {
   return (
     <div className="space-y-4">
       <TradingAccountsManager data={data} setData={setData} />
-      <SectionTitle sub="Set your starting balance and currency">Account Settings</SectionTitle>
+      <SectionTitle sub="Fallback balance when no account is active">Account Settings</SectionTitle>
       <Card>
         <div className="flex items-center gap-2 mb-4">
           <Wallet size={16} className="text-amber-400" />
-          <span className="font-semibold text-slate-100 text-sm">Account Configuration</span>
+          <span className="font-semibold text-slate-100 text-sm">Default / Fallback Balance</span>
         </div>
-        <Field label="Starting Account Balance" hint="The balance you started trading with. All P/L is calculated relative to this.">
+        <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">Used when no trading account is active above. If you have accounts set up, set the balance on each account instead.</p>
+        <Field label="Starting Account Balance" hint="Fallback balance when no account is selected">
           <div className="flex gap-2">
             <span className="flex items-center px-3 bg-slate-800 border border-slate-700 rounded-xl text-amber-400 font-semibold text-sm shrink-0">{cur}</span>
             <input type="number" step="0.01" min="0" value={bal} onChange={(e) => { setBal(e.target.value); setSaved(false); }}
@@ -5318,6 +5389,21 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
     marketSessions: <ForexMarketClock />,
     accountOverview: (
       <>
+        {/* Active account pill */}
+        {(data as any).activeAccountId && (() => {
+          const acct = ((data as any).tradingAccounts || []).find((ac: any) => ac.id === (data as any).activeAccountId);
+          if (!acct) return null;
+          return (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/8 border border-emerald-500/20 mb-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+              <span className="text-[11px] text-emerald-400 font-semibold flex-1">
+                {acct.alias || acct.accountNumber}
+                {acct.platform ? <span className="text-emerald-600"> · {acct.platform}</span> : null}
+              </span>
+              <span className="text-[10px] text-slate-600 font-medium">{acct.accountType}</span>
+            </div>
+          );
+        })()}
         <AccountBalanceCard account={acc} a={a} />
         <div className="grid grid-cols-3 gap-2">
           {kpis.map((k, ki) => (
@@ -5793,10 +5879,15 @@ function MistakeCostPanel({ trades }) {
   );
 }
 
-function TradeForm({ open, onClose, onSave, initial, setups, strategies, account, settings, tradingAccounts = [] }) {
+function TradeForm({ open, onClose, onSave, initial, setups, strategies, account, settings, tradingAccounts = [], defaultAccountId = "" }) {
   const [form, setForm] = useState(emptyTrade(settings));
   const [step, setStep] = useState(0);
-  useEffect(() => { setForm(initial || emptyTrade(settings)); setStep(0); }, [initial, open]);
+  useEffect(() => {
+    const base = initial || emptyTrade(settings);
+    if (!initial && defaultAccountId && !base.accountId) base.accountId = defaultAccountId;
+    setForm(base);
+    setStep(0);
+  }, [initial, open]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const live = useMemo(() => computeTrade(form), [form]);
 
@@ -6808,7 +6899,7 @@ function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {}
 
   /* TradeForm is now full-page — render it as an overlay on top of journal */
   if (formOpen) {
-    return <TradeForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} onSave={save} initial={editing} setups={data.setups} strategies={data.strategies} account={data.account} settings={data.settings} tradingAccounts={data.tradingAccounts || []} />;
+    return <TradeForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} onSave={save} initial={editing} setups={data.setups} strategies={data.strategies} account={data.account} settings={data.settings} tradingAccounts={data.tradingAccounts || []} defaultAccountId={data.activeAccountId || ""} />;
   }
 
   if (csvImportOpen) {
@@ -6861,6 +6952,24 @@ function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {}
         Trade Journal
       </SectionTitle>
 
+      {/* Active account filter banner */}
+      {data.activeAccountId && (() => {
+        const acct = (data.tradingAccounts || []).find((a: any) => a.id === data.activeAccountId);
+        if (!acct) return null;
+        return (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+            <span className="text-[11px] text-emerald-400 font-semibold flex-1 min-w-0 truncate">
+              {acct.alias || acct.accountNumber} — trades for this account only
+            </span>
+            <button onClick={() => setData((d: any) => ({ ...d, activeAccountId: null }))}
+              className="text-[10px] text-slate-500 hover:text-slate-300 font-medium shrink-0 transition">
+              Show all
+            </button>
+          </div>
+        );
+      })()}
+
       <div className="flex gap-2 overflow-x-auto pb-1">
         <Select value={marketFilter} onChange={(e) => setMarketFilter(e.target.value)} className="!w-auto text-xs py-1.5">
           <option value="All">All Markets</option>
@@ -6891,9 +7000,18 @@ function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {}
                   <div className="flex items-start gap-2.5 min-w-0">
                     {t.side === "Sell" ? <TrendingDown size={16} className="text-rose-400 mt-0.5 shrink-0" /> : <TrendingUp size={16} className="text-emerald-400 mt-0.5 shrink-0" />}
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-semibold text-slate-100">{t.symbol || "Untitled"}</span>
                         {t.tradeType && t.tradeType !== "Normal" && <Pill tone="amber">{t.tradeType}</Pill>}
+                        {/* Account badge — show when multiple accounts exist and no active filter */}
+                        {!data.activeAccountId && t.accountId && (() => {
+                          const acct = (data.tradingAccounts || []).find((a: any) => a.id === t.accountId);
+                          return acct ? (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-400">
+                              {acct.alias || acct.accountNumber}
+                            </span>
+                          ) : null;
+                        })()}
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-500">
                         <Calendar size={11} /> {t.date}
@@ -11879,11 +11997,25 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             </div>
           );
         })()}
-        {activeTab === "home" && <Dashboard data={data} setData={setData} goTo={goTo} onQuickLog={() => { setActiveTab("journal"); setQuickLogOpen(true); }} />}
-        {activeTab === "journal" && <JournalTab data={data} setData={setData} autoOpen={quickLogOpen} onAutoOpenDone={() => setQuickLogOpen(false)} />}
-        {activeTab === "library" && <LibraryTab data={data} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} />}
-        {activeTab === "academy" && <AcademyTab data={data} setData={setData} subTab={academySubTab} setSubTab={setAcademySubTab} goTo={goTo} />}
-        {activeTab === "more" && <MoreTab data={data} setData={setData} subTab={moreSubTab} setSubTab={setMoreSubTab} goTo={goTo} />}
+        {(() => {
+          /* effectiveData — swap in the active account's balance & filtered trades for display.
+             setData always writes to the underlying raw data so persistence is unaffected. */
+          const d = data as any;
+          const effectiveData = {
+            ...d,
+            account: getEffectiveAccount(d),
+            trades: getFilteredTrades(d),
+          };
+          return (
+            <>
+              {activeTab === "home" && <Dashboard data={effectiveData} setData={setData} goTo={goTo} onQuickLog={() => { setActiveTab("journal"); setQuickLogOpen(true); }} />}
+              {activeTab === "journal" && <JournalTab data={effectiveData} setData={setData} autoOpen={quickLogOpen} onAutoOpenDone={() => setQuickLogOpen(false)} />}
+              {activeTab === "library" && <LibraryTab data={effectiveData} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} />}
+              {activeTab === "academy" && <AcademyTab data={effectiveData} setData={setData} subTab={academySubTab} setSubTab={setAcademySubTab} goTo={goTo} />}
+              {activeTab === "more" && <MoreTab data={d} setData={setData} subTab={moreSubTab} setSubTab={setMoreSubTab} goTo={goTo} />}
+            </>
+          );
+        })()}
       </div>
 
       {/* Fixed bottom navigation — always visible, respects iPhone home indicator */}
