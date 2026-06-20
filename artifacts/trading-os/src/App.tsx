@@ -6,7 +6,7 @@ import {
   BookMarked, Brain, ShieldAlert, Download, RotateCcw, Filter, Paperclip, ChevronUp,
   ChevronLeft, MoreHorizontal, Wallet, ClipboardList, ArrowLeft, Copy, Check, Sparkles,
   Trophy, Flame, Gauge, DollarSign, Smile, Zap, AlertCircle, CalendarDays, Activity, Calculator,
-  Play, Eye, EyeOff, Repeat2, Clock
+  Play, Eye, EyeOff, Repeat2, Clock, Lock, Shield, LogOut
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line
@@ -9510,10 +9510,397 @@ function SettingsPanel({ data, setData }) {
   );
 }
 
+/* ============================================================
+   OWNER CONTROL PANEL
+   ============================================================ */
+const OWNER_PASSWORD = "1996";
+const OWNER_SESSION_KEY = "otx_owner_unlocked";
+
+function OwnerImport({ data, setData, accent, showToast }: any) {
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState("");
+  const [confirmImport, setConfirmImport] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const doImport = () => {
+    try {
+      const parsed = JSON.parse(importText);
+      if (!parsed || typeof parsed !== "object") throw new Error("bad");
+      setData((d: any) => ({
+        ...DEFAULT_DATA(),
+        ...parsed,
+        settings: { ...DEFAULT_SETTINGS(), ...(parsed.settings || {}), ...(d.settings || {}) },
+        account: parsed.account || d.account || { startingBalance: 1000, currency: "€" },
+      }));
+      setImportText(""); setImportError(""); setConfirmImport(false);
+      showToast("✅ Data imported successfully");
+    } catch {
+      setImportError("Invalid JSON — check the file wasn't truncated.");
+      setConfirmImport(false);
+    }
+  };
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => { setImportText((ev.target?.result as string) || ""); setImportError(""); };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <SectionTitle sub="Restore from a previously downloaded backup">Import Backup</SectionTitle>
+        <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={handleFile} />
+        <button onClick={() => fileRef.current?.click()}
+          className="w-full mt-3 flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-slate-600 hover:border-slate-500 text-slate-400 text-sm transition">
+          <Upload size={15} /> Choose .json backup file
+        </button>
+        <TextArea value={importText} onChange={(e: any) => setImportText(e.target.value)}
+          placeholder="Or paste JSON backup here..."
+          className="min-h-[100px] text-[11px] font-mono mt-3" />
+        {importError && <p className="text-xs text-rose-400 mt-1.5">{importError}</p>}
+        <button onClick={() => importText.trim() && setConfirmImport(true)}
+          className="w-full mt-3 py-3 rounded-xl font-semibold text-sm transition"
+          style={{ background: importText.trim() ? accent : "#334155", color: importText.trim() ? "#0f172a" : "#64748b" }}
+          disabled={!importText.trim()}>
+          Import &amp; Restore
+        </button>
+      </Card>
+      <ConfirmDialog open={confirmImport} title="Overwrite all data?"
+        body="Your current trades, setups, plans, vault notes, and challenges will be replaced with the imported data."
+        onConfirm={doImport} onCancel={() => setConfirmImport(false)} />
+    </div>
+  );
+}
+
+function OwnerPanel({ data, setData }: any) {
+  const [unlocked, setUnlocked] = useState(() => {
+    try { return sessionStorage.getItem(OWNER_SESSION_KEY) === "true"; } catch { return false; }
+  });
+  const [pin, setPin] = useState("");
+  const [wrongPin, setWrongPin] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<null | { title: string; body: string; onConfirm: () => void }>(null);
+  const [toast, setToast] = useState("");
+  const [activeSection, setActiveSection] = useState("stats");
+  const accent = (data as any)?.settings?.accentColor || "#f59e0b";
+
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 2500); };
+
+  const unlock = () => {
+    if (pin === OWNER_PASSWORD) {
+      setUnlocked(true);
+      try { sessionStorage.setItem(OWNER_SESSION_KEY, "true"); } catch {}
+      setPin(""); setWrongPin(false);
+    } else {
+      setWrongPin(true); setPin("");
+    }
+  };
+
+  const lock = () => {
+    setUnlocked(false);
+    try { sessionStorage.removeItem(OWNER_SESSION_KEY); } catch {}
+  };
+
+  const downloadFile = (content: string, filename: string, type = "application/json") => {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadFullBackup = () => {
+    downloadFile(JSON.stringify(data, null, 2), `onkar-tradex-backup-${todayISO()}.json`);
+    showToast("✅ Full backup downloaded");
+  };
+
+  const downloadTradesCSV = () => {
+    const trades = (data as any).trades || [];
+    const headers = ["date","symbol","market","side","session","entry","exit","sl","tp","riskPct","positionSize","tradeType","notes","grade","result","pnl","rMultiple"];
+    const rows = trades.map((t: any) => {
+      const c = computeTrade(t);
+      return [t.date,t.symbol,t.market,t.side,t.session,t.entry,t.exit,t.sl,t.tp,t.riskPct,t.positionSize,t.tradeType,
+        (t.notes||"").replace(/[\r\n,]+/g," "),t.grade||"",c.result||"",c.pnl??"",c.rMultiple??""
+      ].join(",");
+    });
+    downloadFile([headers.join(","), ...rows].join("\n"), `onkar-tradex-trades-${todayISO()}.csv`, "text/csv");
+    showToast("✅ Trades CSV downloaded");
+  };
+
+  const downloadSetupsCSV = () => {
+    const setups = (data as any).setups || [];
+    const headers = ["name","trend","entry","stop","target","notes"];
+    const rows = setups.map((s: any) => [s.name,s.trend,s.entry,s.stop,s.target,(s.notes||"").replace(/[\r\n,]+/g," ")].join(","));
+    downloadFile([headers.join(","), ...rows].join("\n"), `onkar-tradex-setups-${todayISO()}.csv`, "text/csv");
+    showToast("✅ Setups CSV downloaded");
+  };
+
+  const downloadVaultTXT = () => {
+    const vault = (data as any).vault || [];
+    const content = vault.map((n: any) => `=== ${n.title} [${n.folder}] ===\n${n.body}\n`).join("\n\n");
+    downloadFile(content, `onkar-tradex-vault-${todayISO()}.txt`, "text/plain");
+    showToast("✅ Vault notes downloaded");
+  };
+
+  const downloadSettingsJSON = () => {
+    downloadFile(JSON.stringify((data as any).settings || {}, null, 2), `onkar-tradex-settings-${todayISO()}.json`);
+    showToast("✅ Settings downloaded");
+  };
+
+  const stats = useMemo(() => {
+    const d = data as any;
+    const trades = d.trades || [];
+    const computed = trades.map((t: any) => computeTrade(t));
+    const closed = computed.filter((c: any) => c.result !== null);
+    const wins = closed.filter((c: any) => (c.pnl || 0) > 0);
+    const totalPnl = closed.reduce((s: number, c: any) => s + (c.pnl || 0), 0);
+    const totalBytes = JSON.stringify(d).length;
+    return {
+      totalTrades: trades.length,
+      closedTrades: closed.length,
+      wins: wins.length,
+      totalPnl,
+      setups: (d.setups || []).length,
+      strategies: (d.strategies || []).length,
+      vaultNotes: (d.vault || []).length,
+      smcTerms: (d.smc || []).length,
+      propChallenges: (d.propChallenges || []).length,
+      dataKB: Math.round(totalBytes / 1024),
+    };
+  }, [data]);
+
+  if (!unlocked) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-6">
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: accent + "20" }}>
+          <Lock size={28} style={{ color: accent }} />
+        </div>
+        <div className="text-center">
+          <h2 className="text-lg font-bold text-slate-100" style={{ fontFamily: "'Sora', sans-serif" }}>Owner Control</h2>
+          <p className="text-sm text-slate-500 mt-1">Enter your owner password to continue</p>
+        </div>
+        <div className="w-full max-w-xs space-y-3">
+          <input
+            type="password"
+            value={pin}
+            onChange={(e) => { setPin(e.target.value); setWrongPin(false); }}
+            onKeyDown={(e) => e.key === "Enter" && unlock()}
+            placeholder="••••"
+            className={cx(
+              "w-full bg-slate-900 border rounded-xl px-4 py-3 text-slate-100 text-center text-2xl tracking-[0.5em] outline-none focus:border-slate-600 transition",
+              wrongPin ? "border-rose-500" : "border-slate-700"
+            )}
+            autoFocus
+          />
+          {wrongPin && <p className="text-rose-400 text-sm text-center animate-pulse">Incorrect password</p>}
+          <button onClick={unlock}
+            className="w-full py-3 rounded-xl font-semibold text-slate-950 transition active:scale-95"
+            style={{ background: accent }}>
+            Unlock Owner Panel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const OWNER_SECTIONS = [
+    { id: "stats",    label: "Stats",    icon: BarChart3 },
+    { id: "backup",   label: "Backup",   icon: Download },
+    { id: "import",   label: "Import",   icon: Upload },
+    { id: "data",     label: "Data",     icon: Trash2 },
+    { id: "settings", label: "Settings", icon: Shield },
+  ];
+
+  return (
+    <div className="space-y-4 pb-8">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: accent + "25" }}>
+            <Shield size={18} style={{ color: accent }} />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-slate-100">Owner Control</h2>
+            <p className="text-[11px] text-slate-500">Full access · Session unlocked</p>
+          </div>
+        </div>
+        <button onClick={lock}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 hover:text-rose-400 transition">
+          <Lock size={12} /> Lock
+        </button>
+      </div>
+
+      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+        {OWNER_SECTIONS.map(({ id, label, icon: Icon }) => (
+          <button key={id} onClick={() => setActiveSection(id)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition shrink-0"
+            style={activeSection === id
+              ? { background: accent, color: "#0f172a" }
+              : { background: "#0f172a", border: "1px solid #1e293b", color: "#94a3b8" }}>
+            <Icon size={12} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {activeSection === "stats" && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: "Total Trades",     value: stats.totalTrades,       tone: "accent" },
+              { label: "Closed Trades",    value: stats.closedTrades,      tone: "slate" },
+              { label: "Total Wins",       value: stats.wins,              tone: "emerald" },
+              { label: "Total P&L",        value: `${stats.totalPnl >= 0 ? "+" : ""}${stats.totalPnl.toFixed(2)}`, tone: stats.totalPnl >= 0 ? "emerald" : "rose" },
+              { label: "Setups",           value: stats.setups,            tone: "slate" },
+              { label: "Strategies",       value: stats.strategies,        tone: "slate" },
+              { label: "Vault Notes",      value: stats.vaultNotes,        tone: "slate" },
+              { label: "SMC Terms",        value: stats.smcTerms,          tone: "slate" },
+              { label: "Prop Challenges",  value: stats.propChallenges,    tone: "slate" },
+              { label: "Data Size",        value: `${stats.dataKB} KB`,    tone: "slate" },
+            ].map(({ label, value, tone }) => (
+              <div key={label} className="bg-slate-900 border border-slate-800 rounded-xl p-3">
+                <div className={cx("text-xl font-bold",
+                  tone === "accent" ? "" : tone === "emerald" ? "text-emerald-400" : tone === "rose" ? "text-rose-400" : "text-slate-100"
+                )} style={tone === "accent" ? { color: accent } : {}}>{value}</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">{label}</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-600 text-center pt-1">Onkar TradeX · Owner Build</p>
+        </div>
+      )}
+
+      {activeSection === "backup" && (
+        <div className="space-y-3">
+          <Card>
+            <SectionTitle sub={`Complete data snapshot · ${stats.dataKB} KB`}>Full Backup</SectionTitle>
+            <div className="space-y-2 mt-3">
+              <button onClick={downloadFullBackup}
+                className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border border-slate-700 hover:border-slate-600 bg-slate-900 transition text-left">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: accent + "20" }}>
+                  <Download size={16} style={{ color: accent }} />
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-slate-200">Download Full Backup</div>
+                  <div className="text-[11px] text-slate-500">All data as onkar-tradex-backup.json</div>
+                </div>
+              </button>
+              <button onClick={downloadSettingsJSON}
+                className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border border-slate-700 hover:border-slate-600 bg-slate-900 transition text-left">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-violet-500/10">
+                  <FileText size={16} className="text-violet-400" />
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-slate-200">Download Settings Only</div>
+                  <div className="text-[11px] text-slate-500">Theme, risk rules &amp; defaults · .json</div>
+                </div>
+              </button>
+            </div>
+          </Card>
+          <Card>
+            <SectionTitle sub="Export individual sections as CSV / TXT">Export Data Files</SectionTitle>
+            <div className="space-y-2 mt-3">
+              {[
+                { label: "Trades CSV",      sub: `${stats.totalTrades} trade${stats.totalTrades !== 1 ? "s" : ""}`,      fn: downloadTradesCSV,  color: "#10b981", Icon: BarChart3 },
+                { label: "Setups CSV",      sub: `${stats.setups} setup${stats.setups !== 1 ? "s" : ""}`,                fn: downloadSetupsCSV,  color: "#3b82f6", Icon: Layers },
+                { label: "Vault Notes TXT", sub: `${stats.vaultNotes} note${stats.vaultNotes !== 1 ? "s" : ""}`,         fn: downloadVaultTXT,   color: "#f59e0b", Icon: BookMarked },
+              ].map(({ label, sub, fn, color, Icon }) => (
+                <button key={label} onClick={fn}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-700 hover:border-slate-600 bg-slate-900 transition text-left">
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: color + "20" }}>
+                    <Icon size={14} style={{ color }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-slate-200">{label}</div>
+                    <div className="text-[11px] text-slate-500">{sub}</div>
+                  </div>
+                  <Download size={13} className="text-slate-600 shrink-0" />
+                </button>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {activeSection === "import" && (
+        <OwnerImport data={data} setData={setData} accent={accent} showToast={showToast} />
+      )}
+
+      {activeSection === "data" && (
+        <div className="space-y-3">
+          <Card>
+            <SectionTitle sub="Remove specific data categories">Targeted Clear</SectionTitle>
+            <div className="space-y-2 mt-3">
+              {[
+                { label: "Clear All Trades",       sub: `${stats.totalTrades} trades, check-ins & pre-sessions`,  fn: () => setData((d: any) => ({ ...d, trades: [], checkins: [], preSession: [] })),       tone: "rose" },
+                { label: "Clear Vault Notes",       sub: `${stats.vaultNotes} notes (resets to starter content)`, fn: () => setData((d: any) => ({ ...d, vault: seedVault() })),                              tone: "amber" },
+                { label: "Clear Psychology Log",    sub: "Remove all mistake & mindset entries",                   fn: () => setData((d: any) => ({ ...d, psychology: [] })),                                 tone: "violet" },
+                { label: "Clear Prop Challenges",   sub: `${stats.propChallenges} challenge${stats.propChallenges !== 1 ? "s" : ""}`, fn: () => setData((d: any) => ({ ...d, propChallenges: [] })),          tone: "sky" },
+              ].map(({ label, sub, fn, tone }) => (
+                <button key={label}
+                  onClick={() => setConfirmAction({ title: label + "?", body: sub + " — this cannot be undone.", onConfirm: () => { fn(); setConfirmAction(null); showToast("✅ Done"); } })}
+                  className={cx("w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition text-left",
+                    tone === "rose" ? "border-rose-500/20 hover:border-rose-500/40" :
+                    tone === "amber" ? "border-amber-500/20 hover:border-amber-500/40" :
+                    "border-slate-700 hover:border-slate-600"
+                  )} style={{ background: "#0f172a" }}>
+                  <Trash2 size={14} className={
+                    tone === "rose" ? "text-rose-400" : tone === "amber" ? "text-amber-400" :
+                    tone === "violet" ? "text-violet-400" : "text-sky-400"
+                  } />
+                  <div>
+                    <div className="text-sm font-medium text-slate-200">{label}</div>
+                    <div className="text-[11px] text-slate-500">{sub}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </Card>
+          <Card className="border-rose-500/20">
+            <SectionTitle sub="Wipes everything and restores seed content">Factory Reset</SectionTitle>
+            <p className="text-xs text-slate-500 mt-2 mb-3">
+              All trades, plans, notes, vault, settings, psychology logs, and challenges will be permanently deleted.
+              The app returns to its original starter state.
+            </p>
+            <button
+              onClick={() => setConfirmAction({
+                title: "Factory Reset?",
+                body: "This will permanently delete ALL your data and restore the app to its original state. This cannot be undone.",
+                onConfirm: () => { setData(DEFAULT_DATA()); setConfirmAction(null); showToast("✅ Factory reset complete"); }
+              })}
+              className="w-full py-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 font-semibold text-sm hover:bg-rose-500/20 transition">
+              ⚠ Factory Reset — Delete Everything
+            </button>
+          </Card>
+        </div>
+      )}
+
+      {activeSection === "settings" && (
+        <SettingsPanel data={data} setData={setData} />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-slate-100 shadow-xl pointer-events-none">
+          {toast}
+        </div>
+      )}
+
+      {confirmAction && (
+        <ConfirmDialog open={true}
+          title={confirmAction.title}
+          body={confirmAction.body}
+          onConfirm={confirmAction.onConfirm}
+          onCancel={() => setConfirmAction(null)} />
+      )}
+    </div>
+  );
+}
+
 function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
-  const ALL_TABS = ["Account", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report", "Settings"];
+  const ALL_TABS = ["Account", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report", "Settings", "Owner"];
   const moreVis = (data as any)?.settings?.moreTabVisibility || {};
-  const tabs = ALL_TABS.filter((t) => t === "Settings" || moreVis[t] !== false);
+  const tabs = ALL_TABS.filter((t) => t === "Settings" || t === "Owner" || moreVis[t] !== false);
   const accent = (data as any)?.settings?.accentColor || "#f59e0b";
 
   if (subTab === "Report") {
@@ -9525,9 +9912,10 @@ function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
         {tabs.map((t) => (
           <button key={t} onClick={() => setSubTab(t)}
-            className={cx("px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition",
+            className={cx("px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition flex items-center gap-1.5",
               subTab === t ? "text-slate-950" : "bg-slate-900 border border-slate-800 text-slate-400")}
-            style={subTab === t ? { background: accent } : {}}>
+            style={subTab === t ? { background: t === "Owner" ? accent : accent } : t === "Owner" ? { background: "#0f172a", border: "1px solid #334155" } : {}}>
+            {t === "Owner" && <Lock size={11} className={subTab === t ? "text-slate-950" : "text-slate-500"} />}
             {t}
           </button>
         ))}
@@ -9540,6 +9928,7 @@ function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
       {subTab === "Prop" && <PropChallengesPanel data={data} setData={setData} />}
       {subTab === "Backup" && <BackupPanel data={data} setData={setData} />}
       {subTab === "Settings" && <SettingsPanel data={data} setData={setData} />}
+      {subTab === "Owner" && <OwnerPanel data={data} setData={setData} />}
     </div>
   );
 }
