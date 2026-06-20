@@ -6,3 +6,9 @@ id = "lpscAEG3WKrIRu3JbGjFR"
 uri = "file://SRC-Trading-OS.zip"
 type = "unspecified"
 title = "SRC Trading OS — Full Project"
+
+[[outputs]]
+id = "QKm7_a9zkh8fiV1s2h1FM"
+uri = "file://SRC-Trading-OS-GitHub.zip"
+type = "unspecified"
+title = "SRC Trading OS — GitHub + Vercel Ready"

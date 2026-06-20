@@ -47,3 +47,18 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+.replit
+replit.nix
+.breakpoints
+
+# Environment variables — never commit real values
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Zip exports
+*.zip
+
+# pnpm store
+.pnpm-store/

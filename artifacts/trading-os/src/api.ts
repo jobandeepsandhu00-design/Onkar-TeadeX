@@ -1,7 +1,16 @@
 // Talks to the Express backend. Keeps the same shape the app already expects:
 //   storage.get(key)  -> { value: string } | null
 //   storage.set(key, value) -> Promise<void>
-// In dev, requests go to "/api/*" and Vite proxies them to the Express server.
+//
+// In Replit dev, requests go to "/api/*" — the shared proxy routes them to the
+// Express server automatically.
+//
+// In production (Vercel), set VITE_API_URL to your deployed API base URL,
+// e.g. https://your-api.railway.app  — no trailing slash.
+// If VITE_API_URL is not set, requests fall back to relative "/api/*" which
+// works when the frontend and backend share the same domain.
+
+const API_BASE: string = (import.meta.env.VITE_API_URL as string) ?? "";
 
 const TOKEN_KEY = "src_auth_token";
 
@@ -23,7 +32,7 @@ async function req(path: string, opts: RequestInit = {}) {
   const token = getToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(`/api${path}`, { ...opts, headers });
+  const res = await fetch(`${API_BASE}/api${path}`, { ...opts, headers });
   if (res.status === 401) {
     clearToken();
     throw new Error("unauthorized");
