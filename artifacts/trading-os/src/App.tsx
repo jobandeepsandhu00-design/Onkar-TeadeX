@@ -4484,6 +4484,8 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
     onSave({ ...form, id: form.id || uid() });
   };
 
+  const nf = (id: string) => (e: React.KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); (document.getElementById(id) as HTMLElement | null)?.focus(); } };
+
   const STEPS = ["Setup", "Entry", "Risk", "Notes", "Preview"];
 
   if (!open) return null;
@@ -4588,9 +4590,29 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
         {/* Step 1: Entry */}
         {step === 1 && (
           <div className="space-y-0">
+
+            {/* Row 1: Entry + SL — the two prices a trader always knows first */}
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Entry Price"><TextInput type="number" step="any" placeholder="0.00000" value={form.entry} onChange={set("entry")} /></Field>
-              <Field label="Exit Price" hint="Leave blank if still open"><TextInput type="number" step="any" placeholder="0.00000" value={form.exit} onChange={set("exit")} /></Field>
+              <Field label="Entry Price">
+                <TextInput id="tf-entry" type="number" inputMode="decimal" step="any" placeholder="0.00000"
+                  enterKeyHint="next" value={form.entry} onChange={set("entry")} onKeyDown={nf("tf-sl")} />
+              </Field>
+              <Field label="Stop Loss">
+                <TextInput id="tf-sl" type="number" inputMode="decimal" step="any" placeholder="0.00000"
+                  enterKeyHint="next" value={form.sl} onChange={set("sl")} onKeyDown={nf("tf-tp")} />
+              </Field>
+            </div>
+
+            {/* Row 2: TP + Exit price */}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Take Profit">
+                <TextInput id="tf-tp" type="number" inputMode="decimal" step="any" placeholder="0.00000"
+                  enterKeyHint="next" value={form.tp} onChange={set("tp")} onKeyDown={nf("tf-exit")} />
+              </Field>
+              <Field label="Exit Price" hint="Leave blank if still open">
+                <TextInput id="tf-exit" type="number" inputMode="decimal" step="any" placeholder="0.00000"
+                  enterKeyHint="next" value={form.exit} onChange={set("exit")} onKeyDown={nf("tf-pnl")} />
+              </Field>
             </div>
 
             {/* Actual P/L — the most important field */}
@@ -4600,17 +4622,14 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                 <span className="text-[11px] uppercase tracking-wide text-emerald-400 font-semibold">Actual P/L from Broker</span>
               </div>
               <TextInput
-                type="number" step="any"
+                id="tf-pnl" type="number" inputMode="decimal" step="any"
                 placeholder="e.g. 250.00 or -120.00"
+                enterKeyHint="next"
                 value={form.manualPnl}
                 onChange={(e) => setForm((f) => ({ ...f, manualPnl: e.target.value }))}
+                onKeyDown={nf("tf-entryTime")}
               />
               <p className="text-[10px] text-slate-600 mt-1.5">Enter the exact profit/loss shown on your broker. Negative = loss. This drives all stats and balance.</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Stop Loss"><TextInput type="number" step="any" placeholder="0.00000" value={form.sl} onChange={set("sl")} /></Field>
-              <Field label="Take Profit"><TextInput type="number" step="any" placeholder="0.00000" value={form.tp} onChange={set("tp")} /></Field>
             </div>
 
             {/* Inline Position Size Auto-Calculator */}
@@ -4665,8 +4684,8 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
             })()}
 
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Entry Time" hint="Enables hold-time stats"><TextInput type="time" value={form.entryTime} onChange={set("entryTime")} /></Field>
-              <Field label="Exit Time"><TextInput type="time" value={form.exitTime} onChange={set("exitTime")} /></Field>
+              <Field label="Entry Time" hint="Enables hold-time stats"><TextInput id="tf-entryTime" type="time" value={form.entryTime} onChange={set("entryTime")} /></Field>
+              <Field label="Exit Time"><TextInput id="tf-exitTime" type="time" value={form.exitTime} onChange={set("exitTime")} /></Field>
             </div>
             <Field label="Exit Date" hint="Only if trade closed on a different day">
               <TextInput type="date" value={form.exitDate} onChange={set("exitDate")} />
