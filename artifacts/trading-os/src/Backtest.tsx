@@ -3,7 +3,7 @@ import {
   Play, Pause, SkipForward, ChevronLeft, ChevronRight,
   TrendingUp, TrendingDown, RefreshCw, BarChart3, Zap,
   CheckCircle2, XCircle, RotateCcw, FlaskConical,
-  Minus, Square, Trash2, MousePointer2,
+  Minus, Square, Trash2, MousePointer2, Maximize2, Minimize2,
 } from "lucide-react";
 
 /* ── Types ────────────────────────────────────────────── */
@@ -425,6 +425,7 @@ export default function BacktestTab() {
   const [shapes, setShapes] = useState<DrawShape[]>([]);
   const [activeTool, setActiveTool] = useState<DrawTool>("cursor");
   const [drawColor, setDrawColor] = useState("#ef4444");
+  const [fullscreen, setFullscreen] = useState(false);
   const chartViewRef = useRef<ChartView | null>(null);
   const drawingRef = useRef<{ startIdx: number; startPrice: number } | null>(null);
   const previewRef = useRef<DrawShape | null>(null);
@@ -751,28 +752,95 @@ export default function BacktestTab() {
       </div>
 
       {/* ── Canvas chart ── */}
-      <div style={{ flexShrink: 0, height: 210, padding: "0 10px", position: "relative" }}>
-        <canvas ref={canvasRef}
-          style={{ width: "100%", height: "100%", borderRadius: 8, display: "block",
-            cursor: activeTool === "cursor" ? "grab" : "crosshair",
-            touchAction: "none" }}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerCancel}
-        />
-        {loading && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(5,9,26,0.75)", borderRadius: 8 }}>
-            <span style={{ color: "#f59e0b", fontSize: 12 }}>Loading candles…</span>
+      <div style={fullscreen ? {
+        position: "fixed", inset: 0, zIndex: 9998,
+        background: "#05091a", display: "flex", flexDirection: "column",
+      } : {
+        flexShrink: 0, height: 210, padding: "0 10px", position: "relative",
+      }}>
+
+        {/* Fullscreen header bar */}
+        {fullscreen && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderBottom: "1px solid #1e3a5f", flexShrink: 0, gap: 12 }}>
+            {/* Symbol + TF + source */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>{symbol}</span>
+              <span style={{ color: "#f59e0b", fontSize: 12, fontWeight: 600 }}>
+                {INTERVALS.find(i => i.value === timeframe)?.label}
+              </span>
+              {source && (
+                <span style={{ fontSize: 10, color: "#4b6080", background: "#111f35", borderRadius: 4, padding: "1px 6px" }}>{source}</span>
+              )}
+              {candles.length > 0 && (
+                <span style={{ fontSize: 10, color: "#4b6080" }}>{candles.length} candles</span>
+              )}
+            </div>
+            {/* Drawing toolbar (inline) */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {([
+                { tool: "cursor" as DrawTool, icon: <MousePointer2 size={13} /> },
+                { tool: "hline" as DrawTool, icon: <Minus size={13} /> },
+                { tool: "rect" as DrawTool, icon: <Square size={13} /> },
+                { tool: "tline" as DrawTool, icon: <TrendingUp size={13} /> },
+              ]).map(({ tool, icon }) => (
+                <button key={tool} onClick={() => setActiveTool(tool)} title={tool}
+                  style={{ width: 28, height: 28, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", border: "none", cursor: "pointer",
+                    background: activeTool === tool ? "#f59e0b" : "#111f35",
+                    color: activeTool === tool ? "#000" : "#64748b" }}>
+                  {icon}
+                </button>
+              ))}
+              {(["#ef4444", "#22c55e", "#f59e0b", "#60a5fa"] as const).map(c => (
+                <button key={c} onClick={() => setDrawColor(c)}
+                  style={{ width: 16, height: 16, borderRadius: "50%", background: c, border: drawColor === c ? "2px solid #fff" : "2px solid transparent", cursor: "pointer" }} />
+              ))}
+              {shapes.length > 0 && (
+                <button onClick={() => { setShapes([]); previewRef.current = null; }}
+                  style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", borderRadius: 6, fontSize: 10, color: "#64748b", background: "#111f35", border: "none", cursor: "pointer" }}>
+                  <Trash2 size={11} />Clear
+                </button>
+              )}
+            </div>
+            {/* Minimize button */}
+            <button onClick={() => setFullscreen(false)}
+              style={{ background: "#111f35", border: "1px solid #1e3a5f", borderRadius: 8, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748b", flexShrink: 0 }}>
+              <Minimize2 size={16} />
+            </button>
           </div>
         )}
-        <div style={{ position: "absolute", top: 6, right: 18, display: "flex", gap: 2 }}>
-          {[["−", () => setVis(v => Math.min(300, v + 20))], ["+", () => setVis(v => Math.max(10, v - 20))]].map(([lbl, fn]) => (
-            <button key={lbl as string} onClick={fn as any}
-              style={{ background: "rgba(15,25,50,0.85)", border: "1px solid #1e3a5f", borderRadius: 5, padding: "2px 8px", fontSize: 12, color: "#64748b", cursor: "pointer" }}>
-              {lbl as string}
+
+        {/* Canvas wrapper */}
+        <div style={{ flex: 1, position: "relative", ...(fullscreen ? {} : { height: "100%" }) }}>
+          <canvas ref={canvasRef}
+            style={{ width: "100%", height: "100%", borderRadius: fullscreen ? 0 : 8, display: "block",
+              cursor: activeTool === "cursor" ? "grab" : "crosshair",
+              touchAction: "none" }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerCancel}
+          />
+          {loading && (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(5,9,26,0.75)", borderRadius: 8 }}>
+              <span style={{ color: "#f59e0b", fontSize: 12 }}>Loading candles…</span>
+            </div>
+          )}
+          {/* Zoom buttons */}
+          <div style={{ position: "absolute", top: 8, right: fullscreen ? 14 : 8, display: "flex", gap: 2 }}>
+            {[["−", () => setVis(v => Math.min(300, v + 20))], ["+", () => setVis(v => Math.max(10, v - 20))]].map(([lbl, fn]) => (
+              <button key={lbl as string} onClick={fn as any}
+                style={{ background: "rgba(15,25,50,0.85)", border: "1px solid #1e3a5f", borderRadius: 5, padding: "2px 8px", fontSize: 12, color: "#64748b", cursor: "pointer" }}>
+                {lbl as string}
+              </button>
+            ))}
+          </div>
+          {/* Fullscreen toggle button (normal mode only) */}
+          {!fullscreen && (
+            <button onClick={() => setFullscreen(true)} title="Full screen"
+              style={{ position: "absolute", top: 8, left: 8, background: "rgba(15,25,50,0.85)", border: "1px solid #1e3a5f", borderRadius: 5, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748b" }}>
+              <Maximize2 size={13} />
             </button>
-          ))}
+          )}
         </div>
       </div>
 
