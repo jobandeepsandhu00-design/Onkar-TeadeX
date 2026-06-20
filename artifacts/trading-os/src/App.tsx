@@ -14114,7 +14114,7 @@ const NAV_ITEMS = [
   { key: "home",      label: "Home",     icon: Home          },
   { key: "journal",   label: "Journal",  icon: BookOpen      },
   { key: "backtest",  label: "Backtest", icon: BarChart3     },
-  { key: "library",   label: "Library",  icon: Layers        },
+  { key: "academy",   label: "Academy",  icon: GraduationCap },
   { key: "more",      label: "More",     icon: MoreHorizontal },
 ];
 
