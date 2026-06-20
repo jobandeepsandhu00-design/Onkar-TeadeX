@@ -976,6 +976,17 @@ function FloatingHomeButton({ goTo }) {
    Every Create/Edit page in Library, Plans, Vault & Psychology uses this so
    none of them can ever become a dead end. */
 function FullPageShell({ crumbs, onBack, onClose, onSave, saveLabel, saveDisabled, goTo, children }) {
+  useEffect(() => {
+    if (!onBack) return;
+    window.history.pushState({ srcFullPage: true }, "");
+    const handlePop = (e: PopStateEvent) => {
+      e.preventDefault();
+      onBack();
+    };
+    window.addEventListener("popstate", handlePop);
+    return () => window.removeEventListener("popstate", handlePop);
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
       <PageHeader crumbs={crumbs} onBack={onBack} onClose={onClose} onSave={onSave} saveLabel={saveLabel} saveDisabled={saveDisabled} />
@@ -3280,7 +3291,10 @@ function WeeklySummary({ data, a, cur, goTo }) {
 /* ── Prop Challenges Dashboard Card ── */
 function PropChallengesDashCard({ data, goTo }) {
   const challenges: any[] = (data.propChallenges || []);
-  const active = challenges.filter((c: any) => c.status !== "passed" && c.status !== "failed");
+  const active   = challenges.filter((c: any) => c.status !== "passed" && c.status !== "failed");
+  const anyFailed = challenges.some((c: any) => { const m = computePropChallenge(c); return m.hasFailed; });
+  const anyPassed = !anyFailed && challenges.some((c: any) => { const m = computePropChallenge(c); return m.hasPassed; });
+  const anyWarning = !anyFailed && !anyPassed && challenges.some((c: any) => { const m = computePropChallenge(c); return m.hasWarning; });
 
   if (challenges.length === 0) {
     return (
@@ -3295,12 +3309,38 @@ function PropChallengesDashCard({ data, goTo }) {
     );
   }
 
+  const cardBorder = anyFailed
+    ? "border-rose-500/50 shadow-rose-900/30 shadow-lg"
+    : anyPassed ? "border-emerald-500/40"
+    : anyWarning ? "border-amber-500/30"
+    : "border-slate-800";
+
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
+    <div className={cx("bg-slate-950 rounded-2xl overflow-hidden border", cardBorder)}>
+      {/* Breach banner across the top if any challenge failed */}
+      {anyFailed && (
+        <div className="flex items-center gap-2 px-4 py-2.5 bg-rose-500/15 border-b border-rose-500/30">
+          <div className="w-2 h-2 rounded-full bg-rose-400 animate-pulse shrink-0" />
+          <span className="text-[11px] font-bold text-rose-300 uppercase tracking-wide">⛔ Breach Detected — Limit Violated</span>
+          <ChevronRight size={12} className="text-rose-400 ml-auto" />
+        </div>
+      )}
+      {anyPassed && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border-b border-emerald-500/20">
+          <span className="text-[11px] font-bold text-emerald-400">🏆 Challenge Passed! Tap to review</span>
+        </div>
+      )}
+      {anyWarning && !anyFailed && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20">
+          <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+          <span className="text-[11px] font-bold text-amber-400">⚠ Warning — Approaching Limit</span>
+        </div>
+      )}
+
       <button onClick={() => goTo("more", "Prop")}
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-900/40 transition">
         <div className="flex items-center gap-2">
-          <Trophy size={15} className="text-amber-400" />
+          <Trophy size={15} className={anyFailed ? "text-rose-400" : anyPassed ? "text-emerald-400" : "text-amber-400"} />
           <span className="text-sm font-semibold text-slate-200" style={{ fontFamily: "'Sora', sans-serif" }}>Prop Challenges</span>
           {active.length > 0 && (
             <span className="px-1.5 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[9px] font-bold">
@@ -3315,17 +3355,26 @@ function PropChallengesDashCard({ data, goTo }) {
         {challenges.slice(0, 3).map((ch: any) => {
           const m = computePropChallenge(ch);
           const statusColor = m.hasFailed ? "text-rose-400" : m.hasPassed ? "text-emerald-400" : m.hasWarning ? "text-amber-400" : "text-sky-400";
-          const statusLabel = m.hasFailed ? "⛔ Failed" : m.hasPassed ? "🏆 Passed" : m.hasWarning ? "⚠ Warning" : "✅ On Track";
+          const statusLabel = m.hasFailed ? "⛔ FAILED" : m.hasPassed ? "🏆 PASSED" : m.hasWarning ? "⚠ WARNING" : "✅ On Track";
+          const rowBg = m.hasFailed ? "bg-rose-500/5" : m.hasPassed ? "bg-emerald-500/5" : "";
           return (
             <button key={ch.id} onClick={() => goTo("more", "Prop")}
-              className="w-full px-4 py-3 text-left hover:bg-slate-900/30 transition">
+              className={cx("w-full px-4 py-3 text-left hover:bg-slate-900/30 transition", rowBg)}>
               <div className="flex items-center justify-between mb-1.5">
-                <div>
-                  <span className="text-[11px] font-semibold text-slate-300">{ch.name || ch.firm}</span>
+                <div className="flex-1 min-w-0">
+                  <span className="text-[11px] font-semibold text-slate-300 truncate">{ch.name || ch.firm}</span>
                   <span className="text-[9px] text-slate-600 ml-1.5">{ch.firm} · {ch.currency} {parseFloat(ch.accountSize || "0").toLocaleString()}</span>
                 </div>
-                <span className={cx("text-[9px] font-bold", statusColor)}>{statusLabel}</span>
+                <span className={cx("text-[9px] font-extrabold shrink-0 ml-2", statusColor)}>{statusLabel}</span>
               </div>
+              {/* Breach reason */}
+              {m.hasFailed && (
+                <div className="mb-1.5 px-2 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20">
+                  <span className="text-[9px] text-rose-300 font-semibold">
+                    {m.dailyLossViolated ? "Daily loss limit exceeded" : m.totalDrawdownViolated ? "Max drawdown exceeded" : "Challenge deadline passed"}
+                  </span>
+                </div>
+              )}
               {/* Profit progress */}
               <div className="mb-1">
                 <div className="flex justify-between text-[9px] text-slate-600 mb-0.5">
@@ -3506,6 +3555,130 @@ function DashSectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+/* ── Animated Candlestick Hero Chart ── */
+function AnimatedCandlestickChart() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 70);
+    return () => clearInterval(id);
+  }, []);
+
+  const candles = useMemo(() => {
+    const moves = [1.4,-0.8,2.1,-1.2,0.9,1.8,-0.5,1.3,-1.9,2.4,-0.3,1.7,-1.1,0.6,-2.2,1.5,0.4,-0.7,2.8,-1.6,0.9,-0.4,1.2,-1.8,2.3,-0.6,1.1,-0.9,1.6,0.3,1.9,-1.4];
+    let price = 100;
+    return moves.map((move, i) => {
+      const scale = 2 + (i % 4) * 0.4;
+      const open  = price;
+      const close = price + move * scale;
+      const span  = Math.abs(close - open);
+      const high  = Math.max(open, close) + span * 0.35 + 0.6;
+      const low   = Math.min(open, close) - span * 0.28 - 0.4;
+      price = close;
+      return { open, close, high, low };
+    });
+  }, []);
+
+  const W = 320, H = 88;
+  const highs = candles.map((c) => c.high);
+  const lows  = candles.map((c) => c.low);
+  const maxP  = Math.max(...highs), minP = Math.min(...lows);
+  const range = maxP - minP || 1;
+  const toY   = (p: number) => H - ((p - minP) / range) * H * 0.78 - H * 0.11;
+  const cw = W / candles.length;
+  const bw = cw * 0.54;
+
+  const visible = Math.min(tick, candles.length);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full" preserveAspectRatio="none">
+      {[0.2, 0.4, 0.6, 0.8].map((f) => (
+        <line key={f} x1={0} y1={H * f} x2={W} y2={H * f} stroke="#0f172a" strokeWidth={0.5} />
+      ))}
+      {candles.slice(0, visible).map((c, i) => {
+        const cx   = i * cw + cw / 2;
+        const bull = c.close >= c.open;
+        const color= bull ? "#10b981" : "#f43f5e";
+        const bodyTop = toY(Math.max(c.open, c.close));
+        const bodyH   = Math.max(1.2, Math.abs(toY(c.open) - toY(c.close)));
+        const isLast  = i === visible - 1;
+        const pulse   = isLast ? Math.sin(tick * 0.45) * 1.2 : 0;
+        return (
+          <g key={i} opacity={isLast ? 1 : 0.72}>
+            <line x1={cx} y1={toY(c.high) - (isLast ? pulse : 0)}
+              x2={cx} y2={toY(c.low) + (isLast ? pulse * 0.6 : 0)}
+              stroke={color} strokeWidth={0.9} />
+            <rect x={cx - bw / 2} y={bodyTop} width={bw} height={bodyH}
+              fill={color} rx={0.9}
+              style={isLast ? { filter: `drop-shadow(0 0 3px ${color}aa)` } : undefined} />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ── Best Setups Dashboard Card ── */
+function BestSetupsCard({ data, goTo }: { data: any; goTo: (tab: string, sub?: string) => void }) {
+  const setups: any[] = data.setups || [];
+
+  if (setups.length === 0) {
+    return (
+      <button onClick={() => goTo("library", "Setups")}
+        className="w-full flex items-center gap-3 px-4 py-3 bg-slate-950 border border-slate-800 border-dashed rounded-2xl text-left hover:border-amber-500/30 transition">
+        <Layers size={18} className="text-amber-400/50 shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-slate-500">No setups saved yet</p>
+          <p className="text-[11px] text-slate-700">Build your setup library — tap to add your first →</p>
+        </div>
+      </button>
+    );
+  }
+
+  const featured = setups.slice(0, 6);
+
+  return (
+    <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
+      <button onClick={() => goTo("library", "Setups")}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-900/40 transition">
+        <div className="flex items-center gap-2">
+          <Layers size={15} className="text-amber-400" />
+          <span className="text-sm font-semibold text-slate-200" style={{ fontFamily: "'Sora', sans-serif" }}>Setup Library</span>
+          <span className="px-1.5 py-0.5 rounded-lg bg-slate-800 text-slate-500 text-[9px] font-bold">{setups.length}</span>
+        </div>
+        <ChevronRight size={14} className="text-slate-600" />
+      </button>
+      <div className="flex gap-2 px-3 pb-3 overflow-x-auto no-scrollbar">
+        {featured.map((s: any) => (
+          <button key={s.id} onClick={() => goTo("library", "Setups")}
+            className="flex-shrink-0 w-28 rounded-xl overflow-hidden border border-slate-800/80 bg-slate-900 text-left hover:border-amber-500/30 transition active:scale-95">
+            <div className="w-full h-14 overflow-hidden bg-slate-800 flex items-center justify-center">
+              {s.image ? (
+                <img src={s.image} alt={s.name} className="w-full h-full object-cover" />
+              ) : (s.photos && s.photos.length > 0) ? (
+                <img src={s.photos[0]} alt={s.name} className="w-full h-full object-cover" />
+              ) : (
+                <Layers size={16} className="text-slate-600" />
+              )}
+            </div>
+            <div className="px-2 py-1.5">
+              <div className="text-[10px] font-semibold text-slate-200 truncate leading-tight">{s.name}</div>
+              {s.setupType && (
+                <div className="text-[9px] text-amber-400/70 truncate">{s.setupType}</div>
+              )}
+              {s.marketBias && (
+                <div className={cx("text-[9px] font-semibold mt-0.5",
+                  s.marketBias === "Bullish" ? "text-emerald-500/70" : s.marketBias === "Bearish" ? "text-rose-500/70" : "text-slate-500")}>
+                  {s.marketBias}
+                </div>
+              )}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ data, setData, goTo }) {
   const a = useMemo(() => computeAnalytics(data), [data.trades, data.strategies, data.setups]);
   const acc = data.account || { startingBalance: 1000, currency: "€" };
@@ -3544,6 +3717,40 @@ function Dashboard({ data, setData, goTo }) {
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 hover:text-amber-400 hover:border-slate-700 transition">
           <Pencil size={12} /> Account
         </button>
+      </div>
+
+      {/* ── ANIMATED CANDLESTICK HERO ── */}
+      <div className="relative rounded-2xl overflow-hidden border border-slate-800/70 shadow-2xl shadow-black/40"
+        style={{ background: "linear-gradient(135deg,#0a0f1e 0%,#0d1a2e 50%,#0a0f1e 100%)" }}>
+        {/* chart fills entire card */}
+        <div className="absolute inset-0 opacity-80">
+          <AnimatedCandlestickChart />
+        </div>
+        {/* gradient overlay — dark at bottom */}
+        <div className="absolute inset-0"
+          style={{ background: "linear-gradient(to top, rgba(10,15,30,0.92) 0%, rgba(10,15,30,0.3) 45%, rgba(10,15,30,0.1) 100%)" }} />
+        {/* subtle amber glow top-right */}
+        <div className="absolute top-0 right-0 w-32 h-16 opacity-20"
+          style={{ background: "radial-gradient(ellipse at top right, #f59e0b 0%, transparent 70%)" }} />
+        {/* content */}
+        <div className="relative px-4 pt-3 pb-4 flex items-end justify-between">
+          <div>
+            <div className="text-[9px] text-amber-400/60 uppercase tracking-widest font-bold mb-0.5">Live Chart Preview</div>
+            <div className="text-2xl font-black text-slate-100 tracking-tight leading-none" style={{ fontFamily: "'Sora', sans-serif" }}>
+              XAU / USD
+            </div>
+            <div className="text-[11px] text-amber-400 font-semibold mt-0.5">Gold · Spot</div>
+          </div>
+          <div className="text-right">
+            <div className={cx("text-xs font-bold mb-0.5", a.dayPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+              {a.dayPnl >= 0 ? "▲" : "▼"} Today {fmtBalSigned(a.dayPnl, cur)}
+            </div>
+            <div className="text-[10px] text-slate-500">Win Rate {a.winRate !== null ? fmtPct(a.winRate) : "—"}</div>
+            <div className="text-[9px] text-slate-700 mt-0.5 font-mono">
+              {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ── SECTION: MARKET SESSIONS ── */}
@@ -3623,6 +3830,10 @@ function Dashboard({ data, setData, goTo }) {
       <DashSectionLabel>Insights & Edge</DashSectionLabel>
       <AIInsights a={a} account={acc} />
       <YourEdgePanel a={a} />
+
+      {/* ── SECTION: SETUP LIBRARY ── */}
+      <DashSectionLabel>Setup Library</DashSectionLabel>
+      <BestSetupsCard data={data} goTo={goTo} />
 
       {/* ── SECTION: MARKET CALENDAR ── */}
       <DashSectionLabel>Market Calendar</DashSectionLabel>
@@ -7392,10 +7603,18 @@ function PropChallengeDetail({ challenge, onBack, onEdit, onUpdateLog, onMarkSta
     onUpdateLog((challenge.dailyLog || []).filter((e: any) => e.date !== date));
 
   const statusBanner = () => {
-    if (m.hasFailed) return { bg: "bg-rose-500/10 border-rose-500/30", text: "text-rose-400", label: "⛔ Challenge Failed", sub: m.dailyLossViolated ? "Daily loss limit breached" : m.totalDrawdownViolated ? "Max drawdown exceeded" : "Deadline passed" };
-    if (m.hasPassed) return { bg: "bg-emerald-500/10 border-emerald-500/30", text: "text-emerald-400", label: "🏆 Challenge Passed!", sub: `Profit target met · ${m.daysTraded} trading days` };
-    if (m.hasWarning) return { bg: "bg-amber-500/10 border-amber-500/30", text: "text-amber-400", label: "⚠ Approaching Limits", sub: m.dailyLossProgress >= 75 ? "Daily loss near limit" : m.totalDrawdownProgress >= 75 ? "Drawdown near limit" : `${m.daysRemaining} days left on deadline` };
-    return { bg: "bg-sky-500/10 border-sky-500/20", text: "text-sky-400", label: "✅ Active — On Track", sub: `${m.daysTraded} day${m.daysTraded !== 1 ? "s" : ""} logged · ${fmt(m.totalPnl)} P/L` };
+    if (m.hasFailed) {
+      const reason = m.dailyLossViolated ? "Daily loss limit breached" : m.totalDrawdownViolated ? "Max drawdown exceeded" : "Challenge deadline passed";
+      return { type: "failed" as const, bg: "bg-rose-500/15 border-rose-500/40", text: "text-rose-300", label: "⛔ CHALLENGE FAILED", sub: reason };
+    }
+    if (m.hasPassed) {
+      return { type: "passed" as const, bg: "bg-emerald-500/15 border-emerald-500/40", text: "text-emerald-300", label: "🏆 CHALLENGE PASSED!", sub: `Profit target ${m.profitTargetPct}% met · ${m.daysTraded} trading days` };
+    }
+    if (m.hasWarning) {
+      const reason = m.dailyLossProgress >= 75 ? `Daily loss at ${m.dailyLossProgress.toFixed(0)}% of limit` : m.totalDrawdownProgress >= 75 ? `Drawdown at ${m.totalDrawdownProgress.toFixed(0)}% of limit` : `Only ${m.daysRemaining} days left on deadline`;
+      return { type: "warning" as const, bg: "bg-amber-500/10 border-amber-500/30", text: "text-amber-300", label: "⚠ APPROACHING LIMITS", sub: reason };
+    }
+    return { type: "ok" as const, bg: "bg-sky-500/10 border-sky-500/20", text: "text-sky-400", label: "✅ Active — On Track", sub: `${m.daysTraded} day${m.daysTraded !== 1 ? "s" : ""} logged · ${fmt(m.totalPnl)} P/L` };
   };
   const banner = statusBanner();
 
@@ -7438,16 +7657,43 @@ function PropChallengeDetail({ challenge, onBack, onEdit, onUpdateLog, onMarkSta
       </div>
 
       {/* Status banner */}
-      <div className={cx("rounded-xl border px-4 py-3", banner.bg)}>
-        <div className={cx("font-bold text-sm", banner.text)}>{banner.label}</div>
-        <div className="text-[11px] text-slate-500 mt-0.5">{banner.sub}</div>
-        {!m.hasFailed && !m.hasPassed && (
+      {banner.type === "failed" && (
+        <div className="rounded-2xl border-2 border-rose-500/60 bg-rose-500/10 overflow-hidden">
+          <div className="px-4 py-3 flex items-center gap-3 bg-rose-500/15 border-b border-rose-500/30">
+            <div className="w-3 h-3 rounded-full bg-rose-400 animate-pulse shrink-0" />
+            <span className="text-rose-200 font-black text-sm tracking-wide uppercase">⛔ Challenge Failed</span>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-rose-300 text-xs font-semibold mb-2">{banner.sub}</p>
+            <div className="grid grid-cols-2 gap-2 text-[10px]">
+              {m.dailyLossViolated && <div className="px-2 py-1.5 rounded-lg bg-rose-500/15 border border-rose-500/20 text-rose-400">Daily Loss Breached<br /><span className="font-bold">{m.todayLossPct.toFixed(2)}% / {m.maxDailyLossPct}% limit</span></div>}
+              {m.totalDrawdownViolated && <div className="px-2 py-1.5 rounded-lg bg-rose-500/15 border border-rose-500/20 text-rose-400">Max Drawdown Exceeded<br /><span className="font-bold">{m.currentDrawdownPct.toFixed(2)}% / {m.maxTotalDrawdownPct}% limit</span></div>}
+              {m.deadlineViolated && <div className="px-2 py-1.5 rounded-lg bg-rose-500/15 border border-rose-500/20 text-rose-400">Deadline Expired<br /><span className="font-bold">{m.daysElapsed} / {m.maxCalendarDays} days</span></div>}
+            </div>
+          </div>
+        </div>
+      )}
+      {banner.type === "passed" && (
+        <div className="rounded-2xl border-2 border-emerald-500/50 bg-emerald-500/10 overflow-hidden">
+          <div className="px-4 py-3 flex items-center gap-3 bg-emerald-500/15 border-b border-emerald-500/30">
+            <span className="text-emerald-200 font-black text-sm tracking-wide uppercase">🏆 Challenge Passed!</span>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-emerald-300 text-xs font-semibold mb-1">{banner.sub}</p>
+            <p className="text-[10px] text-emerald-500/70">Profit target reached — all rules satisfied.</p>
+          </div>
+        </div>
+      )}
+      {(banner.type === "warning" || banner.type === "ok") && (
+        <div className={cx("rounded-xl border px-4 py-3", banner.bg)}>
+          <div className={cx("font-bold text-sm", banner.text)}>{banner.label}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">{banner.sub}</div>
           <div className="flex gap-2 mt-2">
             <button onClick={() => onMarkStatus("passed")} className="px-3 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-semibold">Mark Passed</button>
             <button onClick={() => onMarkStatus("failed")} className="px-3 py-1 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-400 text-[10px] font-semibold">Mark Failed</button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Rule progress bars */}
       <div className="space-y-2">
