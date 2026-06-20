@@ -756,6 +756,7 @@ const DEFAULT_DATA = () => ({
   preSession: [],
   account: { startingBalance: 1000, currency: "€" },
   propChallenges: [],
+  sessionPlans: [],
 });
 
 const STORAGE_KEY = "src_trading_os_v1";
@@ -3371,6 +3372,7 @@ function Dashboard({ data, setData, goTo }) {
       <DailyRulesReminder />
 
       {/* Today's Trading Plan */}
+      <SessionPlanDashCard data={data} goTo={goTo} />
       <TodaysPlanWidget master={data.plans.master} />
 
       {/* Trading Rules */}
@@ -4725,7 +4727,7 @@ function SetupForm({ onClose, onSave, onBack, initial, mode, goTo }) {
   };
   const removeCheck = (id) => setForm((f) => ({ ...f, checklist: f.checklist.filter((c) => c.id !== id) }));
 
-  const save = () => { if (!form.name.trim()) return; onSave({ ...form, id: form.id || uid() }); };
+  const save = () => { if (!(form.name || "").trim()) return; onSave({ ...form, id: form.id || uid() }); };
 
   const pageTitle = mode === "fromImage" ? "Create Setup from Image" : mode === "edit" ? "Edit Setup" : "New Setup";
   const crumbs = [
@@ -4736,7 +4738,7 @@ function SetupForm({ onClose, onSave, onBack, initial, mode, goTo }) {
   ];
 
   return (
-    <FullPageShell crumbs={crumbs} onBack={onBack} onClose={() => goTo("home")} onSave={save} saveLabel={mode === "edit" ? "Save" : "Create"} saveDisabled={!form.name.trim()} goTo={goTo}>
+    <FullPageShell crumbs={crumbs} onBack={onBack} onClose={() => goTo("home")} onSave={save} saveLabel={mode === "edit" ? "Save" : "Create"} saveDisabled={!(form.name || "").trim()} goTo={goTo}>
       <HeroImageUpload image={form.image} onChange={(img) => setForm((f) => ({ ...f, image: img }))} />
 
       {mode === "fromImage" && (
@@ -4948,7 +4950,7 @@ function StrategyForm({ onClose, onBack, onSave, initial, goTo }) {
   const [form, setForm] = useState(initial || emptyStrategy());
   useEffect(() => { setForm(initial || emptyStrategy()); }, [initial]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  const save = () => { if (!form.name.trim()) return; onSave({ ...form, id: form.id || uid() }); };
+  const save = () => { if (!(form.name || "").trim()) return; onSave({ ...form, id: form.id || uid() }); };
 
   const crumbs = [
     { label: "Dashboard", onClick: () => goTo("home") },
@@ -4958,7 +4960,7 @@ function StrategyForm({ onClose, onBack, onSave, initial, goTo }) {
   ];
 
   return (
-    <FullPageShell crumbs={crumbs} onBack={onBack} onClose={() => goTo("home")} onSave={save} saveLabel={initial ? "Save" : "Create"} saveDisabled={!form.name.trim()} goTo={goTo}>
+    <FullPageShell crumbs={crumbs} onBack={onBack} onClose={() => goTo("home")} onSave={save} saveLabel={initial ? "Save" : "Create"} saveDisabled={!(form.name || "").trim()} goTo={goTo}>
       <Field label="Strategy name"><TextInput value={form.name} onChange={set("name")} /></Field>
       <Field label="Description"><TextArea value={form.description} onChange={set("description")} /></Field>
       <div className="grid grid-cols-2 gap-3">
@@ -5190,7 +5192,7 @@ function PlanForm({ onClose, onBack, onSave, initial, goTo }) {
   const [form, setForm] = useState(initial || emptyCustomPlan());
   useEffect(() => { setForm(initial || emptyCustomPlan()); }, [initial]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  const save = () => { if (!form.name.trim()) return; onSave({ ...form, id: form.id || uid() }); };
+  const save = () => { if (!(form.name || "").trim()) return; onSave({ ...form, id: form.id || uid() }); };
 
   const crumbs = [
     { label: "Dashboard", onClick: () => goTo("home") },
@@ -5200,7 +5202,7 @@ function PlanForm({ onClose, onBack, onSave, initial, goTo }) {
   ];
 
   return (
-    <FullPageShell crumbs={crumbs} onBack={onBack} onClose={() => goTo("home")} onSave={save} saveLabel={initial ? "Save" : "Create"} saveDisabled={!form.name.trim()} goTo={goTo}>
+    <FullPageShell crumbs={crumbs} onBack={onBack} onClose={() => goTo("home")} onSave={save} saveLabel={initial ? "Save" : "Create"} saveDisabled={!(form.name || "").trim()} goTo={goTo}>
       <Field label="Plan name"><TextInput value={form.name} onChange={set("name")} /></Field>
       <Field label="Market conditions to trade"><TextArea value={form.marketConditions} onChange={set("marketConditions")} /></Field>
       <Field label="Entry rules"><TextArea value={form.entryRules} onChange={set("entryRules")} /></Field>
@@ -5499,6 +5501,7 @@ function BackupPanel({ data, setData }) {
         preSession: parsed.preSession || [],
         account: parsed.account || { startingBalance: 1000, currency: "€" },
         propChallenges: parsed.propChallenges || [],
+        sessionPlans: parsed.sessionPlans || [],
       });
       setImportText(""); setImportError(""); setConfirmImport(false);
     } catch (e) {
@@ -6464,8 +6467,597 @@ function PropChallengesPanel({ data, setData }) {
   );
 }
 
+/* ============================================================
+   TRADE PLAN BUILDER — Daily Pre-Session Plan
+   ============================================================ */
+const SP_PAIRS = ["XAUUSD","EURUSD","GBPUSD","GBPJPY","USDJPY","AUDUSD","NZDUSD","USDCAD","USDCHF","EURJPY","EURCAD","EURGBP"];
+const SP_SESSIONS = ["Pre-London","London","New York","Asia"];
+const SP_CHECKLIST_DEFAULTS = [
+  "Checked economic calendar for today",
+  "Identified key S/R levels on H4 chart",
+  "Confirmed session timing and volume windows",
+  "Set max loss limit for today",
+  "Reviewed yesterday's trades",
+  "No unresolved emotional state from previous session",
+  "News events noted and avoided",
+];
+
+function emptySessionPlan() {
+  return {
+    id: null,
+    date: todayISO(),
+    overallBias: "",
+    biasNotes: "",
+    pairsWatch: [] as string[],
+    keyLevels: [] as any[],
+    sessionFocus: [] as string[],
+    maxTrades: "3",
+    maxDailyLossAmt: "",
+    newsToAvoid: [] as string[],
+    analysis: "",
+    mindset: "",
+    checklist: SP_CHECKLIST_DEFAULTS.map((text) => ({ id: uid(), text, done: false })),
+  };
+}
+
+function SessionPlanForm({ initial, onSave, onBack }) {
+  const [form, setForm] = useState<any>(() => initial ? { ...initial, keyLevels: initial.keyLevels || [], checklist: initial.checklist || SP_CHECKLIST_DEFAULTS.map((t) => ({ id: uid(), text: t, done: false })) } : emptySessionPlan());
+  const [newNews, setNewNews] = useState("");
+  const [newLevelPair, setNewLevelPair] = useState("XAUUSD");
+  const [newLevelPrice, setNewLevelPrice] = useState("");
+  const [newLevelType, setNewLevelType] = useState("Resistance");
+  const [newLevelNote, setNewLevelNote] = useState("");
+  const [newCheck, setNewCheck] = useState("");
+
+  const togglePair = (p: string) => setForm((f: any) => ({ ...f, pairsWatch: f.pairsWatch.includes(p) ? f.pairsWatch.filter((x: string) => x !== p) : [...f.pairsWatch, p] }));
+  const toggleSession = (s: string) => setForm((f: any) => ({ ...f, sessionFocus: f.sessionFocus.includes(s) ? f.sessionFocus.filter((x: string) => x !== s) : [...f.sessionFocus, s] }));
+  const addNews = () => { if (!newNews.trim()) return; setForm((f: any) => ({ ...f, newsToAvoid: [...f.newsToAvoid, newNews.trim()] })); setNewNews(""); };
+  const removeNews = (i: number) => setForm((f: any) => ({ ...f, newsToAvoid: f.newsToAvoid.filter((_: any, idx: number) => idx !== i) }));
+  const addLevel = () => {
+    if (!newLevelPrice.trim()) return;
+    const lvl = { id: uid(), pair: newLevelPair, level: newLevelPrice, type: newLevelType, note: newLevelNote };
+    setForm((f: any) => ({ ...f, keyLevels: [...f.keyLevels, lvl] }));
+    setNewLevelPrice(""); setNewLevelNote("");
+  };
+  const removeLevel = (id: string) => setForm((f: any) => ({ ...f, keyLevels: f.keyLevels.filter((l: any) => l.id !== id) }));
+  const addCheck = () => { if (!newCheck.trim()) return; setForm((f: any) => ({ ...f, checklist: [...f.checklist, { id: uid(), text: newCheck.trim(), done: false }] })); setNewCheck(""); };
+  const removeCheck = (id: string) => setForm((f: any) => ({ ...f, checklist: f.checklist.filter((c: any) => c.id !== id) }));
+  const save = () => { onSave({ ...form, id: form.id || uid() }); };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-3 mb-2">
+        <button onClick={onBack} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400"><ArrowLeft size={16} /></button>
+        <h2 className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>{initial?.id ? "Edit Session Plan" : "New Session Plan"}</h2>
+      </div>
+
+      {/* Date */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Date</div>
+        <TextInput type="date" value={form.date} onChange={(e: any) => setForm((f: any) => ({ ...f, date: e.target.value }))} />
+      </div>
+
+      {/* Market Bias */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Overall Market Bias</div>
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          {["Bullish","Bearish","Neutral"].map((b) => (
+            <button key={b} onClick={() => setForm((f: any) => ({ ...f, overallBias: f.overallBias === b ? "" : b }))}
+              className={cx("py-2.5 rounded-xl text-xs font-semibold border transition",
+                form.overallBias === b
+                  ? b === "Bullish" ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
+                    : b === "Bearish" ? "bg-rose-500/20 border-rose-500/40 text-rose-400"
+                    : "bg-slate-700 border-slate-600 text-slate-300"
+                  : "bg-slate-900 border-slate-800 text-slate-500")}>
+              {b === "Bullish" ? "📈 Bullish" : b === "Bearish" ? "📉 Bearish" : "➡️ Neutral"}
+            </button>
+          ))}
+        </div>
+        <TextArea value={form.biasNotes} onChange={(e: any) => setForm((f: any) => ({ ...f, biasNotes: e.target.value }))}
+          placeholder="Why this bias? Key confluences, trend direction, HTF structure..." className="min-h-[80px]" />
+      </div>
+
+      {/* Pairs to Watch */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Pairs to Watch</div>
+        <div className="flex flex-wrap gap-1.5">
+          {SP_PAIRS.map((p) => (
+            <button key={p} onClick={() => togglePair(p)}
+              className={cx("px-3 py-1.5 rounded-xl border text-xs font-medium transition",
+                form.pairsWatch.includes(p) ? "bg-amber-500/15 border-amber-500/40 text-amber-400" : "bg-slate-900 border-slate-800 text-slate-500")}>
+              {p}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Session Focus */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Session Focus</div>
+        <div className="flex flex-wrap gap-2">
+          {SP_SESSIONS.map((s) => (
+            <button key={s} onClick={() => toggleSession(s)}
+              className={cx("px-3 py-1.5 rounded-xl border text-xs font-medium transition",
+                form.sessionFocus.includes(s) ? "bg-sky-500/15 border-sky-500/40 text-sky-400" : "bg-slate-900 border-slate-800 text-slate-500")}>
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Key Levels */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Key S/R Levels</div>
+        {form.keyLevels.length > 0 && (
+          <div className="space-y-1.5 mb-3">
+            {form.keyLevels.map((lvl: any) => (
+              <div key={lvl.id} className="flex items-center gap-2 rounded-xl bg-slate-900 border border-slate-800 px-3 py-2">
+                <span className={cx("text-[10px] font-bold px-1.5 py-0.5 rounded", lvl.type === "Resistance" ? "bg-rose-500/10 text-rose-400" : "bg-emerald-500/10 text-emerald-400")}>{lvl.type.slice(0, 3).toUpperCase()}</span>
+                <span className="text-xs text-slate-500">{lvl.pair}</span>
+                <span className="text-xs font-semibold text-slate-200 flex-1">{lvl.level}</span>
+                {lvl.note && <span className="text-[10px] text-slate-600 truncate max-w-[80px]">{lvl.note}</span>}
+                <button onClick={() => removeLevel(lvl.id)} className="text-slate-600 hover:text-rose-400"><X size={12} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="rounded-xl bg-slate-900 border border-slate-800 p-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <select value={newLevelPair} onChange={(e) => setNewLevelPair(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-300 outline-none">
+              {SP_PAIRS.map((p) => <option key={p}>{p}</option>)}
+            </select>
+            <select value={newLevelType} onChange={(e) => setNewLevelType(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-300 outline-none">
+              <option>Resistance</option>
+              <option>Support</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <TextInput placeholder="Price level" value={newLevelPrice} onChange={(e: any) => setNewLevelPrice(e.target.value)} />
+            <TextInput placeholder="Note (optional)" value={newLevelNote} onChange={(e: any) => setNewLevelNote(e.target.value)} />
+          </div>
+          <button onClick={addLevel} className="w-full py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 text-xs hover:text-amber-400 hover:border-amber-500/30 transition">
+            + Add Level
+          </button>
+        </div>
+      </div>
+
+      {/* Risk Rules */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Risk Rules for Today</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-[10px] text-slate-600 mb-1">Max trades today</div>
+            <TextInput type="number" min="1" placeholder="3" value={form.maxTrades} onChange={(e: any) => setForm((f: any) => ({ ...f, maxTrades: e.target.value }))} />
+          </div>
+          <div>
+            <div className="text-[10px] text-slate-600 mb-1">Max daily loss ($)</div>
+            <TextInput type="number" placeholder="e.g. 150" value={form.maxDailyLossAmt} onChange={(e: any) => setForm((f: any) => ({ ...f, maxDailyLossAmt: e.target.value }))} />
+          </div>
+        </div>
+      </div>
+
+      {/* News to Avoid */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">News Events to Avoid</div>
+        {form.newsToAvoid.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {form.newsToAvoid.map((n: string, i: number) => (
+              <span key={i} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
+                {n}
+                <button onClick={() => removeNews(i)} className="hover:text-rose-300"><X size={10} /></button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <TextInput placeholder="e.g. NFP 8:30am, FOMC 2pm..." value={newNews}
+            onChange={(e: any) => setNewNews(e.target.value)}
+            onKeyDown={(e: any) => { if (e.key === "Enter") addNews(); }} className="flex-1" />
+          <button onClick={addNews} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-amber-400 text-xs">Add</button>
+        </div>
+      </div>
+
+      {/* Pre-Market Analysis */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Pre-Market Analysis</div>
+        <TextArea value={form.analysis} onChange={(e: any) => setForm((f: any) => ({ ...f, analysis: e.target.value }))}
+          placeholder="Paste your full pre-session analysis here — HTF structure, confluences, what you're watching for, scenarios..." className="min-h-[120px]" />
+      </div>
+
+      {/* Mindset */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Mindset Check-In</div>
+        <TextArea value={form.mindset} onChange={(e: any) => setForm((f: any) => ({ ...f, mindset: e.target.value }))}
+          placeholder="How are you feeling today? Any concerns, emotional carry-over, or focus notes before you start trading..." className="min-h-[80px]" />
+      </div>
+
+      {/* Pre-Session Checklist */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Pre-Session Checklist</div>
+        <div className="space-y-1.5 mb-2">
+          {form.checklist.map((item: any) => (
+            <div key={item.id} className="flex items-center gap-2 rounded-xl bg-slate-900 border border-slate-800 px-3 py-2">
+              <span className="text-xs text-slate-400 flex-1">{item.text}</span>
+              <button onClick={() => removeCheck(item.id)} className="text-slate-700 hover:text-rose-400"><X size={12} /></button>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <TextInput placeholder="Add custom checklist item..." value={newCheck}
+            onChange={(e: any) => setNewCheck(e.target.value)}
+            onKeyDown={(e: any) => { if (e.key === "Enter") addCheck(); }} className="flex-1" />
+          <button onClick={addCheck} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-amber-400 text-xs">Add</button>
+        </div>
+      </div>
+
+      <button onClick={save}
+        className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-2xl font-bold text-sm transition">
+        {initial?.id ? "Save Changes" : "Save Plan"}
+      </button>
+    </div>
+  );
+}
+
+function SessionPlanDetail({ plan, onBack, onEdit, onDelete, onUpdate }) {
+  const [checklist, setChecklist] = useState<any[]>(plan.checklist || []);
+  useEffect(() => { setChecklist(plan.checklist || []); }, [plan.id]);
+
+  const toggleCheck = (id: string) => {
+    const next = checklist.map((c: any) => c.id === id ? { ...c, done: !c.done } : c);
+    setChecklist(next);
+    onUpdate({ ...plan, checklist: next });
+  };
+  const done = checklist.filter((c: any) => c.done).length;
+  const total = checklist.length;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  const BIAS_COLOR = { Bullish: "text-emerald-400", Bearish: "text-rose-400", Neutral: "text-slate-400" };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <button onClick={onBack} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400"><ArrowLeft size={16} /></button>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>Session Plan — {plan.date}</div>
+          <div className="text-[10px] text-slate-500">{plan.sessionFocus?.join(" · ") || "All sessions"}</div>
+        </div>
+        <button onClick={onEdit} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400"><Pencil size={15} /></button>
+        <button onClick={onDelete} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-rose-400"><Trash2 size={15} /></button>
+      </div>
+
+      {/* Bias */}
+      {plan.overallBias && (
+        <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Market Bias</div>
+          <div className={cx("text-lg font-bold mb-1", BIAS_COLOR[plan.overallBias] || "text-slate-400")}>
+            {plan.overallBias === "Bullish" ? "📈" : plan.overallBias === "Bearish" ? "📉" : "➡️"} {plan.overallBias}
+          </div>
+          {plan.biasNotes && <p className="text-xs text-slate-400 leading-relaxed">{plan.biasNotes}</p>}
+        </div>
+      )}
+
+      {/* Pairs + Sessions */}
+      <div className="grid grid-cols-2 gap-3">
+        {plan.pairsWatch?.length > 0 && (
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Pairs</div>
+            <div className="flex flex-wrap gap-1">
+              {plan.pairsWatch.map((p: string) => (
+                <span key={p} className="px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-semibold">{p}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {plan.sessionFocus?.length > 0 && (
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Sessions</div>
+            <div className="flex flex-wrap gap-1">
+              {plan.sessionFocus.map((s: string) => (
+                <span key={s} className="px-2 py-0.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 text-[10px] font-semibold">{s}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Risk Rules */}
+      {(plan.maxTrades || plan.maxDailyLossAmt) && (
+        <div className="grid grid-cols-2 gap-3">
+          {plan.maxTrades && (
+            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3 text-center">
+              <div className="text-xl font-bold text-amber-400">{plan.maxTrades}</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">Max Trades Today</div>
+            </div>
+          )}
+          {plan.maxDailyLossAmt && (
+            <div className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-3 text-center">
+              <div className="text-xl font-bold text-rose-400">${parseFloat(plan.maxDailyLossAmt).toLocaleString()}</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">Max Daily Loss</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Key Levels */}
+      {plan.keyLevels?.length > 0 && (
+        <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-3">Key S/R Levels</div>
+          <div className="space-y-1.5">
+            {plan.keyLevels.map((lvl: any) => (
+              <div key={lvl.id} className="flex items-center gap-2 rounded-xl bg-slate-900 border border-slate-800 px-3 py-2">
+                <span className={cx("text-[10px] font-bold px-1.5 py-0.5 rounded", lvl.type === "Resistance" ? "bg-rose-500/10 text-rose-400" : "bg-emerald-500/10 text-emerald-400")}>{lvl.type.slice(0, 3).toUpperCase()}</span>
+                <span className="text-[10px] text-slate-500">{lvl.pair}</span>
+                <span className="text-xs font-semibold text-slate-200 flex-1">{lvl.level}</span>
+                {lvl.note && <span className="text-[10px] text-slate-600">{lvl.note}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* News to Avoid */}
+      {plan.newsToAvoid?.length > 0 && (
+        <div className="bg-rose-500/5 border border-rose-500/20 rounded-2xl p-4">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">⚠️ News to Avoid</div>
+          <div className="flex flex-wrap gap-1.5">
+            {plan.newsToAvoid.map((n: string, i: number) => (
+              <span key={i} className="px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">{n}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Analysis */}
+      {plan.analysis && (
+        <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Pre-Market Analysis</div>
+          <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{plan.analysis}</p>
+        </div>
+      )}
+
+      {/* Mindset */}
+      {plan.mindset && (
+        <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">🧠 Mindset Check-In</div>
+          <p className="text-xs text-slate-400 leading-relaxed whitespace-pre-wrap">{plan.mindset}</p>
+        </div>
+      )}
+
+      {/* Checklist */}
+      {checklist.length > 0 && (
+        <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Pre-Session Checklist</div>
+            <span className={cx("text-[10px] font-bold", pct === 100 ? "text-emerald-400" : "text-amber-400")}>{done}/{total} done</span>
+          </div>
+          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden mb-3">
+            <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="space-y-2">
+            {checklist.map((item: any) => (
+              <button key={item.id} onClick={() => toggleCheck(item.id)}
+                className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 bg-slate-900 border border-slate-800 hover:border-slate-700 transition text-left">
+                <div className={cx("w-4 h-4 rounded border flex items-center justify-center shrink-0 transition",
+                  item.done ? "bg-emerald-500 border-emerald-500" : "border-slate-600")}>
+                  {item.done && <Check size={10} className="text-white" />}
+                </div>
+                <span className={cx("text-xs flex-1", item.done ? "text-slate-600 line-through" : "text-slate-300")}>{item.text}</span>
+              </button>
+            ))}
+          </div>
+          {pct === 100 && (
+            <div className="mt-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-center">
+              <p className="text-emerald-400 text-xs font-semibold">✅ All checks done — you're ready to trade!</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SessionPlanPanel({ data, setData }) {
+  const plans: any[] = data.sessionPlans || [];
+  const [view, setView] = useState<"list"|"form"|"detail">("list");
+  const [selected, setSelected] = useState<any>(null);
+
+  const save = (plan: any) => {
+    setData((d: any) => {
+      const list = d.sessionPlans || [];
+      const exists = list.some((p: any) => p.id === plan.id);
+      return { ...d, sessionPlans: exists ? list.map((p: any) => p.id === plan.id ? plan : p) : [...list, plan] };
+    });
+    setSelected(plan); setView("detail");
+  };
+
+  const del = (id: string) => {
+    setData((d: any) => ({ ...d, sessionPlans: (d.sessionPlans || []).filter((p: any) => p.id !== id) }));
+    setView("list");
+  };
+
+  const update = (plan: any) => {
+    setData((d: any) => ({ ...d, sessionPlans: (d.sessionPlans || []).map((p: any) => p.id === plan.id ? plan : p) }));
+    setSelected(plan);
+  };
+
+  const liveSelected = selected ? ((plans.find((p) => p.id === selected.id)) || selected) : null;
+
+  if (view === "form") {
+    return <SessionPlanForm initial={selected} onSave={save} onBack={() => setView(selected?.id ? "detail" : "list")} />;
+  }
+
+  if (view === "detail" && liveSelected) {
+    return (
+      <SessionPlanDetail
+        plan={liveSelected}
+        onBack={() => setView("list")}
+        onEdit={() => { setSelected(liveSelected); setView("form"); }}
+        onDelete={() => del(liveSelected.id)}
+        onUpdate={update} />
+    );
+  }
+
+  const today = todayISO();
+  const todayPlan = plans.find((p) => p.date === today);
+  const sorted = [...plans].sort((a, b) => b.date.localeCompare(a.date));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <SectionTitle sub="Pre-session planning & key levels">Trade Plan Builder</SectionTitle>
+        <button onClick={() => { setSelected(null); setView("form"); }}
+          className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold transition">
+          <Plus size={13} /> New Plan
+        </button>
+      </div>
+
+      {/* Today callout */}
+      {!todayPlan && (
+        <button onClick={() => { setSelected(null); setView("form"); }}
+          className="w-full flex items-center gap-3 px-4 py-3 bg-amber-500/5 border border-amber-500/20 border-dashed rounded-2xl hover:border-amber-500/40 transition text-left">
+          <CalendarDays size={18} className="text-amber-400 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-amber-400">No plan for today yet</p>
+            <p className="text-[11px] text-slate-600">Tap to create your pre-session plan before you start trading →</p>
+          </div>
+        </button>
+      )}
+
+      {plans.length === 0 ? (
+        <div className="text-center py-10">
+          <FileText size={32} className="text-slate-700 mx-auto mb-3" />
+          <p className="text-slate-400 text-sm font-medium mb-1">No session plans yet</p>
+          <p className="text-slate-600 text-xs">Build a plan before each session — bias, key levels, risk rules, news to avoid.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {sorted.map((plan) => {
+            const isToday = plan.date === today;
+            const doneCount = (plan.checklist || []).filter((c: any) => c.done).length;
+            const totalCount = (plan.checklist || []).length;
+            const BIAS_COLOR: Record<string,string> = { Bullish: "text-emerald-400", Bearish: "text-rose-400", Neutral: "text-slate-400" };
+            return (
+              <button key={plan.id} onClick={() => { setSelected(plan); setView("detail"); }}
+                className={cx("w-full rounded-2xl border p-4 text-left hover:bg-slate-900/40 transition",
+                  isToday ? "bg-amber-500/5 border-amber-500/20" : "bg-slate-950 border-slate-800")}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-300">{plan.date}</span>
+                    {isToday && <span className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[9px] font-bold">TODAY</span>}
+                  </div>
+                  {plan.overallBias && <span className={cx("text-xs font-bold", BIAS_COLOR[plan.overallBias])}>{plan.overallBias === "Bullish" ? "📈" : plan.overallBias === "Bearish" ? "📉" : "➡️"} {plan.overallBias}</span>}
+                </div>
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {(plan.pairsWatch || []).slice(0, 4).map((p: string) => (
+                    <span key={p} className="px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 text-[9px] font-medium">{p}</span>
+                  ))}
+                  {plan.sessionFocus?.length > 0 && plan.sessionFocus.map((s: string) => (
+                    <span key={s} className="px-2 py-0.5 rounded-lg bg-sky-500/10 border border-sky-500/15 text-sky-500 text-[9px] font-medium">{s}</span>
+                  ))}
+                </div>
+                {totalCount > 0 && (
+                  <div>
+                    <div className="flex justify-between text-[9px] text-slate-600 mb-0.5">
+                      <span>Checklist</span><span>{doneCount}/{totalCount}</span>
+                    </div>
+                    <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${totalCount > 0 ? (doneCount/totalCount)*100 : 0}%` }} />
+                    </div>
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SessionPlanDashCard({ data, goTo }) {
+  const today = todayISO();
+  const plans: any[] = data.sessionPlans || [];
+  const todayPlan = plans.find((p) => p.date === today);
+  const BIAS_COLOR: Record<string,string> = { Bullish: "text-emerald-400", Bearish: "text-rose-400", Neutral: "text-slate-400" };
+
+  if (!todayPlan) {
+    return (
+      <button onClick={() => goTo("more", "Session")}
+        className="w-full flex items-center gap-3 px-4 py-3 bg-slate-950 border border-amber-500/20 border-dashed rounded-2xl text-left hover:border-amber-500/40 transition">
+        <CalendarDays size={18} className="text-amber-400/60 shrink-0" />
+        <div>
+          <p className="text-sm font-semibold text-amber-400/80">Build today's session plan</p>
+          <p className="text-[11px] text-slate-600">Bias · Key levels · Risk rules · Checklist →</p>
+        </div>
+      </button>
+    );
+  }
+
+  const doneCount = (todayPlan.checklist || []).filter((c: any) => c.done).length;
+  const totalCount = (todayPlan.checklist || []).length;
+  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+  return (
+    <button onClick={() => goTo("more", "Session")}
+      className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-left hover:bg-slate-900/30 transition">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <CalendarDays size={15} className="text-amber-400" />
+          <span className="text-sm font-semibold text-slate-200" style={{ fontFamily: "'Sora', sans-serif" }}>Today's Session Plan</span>
+        </div>
+        {todayPlan.overallBias ? (
+          <span className={cx("text-xs font-bold", BIAS_COLOR[todayPlan.overallBias])}>
+            {todayPlan.overallBias === "Bullish" ? "📈" : todayPlan.overallBias === "Bearish" ? "📉" : "➡️"} {todayPlan.overallBias}
+          </span>
+        ) : <ChevronRight size={14} className="text-slate-600" />}
+      </div>
+      <div className="flex flex-wrap gap-1 mb-3">
+        {(todayPlan.pairsWatch || []).map((p: string) => (
+          <span key={p} className="px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-semibold">{p}</span>
+        ))}
+        {(todayPlan.sessionFocus || []).map((s: string) => (
+          <span key={s} className="px-2 py-0.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 text-[10px] font-semibold">{s}</span>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        {todayPlan.maxTrades && (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-center">
+            <div className="text-sm font-bold text-amber-400">{todayPlan.maxTrades}</div>
+            <div className="text-[9px] text-slate-600">Max Trades</div>
+          </div>
+        )}
+        {todayPlan.maxDailyLossAmt && (
+          <div className="bg-rose-500/5 border border-rose-500/15 rounded-xl px-3 py-2 text-center">
+            <div className="text-sm font-bold text-rose-400">${parseFloat(todayPlan.maxDailyLossAmt).toLocaleString()}</div>
+            <div className="text-[9px] text-slate-600">Max Loss</div>
+          </div>
+        )}
+      </div>
+      {totalCount > 0 && (
+        <div>
+          <div className="flex justify-between text-[9px] text-slate-600 mb-1">
+            <span>Pre-session checklist</span>
+            <span className={pct === 100 ? "text-emerald-400 font-bold" : ""}>{doneCount}/{totalCount} {pct === 100 ? "✅ Ready!" : ""}</span>
+          </div>
+          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: pct === 100 ? "#22c55e" : "#f59e0b" }} />
+          </div>
+        </div>
+      )}
+      {todayPlan.newsToAvoid?.length > 0 && (
+        <div className="mt-2 flex items-center gap-1.5">
+          <AlertTriangle size={10} className="text-rose-400" />
+          <span className="text-[9px] text-rose-400 font-medium">{todayPlan.newsToAvoid.length} news event{todayPlan.newsToAvoid.length > 1 ? "s" : ""} to avoid today</span>
+        </div>
+      )}
+    </button>
+  );
+}
+
 function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
-  const tabs = ["Account", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report"];
+  const tabs = ["Account", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report"];
 
   if (subTab === "Report") {
     return <PerformanceReport data={data} onClose={() => setSubTab("Account")} />;
@@ -6482,6 +7074,7 @@ function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
         ))}
       </div>
       {subTab === "Account" && <AccountSettings data={data} setData={setData} />}
+      {subTab === "Session" && <SessionPlanPanel data={data} setData={setData} />}
       {subTab === "Plans" && <PlansPanel data={data} setData={setData} goTo={goTo} />}
       {subTab === "Psychology" && <PsychologyPanel data={data} setData={setData} goTo={goTo} />}
       {subTab === "Vault" && <VaultPanel data={data} setData={setData} goTo={goTo} />}
