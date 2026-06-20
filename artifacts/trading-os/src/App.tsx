@@ -3556,64 +3556,241 @@ function DashSectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 /* ── Animated Candlestick Hero Chart ── */
-function AnimatedCandlestickChart() {
-  const [tick, setTick] = useState(0);
+/* ── Forex session definitions (UTC hours) ── */
+const SESSIONS = [
+  { name: "Tokyo",   start: 0,  end: 9,  color: "#818cf8", glow: "#6366f133" },
+  { name: "London",  start: 8,  end: 17, color: "#38bdf8", glow: "#0ea5e933" },
+  { name: "New York",start: 13, end: 22, color: "#fb923c", glow: "#f9731633" },
+] as const;
+
+function useUtcNow() {
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 70);
+    const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
+  return now;
+}
 
-  const candles = useMemo(() => {
-    const moves = [1.4,-0.8,2.1,-1.2,0.9,1.8,-0.5,1.3,-1.9,2.4,-0.3,1.7,-1.1,0.6,-2.2,1.5,0.4,-0.7,2.8,-1.6,0.9,-0.4,1.2,-1.8,2.3,-0.6,1.1,-0.9,1.6,0.3,1.9,-1.4];
+function AnimatedCandlestickChart() {
+  const TOTAL = 40;
+  const REPLAY_SPEED = 110; // ms per candle reveal
+
+  /* tick drives both reveal (mod TOTAL) and live-tick animation */
+  const [tick, setTick] = useState(0);
+  const [liveTick, setLiveTick] = useState(0);
+  const now = useUtcNow();
+
+  useEffect(() => {
+    const replay = setInterval(() => setTick((t) => t + 1), REPLAY_SPEED);
+    const live   = setInterval(() => setLiveTick((t) => t + 1), 60);
+    return () => { clearInterval(replay); clearInterval(live); };
+  }, []);
+
+  /* Generate a realistic trending candle series */
+  const allCandles = useMemo(() => {
+    const moves = [
+      1.2,-0.5,1.8,-0.9,0.7,2.1,-0.6,1.4,-1.1,2.6,
+      -0.4,1.9,-1.3,0.5,-1.8,1.3,0.6,-0.8,2.4,-1.5,
+      0.8,-0.3,1.6,-1.0,2.0,-0.7,1.1,-0.6,1.5,0.4,
+      2.2,-1.7,0.9,-0.4,1.3,-1.2,2.8,-0.5,1.7,0.3,
+    ];
     let price = 100;
     return moves.map((move, i) => {
-      const scale = 2 + (i % 4) * 0.4;
+      const volatility = 1.8 + (i % 5) * 0.5;
       const open  = price;
-      const close = price + move * scale;
+      const close = price + move * volatility;
       const span  = Math.abs(close - open);
-      const high  = Math.max(open, close) + span * 0.35 + 0.6;
-      const low   = Math.min(open, close) - span * 0.28 - 0.4;
+      const high  = Math.max(open, close) + span * 0.4 + 0.5;
+      const low   = Math.min(open, close) - span * 0.3 - 0.4;
       price = close;
       return { open, close, high, low };
     });
   }, []);
 
-  const W = 320, H = 88;
-  const highs = candles.map((c) => c.high);
-  const lows  = candles.map((c) => c.low);
-  const maxP  = Math.max(...highs), minP = Math.min(...lows);
-  const range = maxP - minP || 1;
-  const toY   = (p: number) => H - ((p - minP) / range) * H * 0.78 - H * 0.11;
-  const cw = W / candles.length;
-  const bw = cw * 0.54;
+  /* Replay: reveal candles one-by-one then loop */
+  const phase   = tick % (TOTAL + 12); // 12 blank frames between loops
+  const visible = Math.min(phase, TOTAL);
 
-  const visible = Math.min(tick, candles.length);
+  /* SVG dimensions */
+  const W = 400, H = 140;
+  const PAD_L = 0, PAD_R = 0, PAD_T = 14, PAD_B = 24;
+  const chartW = W - PAD_L - PAD_R;
+  const chartH = H - PAD_T - PAD_B;
+
+  const displayCandles = allCandles.slice(0, TOTAL);
+  const highs = displayCandles.map((c) => c.high);
+  const lows  = displayCandles.map((c) => c.low);
+  const maxP  = Math.max(...highs) + 0.5;
+  const minP  = Math.min(...lows)  - 0.5;
+  const range = maxP - minP || 1;
+  const toY   = (p: number) => PAD_T + chartH - ((p - minP) / range) * chartH;
+
+  const cw = chartW / TOTAL;
+  const bw = cw * 0.52;
+
+  /* Live-tick: animate last candle's close up/down */
+  const lastCandle = displayCandles[visible - 1];
+  const liveClose = lastCandle
+    ? lastCandle.close + Math.sin(liveTick * 0.18) * 1.4
+    : 0;
+  const liveHigh = lastCandle
+    ? Math.max(lastCandle.high, liveClose) + Math.abs(Math.sin(liveTick * 0.11)) * 0.6
+    : 0;
+  const liveLow = lastCandle
+    ? Math.min(lastCandle.low, liveClose) - Math.abs(Math.sin(liveTick * 0.09)) * 0.5
+    : 0;
+
+  /* Current UTC hour for session bands */
+  const utcH = now.getUTCHours() + now.getUTCMinutes() / 60;
+
+  /* Map UTC hour → X position across chart (0-23h spans full width) */
+  const hourToX = (h: number) => (h / 24) * W;
+
+  /* Active sessions right now */
+  const activeSessions = SESSIONS.filter((s) => utcH >= s.start && utcH < s.end);
+
+  /* Bid/ask spread flicker for live price line */
+  const spread = 0.12 + Math.abs(Math.sin(liveTick * 0.3)) * 0.08;
+  const bidY   = toY(liveClose);
+  const askY   = toY(liveClose + spread);
+
+  /* Current price cursor X (last visible candle) */
+  const cursorX = visible > 0 ? PAD_L + (visible - 0.5) * cw : null;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full" preserveAspectRatio="none">
-      {[0.2, 0.4, 0.6, 0.8].map((f) => (
-        <line key={f} x1={0} y1={H * f} x2={W} y2={H * f} stroke="#0f172a" strokeWidth={0.5} />
-      ))}
-      {candles.slice(0, visible).map((c, i) => {
-        const cx   = i * cw + cw / 2;
-        const bull = c.close >= c.open;
-        const color= bull ? "#10b981" : "#f43f5e";
-        const bodyTop = toY(Math.max(c.open, c.close));
-        const bodyH   = Math.max(1.2, Math.abs(toY(c.open) - toY(c.close)));
-        const isLast  = i === visible - 1;
-        const pulse   = isLast ? Math.sin(tick * 0.45) * 1.2 : 0;
-        return (
-          <g key={i} opacity={isLast ? 1 : 0.72}>
-            <line x1={cx} y1={toY(c.high) - (isLast ? pulse : 0)}
-              x2={cx} y2={toY(c.low) + (isLast ? pulse * 0.6 : 0)}
-              stroke={color} strokeWidth={0.9} />
-            <rect x={cx - bw / 2} y={bodyTop} width={bw} height={bodyH}
-              fill={color} rx={0.9}
-              style={isLast ? { filter: `drop-shadow(0 0 3px ${color}aa)` } : undefined} />
+    <div className="relative w-full" style={{ height: 210 }}>
+      {/* ── Session legend row ── */}
+      <div className="absolute top-0 left-0 right-0 flex items-center gap-3 px-1 pb-1 z-10" style={{ top: 0 }}>
+        {SESSIONS.map((s) => {
+          const active = utcH >= s.start && utcH < s.end;
+          return (
+            <div key={s.name} className={cx("flex items-center gap-1 text-[9px] font-bold transition-all", active ? "opacity-100" : "opacity-30")}>
+              <div className="w-1.5 h-1.5 rounded-full" style={{ background: s.color, boxShadow: active ? `0 0 4px ${s.color}` : "none" }} />
+              <span style={{ color: s.color }}>{s.name}</span>
+              {active && <span className="text-[8px] font-normal opacity-70">{s.start}:00–{s.end}:00 UTC</span>}
+            </div>
+          );
+        })}
+        <div className="ml-auto text-[9px] text-slate-500 font-mono">
+          {now.getUTCHours().toString().padStart(2,"0")}:{now.getUTCMinutes().toString().padStart(2,"0")} UTC
+        </div>
+      </div>
+
+      {/* ── Main SVG chart ── */}
+      <svg viewBox={`0 0 ${W} ${H}`} className="absolute inset-0 w-full" style={{ top: 16, height: H }}
+        preserveAspectRatio="none">
+
+        {/* Session band overlays */}
+        {SESSIONS.map((s) => {
+          const x1 = hourToX(s.start);
+          const x2 = hourToX(s.end);
+          const isActive = utcH >= s.start && utcH < s.end;
+          return (
+            <rect key={s.name} x={x1} y={PAD_T} width={x2 - x1} height={chartH}
+              fill={s.glow} opacity={isActive ? 1 : 0.35} />
+          );
+        })}
+
+        {/* London/NY overlap band (higher intensity) */}
+        {(() => {
+          const x1 = hourToX(13), x2 = hourToX(17);
+          const isActive = utcH >= 13 && utcH < 17;
+          return <rect x={x1} y={PAD_T} width={x2 - x1} height={chartH}
+            fill="#fb923c18" opacity={isActive ? 1 : 0.5} />;
+        })()}
+
+        {/* Grid lines */}
+        {[0.25, 0.5, 0.75].map((f) => (
+          <line key={f} x1={PAD_L} y1={PAD_T + chartH * f} x2={W} y2={PAD_T + chartH * f}
+            stroke="#1e293b" strokeWidth={0.6} strokeDasharray="3 4" />
+        ))}
+
+        {/* Candles */}
+        {displayCandles.slice(0, visible).map((c, i) => {
+          const cx   = PAD_L + i * cw + cw / 2;
+          const isLast = i === visible - 1;
+          const open  = c.open;
+          const close = isLast ? liveClose : c.close;
+          const high  = isLast ? liveHigh  : c.high;
+          const low   = isLast ? liveLow   : c.low;
+          const bull  = close >= open;
+          const color = bull ? "#10b981" : "#f43f5e";
+          const bodyTop = toY(Math.max(open, close));
+          const bodyH   = Math.max(1.5, Math.abs(toY(open) - toY(close)));
+
+          /* Fade-in the newest candle */
+          const opacity = isLast ? 1 : i < visible - 3 ? 0.8 : 0.65 + (i - (visible - 3)) * 0.05;
+
+          return (
+            <g key={i} opacity={opacity}>
+              {/* Wick */}
+              <line x1={cx} y1={toY(high)} x2={cx} y2={toY(low)}
+                stroke={color} strokeWidth={isLast ? 1.1 : 0.8}
+                style={isLast ? { filter: `drop-shadow(0 0 2px ${color})` } : undefined} />
+              {/* Body */}
+              <rect x={cx - bw / 2} y={bodyTop} width={bw} height={bodyH}
+                fill={color} rx={1}
+                style={isLast ? { filter: `drop-shadow(0 0 5px ${color}88)` } : undefined} />
+            </g>
+          );
+        })}
+
+        {/* Live price horizontal line (bid) */}
+        {visible > 0 && cursorX != null && (
+          <>
+            <line x1={PAD_L} y1={bidY} x2={cursorX} y2={bidY}
+              stroke="#f59e0b" strokeWidth={0.6} strokeDasharray="3 3" opacity={0.7} />
+            {/* Ask line */}
+            <line x1={PAD_L} y1={askY} x2={cursorX} y2={askY}
+              stroke="#f59e0b" strokeWidth={0.4} strokeDasharray="2 4" opacity={0.35} />
+            {/* Current UTC time cursor vertical line */}
+            <line x1={hourToX(utcH)} y1={PAD_T} x2={hourToX(utcH)} y2={PAD_T + chartH}
+              stroke="#f59e0b" strokeWidth={0.8} opacity={0.5} strokeDasharray="2 3" />
+          </>
+        )}
+
+        {/* Price label on right edge */}
+        {visible > 0 && (
+          <g>
+            <rect x={W - 38} y={bidY - 6} width={37} height={12} rx={3}
+              fill="#f59e0b" opacity={0.92} />
+            <text x={W - 19.5} y={bidY + 4} textAnchor="middle"
+              fill="#000" fontSize={7} fontWeight="bold" fontFamily="monospace">
+              {(1.08 + (liveClose - 100) * 0.0001).toFixed(5)}
+            </text>
           </g>
-        );
-      })}
-    </svg>
+        )}
+
+        {/* Session time labels at bottom */}
+        {SESSIONS.map((s) => (
+          <text key={s.name} x={hourToX(s.start) + 2} y={H - 4}
+            fill={s.color} fontSize={6.5} opacity={0.6} fontFamily="monospace">
+            {s.start}h
+          </text>
+        ))}
+        <text x={W - 3} y={H - 4} textAnchor="end"
+          fill="#475569" fontSize={6} fontFamily="monospace">24h UTC</text>
+      </svg>
+
+      {/* Active session glow pills at bottom */}
+      {activeSessions.length > 0 && (
+        <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-2 pb-0.5">
+          {activeSessions.map((s) => (
+            <div key={s.name} className="px-2 py-0.5 rounded-full text-[8px] font-bold animate-pulse"
+              style={{ background: `${s.color}22`, border: `1px solid ${s.color}55`, color: s.color }}>
+              {s.name} OPEN
+            </div>
+          ))}
+          {utcH >= 13 && utcH < 17 && (
+            <div className="px-2 py-0.5 rounded-full text-[8px] font-bold"
+              style={{ background: "#fb923c22", border: "1px solid #fb923c55", color: "#fb923c" }}>
+              ⚡ LDN/NY Overlap
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3720,33 +3897,66 @@ function Dashboard({ data, setData, goTo }) {
       </div>
 
       {/* ── ANIMATED CANDLESTICK HERO ── */}
-      <div className="relative rounded-2xl overflow-hidden border border-slate-800/70 shadow-2xl shadow-black/40"
-        style={{ background: "linear-gradient(135deg,#0a0f1e 0%,#0d1a2e 50%,#0a0f1e 100%)" }}>
-        {/* chart fills entire card */}
-        <div className="absolute inset-0 opacity-80">
-          <AnimatedCandlestickChart />
-        </div>
-        {/* gradient overlay — dark at bottom */}
-        <div className="absolute inset-0"
-          style={{ background: "linear-gradient(to top, rgba(10,15,30,0.92) 0%, rgba(10,15,30,0.3) 45%, rgba(10,15,30,0.1) 100%)" }} />
-        {/* subtle amber glow top-right */}
-        <div className="absolute top-0 right-0 w-32 h-16 opacity-20"
-          style={{ background: "radial-gradient(ellipse at top right, #f59e0b 0%, transparent 70%)" }} />
-        {/* content */}
-        <div className="relative px-4 pt-3 pb-4 flex items-end justify-between">
+      <div className="relative rounded-2xl overflow-hidden border border-slate-800/60 shadow-2xl shadow-black/60"
+        style={{ background: "linear-gradient(160deg,#070d1c 0%,#0b1525 60%,#070d1c 100%)", minHeight: 300 }}>
+
+        {/* background grid glow */}
+        <div className="absolute inset-0 opacity-30"
+          style={{ backgroundImage: "linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px)", backgroundSize: "24px 24px" }} />
+
+        {/* amber radial glow center-top */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 opacity-15 pointer-events-none"
+          style={{ background: "radial-gradient(ellipse,#f59e0b 0%,transparent 70%)" }} />
+
+        {/* ── top bar: pair + price ── */}
+        <div className="relative flex items-start justify-between px-4 pt-4 pb-2">
           <div>
-            <div className="text-[9px] text-amber-400/60 uppercase tracking-widest font-bold mb-0.5">Live Chart Preview</div>
-            <div className="text-2xl font-black text-slate-100 tracking-tight leading-none" style={{ fontFamily: "'Sora', sans-serif" }}>
-              XAU / USD
+            <div className="text-[9px] text-amber-400/50 uppercase tracking-widest font-bold mb-1">Replay · Live Tick</div>
+            <div className="text-3xl font-black text-slate-50 tracking-tight leading-none" style={{ fontFamily: "'Sora', sans-serif" }}>
+              EUR / USD
             </div>
-            <div className="text-[11px] text-amber-400 font-semibold mt-0.5">Gold · Spot</div>
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className="text-[10px] text-amber-400/70 font-semibold">Forex · Spot</span>
+              <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10px] text-emerald-400 font-bold">LIVE</span>
+            </div>
           </div>
           <div className="text-right">
-            <div className={cx("text-xs font-bold mb-0.5", a.dayPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
-              {a.dayPnl >= 0 ? "▲" : "▼"} Today {fmtBalSigned(a.dayPnl, cur)}
+            <div className={cx("text-xl font-black font-mono", a.dayPnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+              {a.dayPnl >= 0 ? "+" : ""}{fmtBalSigned(a.dayPnl, cur)}
             </div>
-            <div className="text-[10px] text-slate-500">Win Rate {a.winRate !== null ? fmtPct(a.winRate) : "—"}</div>
-            <div className="text-[9px] text-slate-700 mt-0.5 font-mono">
+            <div className="text-[10px] text-slate-500 mt-0.5">Today P&amp;L</div>
+            <div className="text-[10px] text-slate-400 font-semibold mt-1">
+              WR {a.winRate !== null ? fmtPct(a.winRate) : "—"}
+            </div>
+          </div>
+        </div>
+
+        {/* ── CHART AREA ── */}
+        <div className="relative px-2" style={{ height: 230 }}>
+          <AnimatedCandlestickChart />
+        </div>
+
+        {/* ── bottom stats strip ── */}
+        <div className="relative flex items-center justify-between px-4 py-3 border-t border-slate-800/60"
+          style={{ background: "rgba(7,13,28,0.7)" }}>
+          <div className="flex gap-4">
+            <div>
+              <div className="text-[8px] text-slate-600 uppercase tracking-wide">Trades</div>
+              <div className="text-[11px] font-bold text-slate-300">{a.tradeCount ?? 0}</div>
+            </div>
+            <div>
+              <div className="text-[8px] text-slate-600 uppercase tracking-wide">Best</div>
+              <div className="text-[11px] font-bold text-emerald-400">{a.bestTrade != null ? fmtBalSigned(a.bestTrade, cur) : "—"}</div>
+            </div>
+            <div>
+              <div className="text-[8px] text-slate-600 uppercase tracking-wide">Worst</div>
+              <div className="text-[11px] font-bold text-rose-400">{a.worstTrade != null ? fmtBalSigned(a.worstTrade, cur) : "—"}</div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-[8px] text-slate-600 uppercase tracking-wide">Local Time</div>
+            <div className="text-[11px] font-mono text-slate-400">
               {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </div>
           </div>
