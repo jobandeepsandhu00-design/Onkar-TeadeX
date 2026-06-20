@@ -5346,7 +5346,7 @@ function LiveMarketTicker() {
     script.async = true;
     script.innerHTML = JSON.stringify({
       symbols: [
-        { proName: "FX_IDC:XAUUSD",      title: "GOLD"    },
+        { proName: "OANDA:XAUUSD",         title: "GOLD ★"  },
         { proName: "FX:GBPJPY",           title: "GBP/JPY" },
         { proName: "FX:EURUSD",           title: "EUR/USD" },
         { proName: "FX:GBPUSD",           title: "GBP/USD" },
