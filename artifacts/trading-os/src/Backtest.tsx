@@ -3,6 +3,7 @@ import {
   Play, Pause, SkipForward, ChevronLeft, ChevronRight,
   TrendingUp, TrendingDown, RefreshCw, BarChart3, Zap,
   CheckCircle2, XCircle, RotateCcw, FlaskConical,
+  Minus, Square, Trash2, MousePointer2,
 } from "lucide-react";
 
 /* ── Types ────────────────────────────────────────────── */
@@ -26,6 +27,12 @@ type StrategyCfg = {
   tp: number; sl: number;
   startBalance: number;
 };
+type ChartView = { vs: number; pLo: number; pRange: number; barW: number; cW: number; cH: number };
+type DrawTool = "cursor" | "rect" | "hline" | "tline";
+type DrawShape =
+  | { id: string; kind: "rect";  i1: number; p1: number; i2: number; p2: number; color: string }
+  | { id: string; kind: "hline"; price: number; color: string }
+  | { id: string; kind: "tline"; i1: number; p1: number; i2: number; p2: number; color: string };
 
 /* ── Indicators ───────────────────────────────────────── */
 function calcSMA(data: number[], n: number): (number | null)[] {
@@ -72,6 +79,62 @@ function dp(pip: number) { return pip >= 1 ? 0 : pip >= 0.1 ? 1 : pip >= 0.01 ? 
 function fmt(p: number, pip: number) { return p.toFixed(dp(pip)); }
 function fmtPnl(n: number) { return (n >= 0 ? "+" : "") + n.toFixed(1); }
 
+/* ── Shape painter ─────────────────────────────────────── */
+function paintShapes(
+  ctx: CanvasRenderingContext2D,
+  shapes: DrawShape[],
+  toY: (p: number) => number,
+  barW: number,
+  vs: number,
+  cW: number,
+  decimals: number,
+) {
+  shapes.forEach(s => {
+    ctx.save();
+    if (s.kind === "hline") {
+      const y = toY(s.price);
+      ctx.strokeStyle = s.color; ctx.lineWidth = 1.5; ctx.setLineDash([6, 3]);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cW, y); ctx.stroke();
+      ctx.setLineDash([]);
+      const lbl = s.price.toFixed(decimals);
+      const lw = ctx.measureText(lbl).width + 10;
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = s.color;
+      if (ctx.roundRect) ctx.roundRect(4, y - 9, lw, 14, 3); else ctx.rect(4, y - 9, lw, 14);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "#000"; ctx.font = "bold 8px monospace";
+      ctx.fillText(lbl, 8, y + 3);
+    } else if (s.kind === "rect") {
+      const x1 = (s.i1 - vs + 0.5) * barW;
+      const x2 = (s.i2 - vs + 0.5) * barW;
+      const y1 = toY(s.p1), y2 = toY(s.p2);
+      const left = Math.min(x1, x2), top = Math.min(y1, y2);
+      const w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
+      if (w > 1 && h > 1) {
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = s.color; ctx.fillRect(left, top, w, h);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = s.color; ctx.lineWidth = 1.5; ctx.setLineDash([]);
+        ctx.strokeRect(left, top, w, h);
+      }
+    } else if (s.kind === "tline") {
+      const x1 = (s.i1 - vs + 0.5) * barW;
+      const x2 = (s.i2 - vs + 0.5) * barW;
+      const y1 = toY(s.p1), y2 = toY(s.p2);
+      ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      [{ x: x1, y: y1 }, { x: x2, y: y2 }].forEach(pt => {
+        ctx.fillStyle = s.color;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#05091a";
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 2, 0, Math.PI * 2); ctx.fill();
+      });
+    }
+    ctx.restore();
+  });
+}
+
 /* ── Canvas chart ─────────────────────────────────────── */
 function drawChart(
   canvas: HTMLCanvasElement,
@@ -82,6 +145,9 @@ function drawChart(
   markers: { idx: number; type: "buy" | "sell" | "exit"; price: number }[],
   openTrades: RtTrade[],
   pip: number,
+  shapes: DrawShape[],
+  preview: DrawShape | null,
+  viewOut: React.MutableRefObject<ChartView | null>,
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx || !candles.length) return;
@@ -109,6 +175,9 @@ function drawChart(
   const barW = cW / visCount;
   const bW = Math.max(2, barW * 0.65);
   const decimals = dp(pip);
+
+  // Export view params for pointer-coordinate conversion
+  viewOut.current = { vs, pLo, pRange: pRng, barW, cW, cH };
 
   // Grid
   for (let g = 0; g <= 5; g++) {
@@ -204,6 +273,9 @@ function drawChart(
   ctx.fill();
   ctx.fillStyle = "#000"; ctx.font = "bold 9px monospace";
   ctx.fillText(lbl, cW + 5, py + 4);
+
+  // Draw shapes + live preview on top of everything
+  paintShapes(ctx, preview ? [...shapes, preview] : shapes, toY, barW, vs, cW, decimals);
 }
 
 /* ── Backtest engine ──────────────────────────────────── */
@@ -344,12 +416,20 @@ export default function BacktestTab() {
   });
   const [btResult, setBtResult] = useState<BtResult | null>(null);
 
+  // Drawing tools
+  const [shapes, setShapes] = useState<DrawShape[]>([]);
+  const [activeTool, setActiveTool] = useState<DrawTool>("cursor");
+  const [drawColor, setDrawColor] = useState("#ef4444");
+  const chartViewRef = useRef<ChartView | null>(null);
+  const drawingRef = useRef<{ startIdx: number; startPrice: number } | null>(null);
+  const previewRef = useRef<DrawShape | null>(null);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pip = getPip(symbol);
 
   const fetchCandles = useCallback(async () => {
-    setLoading(true); setPlaying(false); setTrades([]); setBtResult(null);
+    setLoading(true); setPlaying(false); setTrades([]); setBtResult(null); setShapes([]);
     try {
       const r = await fetch(`/api/backtest/candles?symbol=${symbol}&interval=${timeframe}&outputsize=300`);
       const j = await r.json();
@@ -413,8 +493,8 @@ export default function BacktestTab() {
       if (t.exitIdx !== undefined && t.exitPrice !== undefined)
         markers.push({ idx: t.exitIdx, type: "exit", price: t.exitPrice });
     });
-    drawChart(canvas, candles, idx, vis, getOverlay(), markers, openT, pip);
-  }, [candles, idx, vis, trades, getOverlay, pip]);
+    drawChart(canvas, candles, idx, vis, getOverlay(), markers, openT, pip, shapes, previewRef.current, chartViewRef);
+  }, [candles, idx, vis, trades, getOverlay, pip, shapes]);
 
   useEffect(() => { redraw(); }, [redraw]);
 
@@ -424,6 +504,63 @@ export default function BacktestTab() {
     const ro = new ResizeObserver(() => redraw());
     ro.observe(canvas);
     return () => ro.disconnect();
+  }, [redraw]);
+
+  // Drawing tool pointer handlers
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (activeTool === "cursor") return;
+    const canvas = canvasRef.current; if (!canvas) return;
+    const v = chartViewRef.current; if (!v) return;
+    canvas.setPointerCapture(e.pointerId);
+    const rect = canvas.getBoundingClientRect();
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const price = v.pLo + (1 - py / v.cH) * v.pRange;
+    const hIdx = v.vs + Math.round(px / v.barW - 0.5);
+    if (activeTool === "hline") {
+      setShapes(prev => [...prev, { id: Date.now().toString(), kind: "hline", price, color: drawColor }]);
+      return;
+    }
+    drawingRef.current = { startIdx: hIdx, startPrice: price };
+  }, [activeTool, drawColor]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawingRef.current || activeTool === "cursor") return;
+    const v = chartViewRef.current; if (!v) return;
+    const canvas = canvasRef.current; if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const price = v.pLo + (1 - py / v.cH) * v.pRange;
+    const hIdx = v.vs + Math.round(px / v.barW - 0.5);
+    previewRef.current = {
+      id: "__preview__", kind: activeTool as "rect" | "tline",
+      i1: drawingRef.current.startIdx, p1: drawingRef.current.startPrice,
+      i2: hIdx, p2: price, color: drawColor,
+    };
+    redraw();
+  }, [activeTool, drawColor, redraw]);
+
+  const onPointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawingRef.current || activeTool === "cursor") return;
+    const v = chartViewRef.current; if (!v) return;
+    const canvas = canvasRef.current; if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const price = v.pLo + (1 - py / v.cH) * v.pRange;
+    const hIdx = v.vs + Math.round(px / v.barW - 0.5);
+    const start = drawingRef.current;
+    setShapes(prev => [...prev, {
+      id: Date.now().toString(), kind: activeTool as "rect" | "tline",
+      i1: start.startIdx, p1: start.startPrice,
+      i2: hIdx, p2: price, color: drawColor,
+    }]);
+    drawingRef.current = null;
+    previewRef.current = null;
+  }, [activeTool, drawColor]);
+
+  const onPointerCancel = useCallback(() => {
+    drawingRef.current = null;
+    previewRef.current = null;
+    redraw();
   }, [redraw]);
 
   // Enter a trade in replay mode
@@ -509,9 +646,48 @@ export default function BacktestTab() {
         </div>
       </div>
 
+      {/* ── Drawing toolbar ── */}
+      <div style={{ padding: "0 14px 6px", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 3, background: "#080f1e", border: "1px solid #1a2840", borderRadius: 10, padding: "4px 8px" }}>
+          {([
+            { tool: "cursor" as DrawTool, icon: <MousePointer2 size={12} />, label: "Cursor" },
+            { tool: "hline"  as DrawTool, icon: <Minus size={12} />,          label: "H-Line" },
+            { tool: "rect"   as DrawTool, icon: <Square size={12} />,          label: "Zone" },
+            { tool: "tline"  as DrawTool, icon: <TrendingUp size={12} />,      label: "Trend" },
+          ] as const).map(({ tool, icon, label }) => (
+            <button key={tool} onClick={() => setActiveTool(tool)} title={label}
+              style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 600, cursor: "pointer", border: "none", transition: "all 0.1s",
+                background: activeTool === tool ? "#1e3a5f" : "transparent",
+                color: activeTool === tool ? "#f59e0b" : "#475569" }}>
+              {icon}{label}
+            </button>
+          ))}
+          <div style={{ width: 1, background: "#1a2840", alignSelf: "stretch", margin: "0 4px" }} />
+          {(["#ef4444", "#22c55e", "#3b82f6", "#f59e0b"] as const).map(c => (
+            <button key={c} onClick={() => setDrawColor(c)} title={c}
+              style={{ width: 14, height: 14, borderRadius: "50%", background: c, border: drawColor === c ? "2px solid #fff" : "2px solid transparent", cursor: "pointer", padding: 0, flexShrink: 0, outline: "none" }} />
+          ))}
+          <div style={{ flex: 1 }} />
+          {shapes.length > 0 && (
+            <button onClick={() => { setShapes([]); previewRef.current = null; }} title="Clear all drawings"
+              style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 7px", borderRadius: 6, fontSize: 10, color: "#64748b", background: "transparent", border: "none", cursor: "pointer" }}>
+              <Trash2 size={11} />Clear
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* ── Canvas chart ── */}
       <div style={{ flexShrink: 0, height: 210, padding: "0 10px", position: "relative" }}>
-        <canvas ref={canvasRef} style={{ width: "100%", height: "100%", borderRadius: 8, display: "block" }} />
+        <canvas ref={canvasRef}
+          style={{ width: "100%", height: "100%", borderRadius: 8, display: "block",
+            cursor: activeTool === "cursor" ? "default" : "crosshair",
+            touchAction: "none" }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerCancel}
+        />
         {loading && (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(5,9,26,0.75)", borderRadius: 8 }}>
             <span style={{ color: "#f59e0b", fontSize: 12 }}>Loading candles…</span>
