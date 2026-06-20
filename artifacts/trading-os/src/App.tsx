@@ -11,7 +11,7 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line
 } from "recharts";
-import { storage } from "./api";
+import { storage, getToken } from "./api";
 import CsvImportModal from "./CsvImport";
 import PerformanceReport from "./PerformanceReport";
 
