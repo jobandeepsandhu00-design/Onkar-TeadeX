@@ -1311,55 +1311,76 @@ const SYMBOL_GROUPS = [
 // pipValuePerLot: USD value of 1 pip for 1 standard lot
 // contractSize: units per 1 standard lot
 // unit: display label for the instrument size
+// JPY_NOTE: pip value for JPY pairs ≈ 100,000 × 0.01 / USDJPY.
+// At USDJPY ≈ 153 this is ~$6.54. Updated from legacy $9 (USDJPY ≈ 111 era).
+const JPY_PIP_VAL = 6.5; // approximate at USDJPY ~153 — verify with broker
+const JPY_NOTE = "Pip val ≈ $6.5 (varies with USDJPY rate)";
+
 const INSTRUMENT_SPECS = {
   // ── Forex Majors ─────────────────────────────────────────
-  EURUSD: { pipSize: 0.0001, pipValuePerLot: 10, contractSize: 100000, unit: "units", category: "Forex" },
-  GBPUSD: { pipSize: 0.0001, pipValuePerLot: 10, contractSize: 100000, unit: "units", category: "Forex" },
-  AUDUSD: { pipSize: 0.0001, pipValuePerLot: 10, contractSize: 100000, unit: "units", category: "Forex" },
-  NZDUSD: { pipSize: 0.0001, pipValuePerLot: 10, contractSize: 100000, unit: "units", category: "Forex" },
-  USDCHF: { pipSize: 0.0001, pipValuePerLot: 9.5, contractSize: 100000, unit: "units", category: "Forex" },
-  USDCAD: { pipSize: 0.0001, pipValuePerLot: 7.5, contractSize: 100000, unit: "units", category: "Forex" },
-  USDJPY: { pipSize: 0.01, pipValuePerLot: 9, contractSize: 100000, unit: "units", category: "Forex" },
+  // USD-quoted pairs: pip value = 100,000 × 0.0001 = $10/lot (fixed)
+  EURUSD: { pipSize: 0.0001, pipValuePerLot: 10,   contractSize: 100000, unit: "units", category: "Forex" },
+  GBPUSD: { pipSize: 0.0001, pipValuePerLot: 10,   contractSize: 100000, unit: "units", category: "Forex" },
+  AUDUSD: { pipSize: 0.0001, pipValuePerLot: 10,   contractSize: 100000, unit: "units", category: "Forex" },
+  NZDUSD: { pipSize: 0.0001, pipValuePerLot: 10,   contractSize: 100000, unit: "units", category: "Forex" },
+  // Non-USD quote: pip value varies; approximate used
+  USDCHF: { pipSize: 0.0001, pipValuePerLot: 9.4,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $9.4 (varies with USDCHF)" },
+  USDCAD: { pipSize: 0.0001, pipValuePerLot: 7.3,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $7.3 (varies with USDCAD)" },
+  // JPY pairs: pip = 0.01; value = 100,000 × 0.01 / USDJPY ≈ $6.5 at USDJPY 153
+  USDJPY: { pipSize: 0.01,   pipValuePerLot: JPY_PIP_VAL, contractSize: 100000, unit: "units", category: "Forex", note: JPY_NOTE },
   // ── Forex Crosses ─────────────────────────────────────────
-  EURGBP: { pipSize: 0.0001, pipValuePerLot: 12.5, contractSize: 100000, unit: "units", category: "Forex" },
-  EURJPY: { pipSize: 0.01, pipValuePerLot: 9, contractSize: 100000, unit: "units", category: "Forex" },
-  EURCHF: { pipSize: 0.0001, pipValuePerLot: 9.5, contractSize: 100000, unit: "units", category: "Forex" },
-  EURAUD: { pipSize: 0.0001, pipValuePerLot: 6.5, contractSize: 100000, unit: "units", category: "Forex" },
-  EURNZD: { pipSize: 0.0001, pipValuePerLot: 6, contractSize: 100000, unit: "units", category: "Forex" },
-  EURCAD: { pipSize: 0.0001, pipValuePerLot: 7.5, contractSize: 100000, unit: "units", category: "Forex" },
-  GBPJPY: { pipSize: 0.01, pipValuePerLot: 9, contractSize: 100000, unit: "units", category: "Forex" },
-  GBPCHF: { pipSize: 0.0001, pipValuePerLot: 9.5, contractSize: 100000, unit: "units", category: "Forex" },
-  GBPAUD: { pipSize: 0.0001, pipValuePerLot: 6.5, contractSize: 100000, unit: "units", category: "Forex" },
-  GBPNZD: { pipSize: 0.0001, pipValuePerLot: 6, contractSize: 100000, unit: "units", category: "Forex" },
-  GBPCAD: { pipSize: 0.0001, pipValuePerLot: 7.5, contractSize: 100000, unit: "units", category: "Forex" },
-  AUDJPY: { pipSize: 0.01, pipValuePerLot: 9, contractSize: 100000, unit: "units", category: "Forex" },
-  NZDJPY: { pipSize: 0.01, pipValuePerLot: 9, contractSize: 100000, unit: "units", category: "Forex" },
-  CADJPY: { pipSize: 0.01, pipValuePerLot: 9, contractSize: 100000, unit: "units", category: "Forex" },
-  CHFJPY: { pipSize: 0.01, pipValuePerLot: 9, contractSize: 100000, unit: "units", category: "Forex" },
-  AUDNZD: { pipSize: 0.0001, pipValuePerLot: 6, contractSize: 100000, unit: "units", category: "Forex" },
-  AUDCAD: { pipSize: 0.0001, pipValuePerLot: 7.5, contractSize: 100000, unit: "units", category: "Forex" },
-  AUDCHF: { pipSize: 0.0001, pipValuePerLot: 9.5, contractSize: 100000, unit: "units", category: "Forex" },
-  NZDCAD: { pipSize: 0.0001, pipValuePerLot: 7.5, contractSize: 100000, unit: "units", category: "Forex" },
-  NZDCHF: { pipSize: 0.0001, pipValuePerLot: 9.5, contractSize: 100000, unit: "units", category: "Forex" },
-  CADCHF: { pipSize: 0.0001, pipValuePerLot: 9.5, contractSize: 100000, unit: "units", category: "Forex" },
-  // ── Commodities ───────────────────────────────────────────
-  XAUUSD: { pipSize: 0.01, pipValuePerLot: 1, contractSize: 100, unit: "oz", category: "Gold",
-    note: "1 standard lot = 100 oz · min 0.01 lots" },
-  XAGUSD: { pipSize: 0.001, pipValuePerLot: 5, contractSize: 5000, unit: "oz", category: "Silver" },
-  USOIL:  { pipSize: 0.01, pipValuePerLot: 10, contractSize: 1000, unit: "barrels", category: "Oil" },
-  UKOIL:  { pipSize: 0.01, pipValuePerLot: 10, contractSize: 1000, unit: "barrels", category: "Oil" },
-  // ── Indices ───────────────────────────────────────────────
-  US30:   { pipSize: 1, pipValuePerLot: 1, contractSize: 1, unit: "contracts", category: "Indices",
-    note: "1 point = $1 · varies by broker" },
-  NAS100: { pipSize: 0.1, pipValuePerLot: 1, contractSize: 1, unit: "contracts", category: "Indices",
-    note: "0.1 point = $1 · varies by broker" },
-  SPX500: { pipSize: 0.1, pipValuePerLot: 10, contractSize: 1, unit: "contracts", category: "Indices" },
-  DAX40:  { pipSize: 0.1, pipValuePerLot: 1, contractSize: 1, unit: "contracts", category: "Indices" },
-  FTSE100:{ pipSize: 0.1, pipValuePerLot: 10, contractSize: 1, unit: "contracts", category: "Indices" },
+  EURGBP: { pipSize: 0.0001, pipValuePerLot: 12.7, contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $12.7 (varies with GBPUSD)" },
+  EURJPY: { pipSize: 0.01,   pipValuePerLot: JPY_PIP_VAL, contractSize: 100000, unit: "units", category: "Forex", note: JPY_NOTE },
+  EURCHF: { pipSize: 0.0001, pipValuePerLot: 9.4,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $9.4 (varies with USDCHF)" },
+  EURAUD: { pipSize: 0.0001, pipValuePerLot: 6.4,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $6.4 (varies with AUDUSD)" },
+  EURNZD: { pipSize: 0.0001, pipValuePerLot: 6.0,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $6.0 (varies with NZDUSD)" },
+  EURCAD: { pipSize: 0.0001, pipValuePerLot: 7.3,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $7.3 (varies with USDCAD)" },
+  GBPJPY: { pipSize: 0.01,   pipValuePerLot: JPY_PIP_VAL, contractSize: 100000, unit: "units", category: "Forex", note: JPY_NOTE },
+  GBPCHF: { pipSize: 0.0001, pipValuePerLot: 9.4,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $9.4 (varies with USDCHF)" },
+  GBPAUD: { pipSize: 0.0001, pipValuePerLot: 6.4,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $6.4 (varies with AUDUSD)" },
+  GBPNZD: { pipSize: 0.0001, pipValuePerLot: 6.0,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $6.0 (varies with NZDUSD)" },
+  GBPCAD: { pipSize: 0.0001, pipValuePerLot: 7.3,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $7.3 (varies with USDCAD)" },
+  AUDJPY: { pipSize: 0.01,   pipValuePerLot: JPY_PIP_VAL, contractSize: 100000, unit: "units", category: "Forex", note: JPY_NOTE },
+  NZDJPY: { pipSize: 0.01,   pipValuePerLot: JPY_PIP_VAL, contractSize: 100000, unit: "units", category: "Forex", note: JPY_NOTE },
+  CADJPY: { pipSize: 0.01,   pipValuePerLot: JPY_PIP_VAL, contractSize: 100000, unit: "units", category: "Forex", note: JPY_NOTE },
+  CHFJPY: { pipSize: 0.01,   pipValuePerLot: JPY_PIP_VAL, contractSize: 100000, unit: "units", category: "Forex", note: JPY_NOTE },
+  AUDNZD: { pipSize: 0.0001, pipValuePerLot: 6.0,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $6.0 (varies with NZDUSD)" },
+  AUDCAD: { pipSize: 0.0001, pipValuePerLot: 7.3,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $7.3 (varies with USDCAD)" },
+  AUDCHF: { pipSize: 0.0001, pipValuePerLot: 9.4,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $9.4 (varies with USDCHF)" },
+  NZDCAD: { pipSize: 0.0001, pipValuePerLot: 7.3,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $7.3 (varies with USDCAD)" },
+  NZDCHF: { pipSize: 0.0001, pipValuePerLot: 9.4,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $9.4 (varies with USDCHF)" },
+  CADCHF: { pipSize: 0.0001, pipValuePerLot: 9.4,  contractSize: 100000, unit: "units", category: "Forex", note: "Pip val ≈ $9.4 (varies with USDCHF)" },
+  // ── Gold & Silver ─────────────────────────────────────────
+  // XAUUSD: 1 lot = 100 oz. Pip = $0.10/oz move. Pip value = 100 × $0.10 = $10/lot.
+  // A $15 stop = 150 pts. Lots = risk / (150 × $10).
+  XAUUSD: { pipSize: 0.10,  pipValuePerLot: 10,   contractSize: 100, unit: "oz", category: "Gold",
+    note: "1 lot = 100 oz · 1 pt = $0.10/oz move · $10/lot" },
+  // XAGUSD: 1 lot = 5000 oz. Pip = $0.001. Pip value = 5000 × $0.001 = $5/lot.
+  XAGUSD: { pipSize: 0.001,  pipValuePerLot: 5,    contractSize: 5000, unit: "oz", category: "Silver",
+    note: "1 lot = 5000 oz · pip val $5/lot" },
+  // ── Oil ───────────────────────────────────────────────────
+  // 1 lot = 1000 barrels. Pip = $0.01. Pip value = 1000 × $0.01 = $10/lot.
+  USOIL:  { pipSize: 0.01,  pipValuePerLot: 10,   contractSize: 1000, unit: "barrels", category: "Oil",
+    note: "1 lot = 1000 bbl · pip val $10/lot" },
+  UKOIL:  { pipSize: 0.01,  pipValuePerLot: 10,   contractSize: 1000, unit: "barrels", category: "Oil",
+    note: "1 lot = 1000 bbl · pip val $10/lot" },
+  // ── Indices — these are CFD/broker-specific ───────────────
+  // Most retail brokers: 1 standard lot CFD = $1 per point for US30/NAS100
+  US30:   { pipSize: 1,     pipValuePerLot: 1,    contractSize: 1, unit: "contracts", category: "Indices",
+    note: "1 pt = $1/lot (verify with broker)" },
+  NAS100: { pipSize: 0.1,   pipValuePerLot: 1,    contractSize: 1, unit: "contracts", category: "Indices",
+    note: "0.1 pt = $1/lot (verify with broker)" },
+  SPX500: { pipSize: 0.1,   pipValuePerLot: 10,   contractSize: 1, unit: "contracts", category: "Indices",
+    note: "0.1 pt = $10/lot (verify with broker)" },
+  DAX40:  { pipSize: 0.1,   pipValuePerLot: 1,    contractSize: 1, unit: "contracts", category: "Indices",
+    note: "0.1 pt = $1/lot (verify with broker)" },
+  FTSE100:{ pipSize: 0.1,   pipValuePerLot: 10,   contractSize: 1, unit: "contracts", category: "Indices",
+    note: "0.1 pt = $10/lot (verify with broker)" },
   // ── Crypto ────────────────────────────────────────────────
-  BTCUSD: { pipSize: 1, pipValuePerLot: 1, contractSize: 1, unit: "BTC", category: "Crypto" },
-  ETHUSD: { pipSize: 0.01, pipValuePerLot: 1, contractSize: 1, unit: "ETH", category: "Crypto" },
-  SOLUSD: { pipSize: 0.001, pipValuePerLot: 1, contractSize: 1, unit: "SOL", category: "Crypto" },
+  BTCUSD: { pipSize: 1,     pipValuePerLot: 1,    contractSize: 1, unit: "BTC", category: "Crypto",
+    note: "$1 per lot per $1 move (verify with broker)" },
+  ETHUSD: { pipSize: 0.01,  pipValuePerLot: 1,    contractSize: 1, unit: "ETH", category: "Crypto" },
+  SOLUSD: { pipSize: 0.001, pipValuePerLot: 1,    contractSize: 1, unit: "SOL", category: "Crypto" },
 };
 
 function getSpec(symbol) {
@@ -1683,18 +1704,22 @@ function PositionSizeCalc({ account }) {
     return parseFloat(rrSel.split(":")[1]);
   }, [rrSel, customRR]);
 
+  const spec = getSpec(sym);
+  const isGold = sym === "XAUUSD";
+
   const tpCalc = useMemo(() => {
     if (!rrNum || !entry || !sl) return null;
     const e = parseFloat(entry), s = parseFloat(sl);
     if (isNaN(e) || isNaN(s)) return null;
     const dist = Math.abs(e - s);
-    const tp   = direction === "Buy" ? e + dist * rrNum : e - dist * rrNum;
+    const rawTp = direction === "Buy" ? e + dist * rrNum : e - dist * rrNum;
     const potProfit = effectiveRiskAmt * rrNum;
-    return { tp: Math.round(tp * 100000) / 100000, potProfit };
-  }, [rrNum, entry, sl, direction, effectiveRiskAmt]);
-
-  const spec = getSpec(sym);
-  const isGold = sym === "XAUUSD";
+    // Round TP to nearest pip/point for this instrument
+    const pSize = spec?.pipSize ?? 0.00001;
+    const decimals = Math.max(0, Math.round(-Math.log10(pSize)));
+    const tp = parseFloat(rawTp.toFixed(decimals));
+    return { tp, potProfit, decimals };
+  }, [rrNum, entry, sl, direction, effectiveRiskAmt, spec]);
 
   return (
     <div className="space-y-4">
@@ -1831,7 +1856,7 @@ function PositionSizeCalc({ account }) {
         {tpCalc && (
           <div className="mt-2 grid grid-cols-2 gap-2">
             <div className="bg-sky-500/8 border border-sky-500/20 rounded-xl p-3 text-center">
-              <div className="text-sm font-bold text-sky-400">{tpCalc.tp}</div>
+              <div className="text-sm font-bold text-sky-400">{tpCalc.tp.toFixed(tpCalc.decimals)}</div>
               <div className="text-[10px] text-slate-500">TP Price ({direction === "Buy" ? "↑" : "↓"})</div>
             </div>
             <div className="bg-emerald-500/8 border border-emerald-500/20 rounded-xl p-3 text-center">
@@ -1845,10 +1870,10 @@ function PositionSizeCalc({ account }) {
       {/* Results */}
       {result ? (
         <>
-          {isGold && (
-            <div className="rounded-xl bg-amber-500/5 border border-amber-500/20 px-3 py-2 flex items-center gap-2">
-              <span className="text-amber-400 text-sm">★</span>
-              <span className="text-xs text-amber-400/90">Gold · 1 standard lot = 100 oz · 0.01 lots = 1 oz</span>
+          {spec?.note && (
+            <div className="rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 flex items-center gap-2">
+              <span className="text-slate-500 text-sm">ℹ</span>
+              <span className="text-[11px] text-slate-400">{spec.category} · {spec.note}</span>
             </div>
           )}
           <div className="grid grid-cols-3 gap-2">
