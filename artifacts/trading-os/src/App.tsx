@@ -4057,6 +4057,9 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
     <>
     <div className="space-y-3 pb-4">
 
+      {/* ── MOOL MANTAR ── */}
+      <MoolMantar />
+
       {/* ── HEADER ── */}
       <div className="flex items-center justify-between pt-1">
         <div className="flex items-center gap-3">
@@ -4117,9 +4120,6 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
           </div>
         </div>
       </div>
-
-      {/* ── MOOL MANTAR ── */}
-      <MoolMantar />
 
       {/* ── SECTION: MARKET SESSIONS ── */}
       <DashSectionLabel>Forex Market Sessions</DashSectionLabel>
