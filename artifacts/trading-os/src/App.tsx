@@ -3342,116 +3342,114 @@ function PropChallengesDashCard({ data, goTo }) {
   );
 }
 
+function DashSectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 pt-2">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">{children}</span>
+      <div className="flex-1 h-px bg-slate-800" />
+    </div>
+  );
+}
+
 function Dashboard({ data, setData, goTo }) {
   const a = useMemo(() => computeAnalytics(data), [data.trades, data.strategies, data.setups]);
   const acc = data.account || { startingBalance: 1000, currency: "€" };
   const cur = acc.currency || "€";
   const recentTrades = [...a.computedTrades].sort((x, y) => (y.date || "").localeCompare(x.date || "")).slice(0, 5);
 
-  const kpiRow = [
-    { label: "Daily P/L", value: fmtBalSigned(a.dayPnl, cur), tone: a.dayPnl >= 0 ? "emerald" : "rose" },
-    { label: "Win Rate", value: a.winRate === null ? "—" : fmtPct(a.winRate), tone: a.winRate === null ? "slate" : a.winRate >= 50 ? "emerald" : "rose" },
-    { label: "Profit Factor", value: a.profitFactor === null ? "—" : a.profitFactor === Infinity ? "∞" : fmt2(a.profitFactor), tone: a.profitFactor === null ? "slate" : a.profitFactor >= 1 ? "emerald" : "rose" },
-    { label: "Avg R:R", value: a.avgRR === null ? "—" : fmt2(a.avgRR) + "R" },
-    { label: "Total Trades", value: a.totalTrades, sub: `${a.closedCount} closed` },
-    { label: "Quality Score", value: a.qualityScore === null ? "—" : a.qualityScore + "/100" },
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  const kpis = [
+    { label: "Daily P/L",      value: fmtBalSigned(a.dayPnl, cur),                                                     tone: a.dayPnl >= 0 ? "emerald" : "rose" },
+    { label: "Weekly P/L",     value: fmtBalSigned(a.weekPnl, cur),                                                    tone: a.weekPnl >= 0 ? "emerald" : "rose" },
+    { label: "Win Rate",       value: a.winRate === null ? "—" : fmtPct(a.winRate),                                    tone: a.winRate === null ? "slate" : a.winRate >= 50 ? "emerald" : "rose" },
+    { label: "Profit Factor",  value: a.profitFactor === null ? "—" : a.profitFactor === Infinity ? "∞" : fmt2(a.profitFactor), tone: a.profitFactor === null ? "slate" : a.profitFactor >= 1 ? "emerald" : "rose" },
+    { label: "Avg R:R",        value: a.avgRR === null ? "—" : fmt2(a.avgRR) + "R",                                    tone: "slate" },
+    { label: "Quality Score",  value: a.qualityScore === null ? "—" : a.qualityScore + "/100",                         tone: a.qualityScore !== null && a.qualityScore >= 70 ? "emerald" : a.qualityScore !== null ? "amber" : "slate" },
   ];
 
+  const toneClass = { emerald: "text-emerald-400", rose: "text-rose-400", amber: "text-amber-400", slate: "text-slate-100" };
+
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
-            <Crown size={17} className="text-amber-400" />
+    <div className="space-y-3 pb-4">
+
+      {/* ── HEADER ── */}
+      <div className="flex items-center justify-between pt-1">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-600/5 border border-amber-500/30 flex items-center justify-center shadow-lg shadow-amber-900/20">
+            <Crown size={18} className="text-amber-400" />
           </div>
           <div>
-            <h1 className="text-base font-semibold text-slate-100" style={{ fontFamily: "'Sora', sans-serif" }}>SRC Trading OS</h1>
-            <p className="text-[11px] text-slate-500">{todayISO()}</p>
+            <h1 className="text-base font-bold text-slate-100 leading-tight" style={{ fontFamily: "'Sora', sans-serif" }}>SRC Trading OS</h1>
+            <p className="text-[11px] text-slate-500">{greeting} · {todayISO()}</p>
           </div>
         </div>
-        <button onClick={() => goTo("more", "Account")} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 hover:text-amber-400">
+        <button onClick={() => goTo("more", "Account")}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 hover:text-amber-400 hover:border-slate-700 transition">
           <Pencil size={12} /> Account
         </button>
       </div>
 
-      {/* #1 — Account Balance Card (largest, most important) */}
+      {/* ── SECTION: ACCOUNT ── */}
+      <DashSectionLabel>Account Overview</DashSectionLabel>
       <AccountBalanceCard account={acc} a={a} />
 
-      {/* KPI row */}
+      {/* ── KPI GRID ── */}
       <div className="grid grid-cols-3 gap-2">
-        {kpiRow.map((k, i) => (
-          <div key={i} className="bg-slate-900 border border-slate-800 rounded-2xl p-3 text-center">
-            <div className={cx("text-sm font-bold leading-tight", {
-              emerald: "text-emerald-400", rose: "text-rose-400", amber: "text-amber-400"
-            }[k.tone] || "text-slate-100")} style={{ fontFamily: "'Sora', sans-serif" }}>{k.value}</div>
-            {k.sub && <div className="text-[10px] text-slate-600">{k.sub}</div>}
-            <div className="text-[10px] text-slate-500 mt-0.5 leading-tight">{k.label}</div>
+        {kpis.map((k, i) => (
+          <div key={i} className="bg-slate-900 border border-slate-800 rounded-2xl p-3 text-center hover:border-slate-700 transition">
+            <div className={cx("text-sm font-bold leading-tight", toneClass[k.tone] || "text-slate-100")}
+              style={{ fontFamily: "'Sora', sans-serif" }}>{k.value}</div>
+            <div className="text-[10px] text-slate-500 mt-1 leading-tight">{k.label}</div>
           </div>
         ))}
       </div>
 
-      {/* Weekly Accountability Summary */}
-      <WeeklySummary data={data} a={a} cur={cur} goTo={goTo} />
-
-      {/* Pre-Session Checklist */}
+      {/* ── SECTION: TODAY'S FOCUS ── */}
+      <DashSectionLabel>Today's Focus</DashSectionLabel>
+      <SessionPlanDashCard data={data} goTo={goTo} />
+      <MorningCheckIn data={data} setData={setData} />
       <PreSessionChecklist data={data} setData={setData} />
 
-      {/* Morning Check-In */}
-      <MorningCheckIn data={data} setData={setData} />
-
-      {/* Trader Mindset — daily quote */}
-      <TraderMindset />
-
-      {/* Daily Rules Reminder */}
-      <DailyRulesReminder />
-
-      {/* Today's Trading Plan */}
-      <SessionPlanDashCard data={data} goTo={goTo} />
-      <TodaysPlanWidget master={data.plans.master} />
-
-      {/* Trading Rules */}
-      <TradingRulesPanel />
-
-      {/* Prop Challenges */}
+      {/* ── SECTION: PROP CHALLENGES ── */}
+      <DashSectionLabel>Prop Challenges</DashSectionLabel>
       <PropChallengesDashCard data={data} goTo={goTo} />
 
-      {/* Live Risk Monitor */}
-      <OpenRiskTracker data={data} a={a} acc={acc} />
+      {/* ── SECTION: THIS WEEK ── */}
+      <DashSectionLabel>This Week</DashSectionLabel>
+      <WeeklySummary data={data} a={a} cur={cur} goTo={goTo} />
 
-      {/* Position Size Calculator */}
+      {/* ── SECTION: RISK & TOOLS ── */}
+      <DashSectionLabel>Risk & Tools</DashSectionLabel>
+      <OpenRiskTracker data={data} a={a} acc={acc} />
       <Card>
         <PositionSizeCalc account={acc} />
       </Card>
 
-      {/* AI Insights */}
-      <AIInsights a={a} account={acc} />
-
-      {/* Candle Checklist */}
-      <CandleChecklist />
-
-      {/* Trading Calendar */}
-      <TradingCalendar a={a} />
-
-      {/* Economic Calendar */}
-      <EconomicCalendarWidget />
-
-      {/* Recent Trades */}
+      {/* ── SECTION: RECENT TRADES ── */}
+      <DashSectionLabel>Recent Trades</DashSectionLabel>
       <Card>
-        <SectionTitle action={<button onClick={() => goTo("journal")} className="text-xs text-amber-400 font-medium">View all →</button>}>Recent Trades</SectionTitle>
+        <SectionTitle action={<button onClick={() => goTo("journal")} className="text-xs text-amber-400 font-medium">View all →</button>}>
+          Last 5 Trades
+        </SectionTitle>
         {recentTrades.length ? (
           <div className="space-y-0">
             {recentTrades.map((t) => (
               <div key={t.id} className="flex items-center justify-between py-2.5 border-b border-slate-800/60 last:border-0">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  {t.side === "Sell" ? <TrendingDown size={15} className="text-rose-400 shrink-0" /> : <TrendingUp size={15} className="text-emerald-400 shrink-0" />}
+                  {t.side === "Sell"
+                    ? <TrendingDown size={15} className="text-rose-400 shrink-0" />
+                    : <TrendingUp size={15} className="text-emerald-400 shrink-0" />}
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-200">{t.symbol || "—"}</div>
                     <div className="text-[11px] text-slate-500">{t.date}{t.session ? ` · ${t.session}` : ""}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={cx("text-sm font-semibold", t.c.pnl === null ? "text-slate-500" : t.c.pnl >= 0 ? "text-emerald-400" : "text-rose-400")}>{fmtBalSigned(t.c.pnl, cur)}</span>
+                  <span className={cx("text-sm font-semibold", t.c.pnl === null ? "text-slate-500" : t.c.pnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                    {fmtBalSigned(t.c.pnl, cur)}
+                  </span>
                   <Pill tone={RESULT_TONE[t.c.result || "Open"]}>{t.c.result || "Open"}</Pill>
                 </div>
               </div>
@@ -3462,14 +3460,29 @@ function Dashboard({ data, setData, goTo }) {
         )}
       </Card>
 
-      {/* Your Edge */}
+      {/* ── SECTION: INSIGHTS & EDGE ── */}
+      <DashSectionLabel>Insights & Edge</DashSectionLabel>
+      <AIInsights a={a} account={acc} />
       <YourEdgePanel a={a} />
 
-      {/* Detailed Stats */}
-      <DetailedStatsPanel a={a} />
+      {/* ── SECTION: MARKET CALENDAR ── */}
+      <DashSectionLabel>Market Calendar</DashSectionLabel>
+      <EconomicCalendarWidget />
+      <TradingCalendar a={a} />
 
-      {/* Mistake Cost & Review Insights */}
+      {/* ── SECTION: STATISTICS ── */}
+      <DashSectionLabel>Statistics</DashSectionLabel>
+      <DetailedStatsPanel a={a} />
       <MistakeCostPanel trades={data.trades} />
+
+      {/* ── SECTION: REFERENCE ── */}
+      <DashSectionLabel>Reference</DashSectionLabel>
+      <TodaysPlanWidget master={data.plans.master} />
+      <TradingRulesPanel />
+      <CandleChecklist />
+      <TraderMindset />
+      <DailyRulesReminder />
+
     </div>
   );
 }
