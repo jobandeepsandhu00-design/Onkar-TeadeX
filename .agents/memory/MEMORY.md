@@ -1,0 +1,2 @@
+- [Feature Hub architecture](feature-hub.md) — 50-feature catalog lives in FEATURES_CATALOG before MoreTab; hooks-in-switch must use sub-components.
+- [AI chat endpoint](ai-chat-endpoint.md) — POST /api/mt-import/ai-chat wired in mt-import.ts; uses gpt-4o, max 1024 tokens.

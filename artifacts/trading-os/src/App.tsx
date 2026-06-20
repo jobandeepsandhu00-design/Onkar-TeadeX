@@ -834,6 +834,8 @@ const DEFAULT_SETTINGS = () => ({
   tradingHoursEnabled:  false,
   tradingHoursStart:    "08:00",
   tradingHoursEnd:      "17:00",
+  /* ── Feature Hub ── */
+  enabledFeatures: {} as Record<string, boolean>,
   /* ── Display ── */
   dateFormat:   "DD/MM/YYYY",
   timeFormat:   "24h",
@@ -860,6 +862,7 @@ const DEFAULT_SETTINGS = () => ({
     Prop:       true,
     Backup:     true,
     Report:     true,
+    "AI Lab":   true,
   },
   /* ── Notification toggles ── */
   notifications: {
@@ -12921,10 +12924,704 @@ function OwnerPanel({ data, setData }: any) {
   );
 }
 
+/* ============================================================
+   FEATURE HUB — Catalog + Analytics Panels
+   ============================================================ */
+
+type FeatureTier = "free" | "paid";
+interface FeatureDef {
+  id: string; label: string; desc: string; tier: FeatureTier;
+  category: string; icon: string; alreadyActive?: boolean; cost?: string;
+}
+
+const FEATURES_CATALOG: FeatureDef[] = [
+  /* ── FREE (25) ── */
+  { id:"sessionWinRate",   label:"Win Rate by Session",       desc:"AM / London / NY / Asian breakdown of your win rate",          tier:"free", category:"Analytics",  icon:"📊", alreadyActive:false },
+  { id:"bestDayOfWeek",    label:"Best Day of Week",           desc:"Which day of the week you earn the most money",                tier:"free", category:"Analytics",  icon:"📅", alreadyActive:false },
+  { id:"worstPairTracker", label:"Worst Pair Tracker",         desc:"Pairs consistently losing you money — avoid or study them",   tier:"free", category:"Analytics",  icon:"⚠️", alreadyActive:false },
+  { id:"streakCounter",    label:"Streak Counter",             desc:"Live win/loss streak with personal best records",             tier:"free", category:"Analytics",  icon:"🔥", alreadyActive:true  },
+  { id:"consistencyScore", label:"Consistency Score",          desc:"Measures how disciplined your sizing and RR is",              tier:"free", category:"Analytics",  icon:"📐", alreadyActive:false },
+  { id:"monthlyCalendar",  label:"Monthly P/L Calendar",       desc:"Heatmap of every day's profit and loss",                      tier:"free", category:"Analytics",  icon:"📆", alreadyActive:true  },
+  { id:"revengeDetector",  label:"Revenge Trade Detector",     desc:"Auto-flags trades taken within 10 min of a loss",             tier:"free", category:"Risk",       icon:"🚨", alreadyActive:false },
+  { id:"overtradingAlert", label:"Overtrading Detector",       desc:"Flags days you took more trades than your limit",             tier:"free", category:"Risk",       icon:"📈", alreadyActive:true  },
+  { id:"maeTracker",       label:"Max Adverse Excursion",      desc:"How far trades went against you before winning",              tier:"free", category:"Analytics",  icon:"📉", alreadyActive:false },
+  { id:"breakevenRate",    label:"Breakeven Rate",             desc:"How often you move SL to BE and then get stopped out",        tier:"free", category:"Analytics",  icon:"⚖️", alreadyActive:false },
+  { id:"holdingTime",      label:"Holding Time Analysis",      desc:"Avg trade duration for winners vs losers",                    tier:"free", category:"Analytics",  icon:"⏱️", alreadyActive:false },
+  { id:"fridayAlert",      label:"Friday Risk Alert",          desc:"Warns when you're holding positions into the weekend",        tier:"free", category:"Risk",       icon:"🛑", alreadyActive:false },
+  { id:"commissionLeak",   label:"Commission Leak Report",     desc:"How much commission is eating into your profits",             tier:"free", category:"Analytics",  icon:"💸", alreadyActive:false },
+  { id:"riskAdjusted",     label:"Risk-Adjusted Return",       desc:"Sharpe and Sortino ratio calculated from your trades",        tier:"free", category:"Analytics",  icon:"📊", alreadyActive:false },
+  { id:"tradingHours",     label:"Personal Trading Hours",     desc:"Your most and least profitable hours of the day",             tier:"free", category:"Analytics",  icon:"🕐", alreadyActive:false },
+  { id:"newsFilter",       label:"News Trade Filter",          desc:"Automatically tags trades taken during news events",          tier:"free", category:"Journal",    icon:"📰", alreadyActive:false },
+  { id:"multiAccount",     label:"Multi-Account Comparator",   desc:"Side-by-side stats across all your trading accounts",         tier:"free", category:"Analytics",  icon:"🏦", alreadyActive:false },
+  { id:"tradeSimilarity",  label:"Trade Similarity Finder",    desc:"Groups similar past trades so you can study patterns",        tier:"free", category:"Journal",    icon:"🔍", alreadyActive:false },
+  { id:"setupPerformance", label:"Setup Performance Table",    desc:"Win rate and avg RR broken down per setup type",              tier:"free", category:"Analytics",  icon:"🏆", alreadyActive:true  },
+  { id:"tagHeatmap",       label:"Tag Heatmap",                desc:"Which tags appear most on your winners vs losers",            tier:"free", category:"Analytics",  icon:"🏷️", alreadyActive:true  },
+  { id:"ruleViolation",    label:"Rule Violation Tracker",     desc:"Tracks which trading rules you break the most often",         tier:"free", category:"Journal",    icon:"⛔", alreadyActive:true  },
+  { id:"goalTracker",      label:"Monthly Goal Tracker",       desc:"Set profit and RR targets, track progress live",              tier:"free", category:"Planning",   icon:"🎯", alreadyActive:false },
+  { id:"pdfExport",        label:"Export PDF Report",          desc:"Professional monthly report you can print or share",          tier:"free", category:"Reporting",  icon:"📄", alreadyActive:false },
+  { id:"drawdownRecovery", label:"Drawdown Recovery Tracker",  desc:"Shows exactly how long each past drawdown lasted",            tier:"free", category:"Risk",       icon:"📉", alreadyActive:true  },
+  { id:"propProgress",     label:"Prop Challenge Progress",    desc:"Live tracker vs prop firm daily and total rules",             tier:"free", category:"Prop",       icon:"🏅", alreadyActive:true  },
+  /* ── PAID (25) ── */
+  { id:"aiTradeCoach",     label:"AI Trade Coach",             desc:"Reviews each trade and gives you personal feedback",          tier:"paid", category:"Coaching",       icon:"🧠", cost:"~$0.002/trade"  },
+  { id:"weeklyAIReview",   label:"Weekly AI Review",           desc:"Full written performance report generated every Sunday",       tier:"paid", category:"Coaching",       icon:"📋", cost:"~$0.005/week"   },
+  { id:"mistakeClassifier",label:"Mistake Classifier",         desc:"Auto-tags trades as FOMO, Revenge, Early Exit, Oversize",     tier:"paid", category:"Coaching",       icon:"🏷️", cost:"~$0.002/trade"  },
+  { id:"voiceDebrief",     label:"Post-Trade Voice Debrief",   desc:"Speak with an AI coach after closing each trade",             tier:"paid", category:"Coaching",       icon:"🎙️", cost:"~$0.003/session" },
+  { id:"ruleExplainer",    label:"Rule Breach Explainer",      desc:"AI explains exactly why a rule violation hurt you",           tier:"paid", category:"Coaching",       icon:"📖", cost:"~$0.002/trade"  },
+  { id:"strategyDNA",      label:"Strategy DNA",               desc:"AI reverse-engineers the exact conditions of your wins",      tier:"paid", category:"Intelligence",   icon:"🧬", cost:"~$0.005/run"    },
+  { id:"strikePredictor",  label:"AI Strike Rate Predictor",   desc:"Before entering, AI predicts your historical win rate",       tier:"paid", category:"Intelligence",   icon:"🎯", cost:"~$0.002/check"  },
+  { id:"propReadiness",    label:"Prop Firm Readiness Score",  desc:"AI verdict and roadmap for your next prop challenge",         tier:"paid", category:"Intelligence",   icon:"🏅", cost:"~$0.005/run"    },
+  { id:"ddAnalysis",       label:"Drawdown Cause Analysis",    desc:"AI diagnoses the root cause of your current losing streak",   tier:"paid", category:"Intelligence",   icon:"🔍", cost:"~$0.005/run"    },
+  { id:"correlationAlert", label:"Pair Correlation Alert",     desc:"AI warns when your open trades are over-correlated",          tier:"paid", category:"Risk",           icon:"🔗", cost:"~$0.001/check"  },
+  { id:"autoFill",         label:"Smart Trade Auto-Fill",      desc:"AI fills notes and grade from just entry and exit numbers",   tier:"paid", category:"Automation",     icon:"✨", cost:"~$0.002/trade"  },
+  { id:"mtImport",         label:"MT4/MT5 Screenshot Import",  desc:"AI reads your MetaTrader screen and imports trades",          tier:"paid", category:"Automation",     icon:"📸", cost:"~$0.01/scan", alreadyActive:true },
+  { id:"chartAnalysis",    label:"Chart → Trade Idea",         desc:"Upload a chart image, AI identifies levels and entry zones",  tier:"paid", category:"Intelligence",   icon:"📈", cost:"~$0.015/scan"   },
+  { id:"voiceLog",         label:"Voice Trade Logging",        desc:"Speak your trade aloud, AI creates the full journal entry",   tier:"paid", category:"Automation",     icon:"🎤", cost:"~$0.003/trade"  },
+  { id:"emotionTracker",   label:"Emotion Tracker",            desc:"AI reads your notes and maps your psychology over time",      tier:"paid", category:"Coaching",       icon:"💭", cost:"~$0.003/week"   },
+  { id:"premarketBrief",   label:"AI Pre-Market Brief",        desc:"AI writes your morning trading plan per pair each day",       tier:"paid", category:"Planning",       icon:"🌅", cost:"~$0.003/day"    },
+  { id:"sessionBias",      label:"Session Bias Generator",     desc:"Daily bullish/bearish bias based on your strategy and HTF",  tier:"paid", category:"Planning",       icon:"📊", cost:"~$0.003/day"    },
+  { id:"newsImpact",       label:"News Impact Summary",        desc:"Plain-English impact briefing before each high-impact event", tier:"paid", category:"Planning",       icon:"📰", cost:"~$0.002/event"  },
+  { id:"confluenceScorer", label:"Confluence Scorer",          desc:"Describe your trade idea, AI scores the confluence 1-10",    tier:"paid", category:"Intelligence",   icon:"⭐", cost:"~$0.002/check"  },
+  { id:"journalPrompt",    label:"AI Journaling Prompt",       desc:"AI asks you the right questions after each trade",            tier:"paid", category:"Coaching",       icon:"❓", cost:"~$0.001/trade"  },
+  { id:"aiChat",           label:"AI Trading Assistant",       desc:"Chat with your journal — ask anything about your trading",    tier:"paid", category:"Intelligence",   icon:"💬", cost:"~$0.002/msg"    },
+  { id:"tiltWarning",      label:"Tilt Early Warning",         desc:"AI detects revenge trading patterns before you blow up",      tier:"paid", category:"Risk",           icon:"🚨", cost:"~$0.002/check"  },
+  { id:"rrSuggester",      label:"Optimal RR Suggester",       desc:"AI suggests the best RR ratio per setup from your stats",    tier:"paid", category:"Intelligence",   icon:"📐", cost:"~$0.002/check"  },
+  { id:"tradeNarrative",   label:"Trade Narrative Generator",  desc:"AI writes a story of each trade for deeper self-review",     tier:"paid", category:"Coaching",       icon:"📝", cost:"~$0.003/trade"  },
+  { id:"monthlyTherapy",   label:"Monthly AI Therapy Session", desc:"Deep-dive AI chat reviewing your entire month of trading",   tier:"paid", category:"Coaching",       icon:"🧘", cost:"~$0.01/session" },
+];
+
+/* ── Analytics helpers for free features ── */
+function getSessionStats(trades: any[]) {
+  const sessions: Record<string, { wins: number; losses: number; pnl: number }> = {
+    "London": { wins:0, losses:0, pnl:0 },
+    "New York": { wins:0, losses:0, pnl:0 },
+    "Asian": { wins:0, losses:0, pnl:0 },
+    "Other": { wins:0, losses:0, pnl:0 },
+  };
+  trades.forEach((t) => {
+    const c = computeTrade(t);
+    if (c.result === null) return;
+    const sess = t.session || "Other";
+    const key = Object.keys(sessions).find((s) => sess.toLowerCase().includes(s.toLowerCase())) || "Other";
+    if (c.result === "Win") sessions[key].wins++;
+    else if (c.result === "Loss") sessions[key].losses++;
+    sessions[key].pnl += c.pnl || 0;
+  });
+  return Object.entries(sessions).map(([name, s]) => {
+    const total = s.wins + s.losses;
+    return { name, wins: s.wins, losses: s.losses, total, wr: total ? Math.round((s.wins / total) * 100) : 0, pnl: s.pnl };
+  }).filter((s) => s.total > 0);
+}
+
+function getDayStats(trades: any[]) {
+  const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  const map: Record<string, { wins:number; losses:number; pnl:number }> = {};
+  days.forEach((d) => { map[d] = { wins:0, losses:0, pnl:0 }; });
+  trades.forEach((t) => {
+    const c = computeTrade(t);
+    if (c.result === null || !t.date) return;
+    const d = new Date(t.date);
+    if (isNaN(d.getTime())) return;
+    const day = days[d.getDay() === 0 ? 6 : d.getDay() - 1];
+    if (c.result === "Win") map[day].wins++;
+    else if (c.result === "Loss") map[day].losses++;
+    map[day].pnl += c.pnl || 0;
+  });
+  return days.map((d) => {
+    const { wins, losses, pnl } = map[d];
+    const total = wins + losses;
+    return { day: d, wins, losses, total, wr: total ? Math.round((wins / total) * 100) : 0, pnl };
+  });
+}
+
+function getPairStats(trades: any[]) {
+  const map: Record<string, { wins:number; losses:number; pnl:number }> = {};
+  trades.forEach((t) => {
+    const c = computeTrade(t);
+    if (c.result === null || !t.symbol) return;
+    if (!map[t.symbol]) map[t.symbol] = { wins:0, losses:0, pnl:0 };
+    if (c.result === "Win") map[t.symbol].wins++;
+    else if (c.result === "Loss") map[t.symbol].losses++;
+    map[t.symbol].pnl += c.pnl || 0;
+  });
+  return Object.entries(map).map(([sym, s]) => {
+    const total = s.wins + s.losses;
+    return { sym, ...s, total, wr: total ? Math.round((s.wins / total) * 100) : 0 };
+  }).sort((a,b) => a.pnl - b.pnl);
+}
+
+function getHourStats(trades: any[]) {
+  const map: Record<number, { wins:number; losses:number; pnl:number }> = {};
+  for (let i = 0; i < 24; i++) map[i] = { wins:0, losses:0, pnl:0 };
+  trades.forEach((t) => {
+    const c = computeTrade(t);
+    if (c.result === null || !t.entryTime) return;
+    const h = parseInt((t.entryTime || "").split(":")[0]);
+    if (isNaN(h) || h < 0 || h > 23) return;
+    if (c.result === "Win") map[h].wins++;
+    else if (c.result === "Loss") map[h].losses++;
+    map[h].pnl += c.pnl || 0;
+  });
+  return Object.entries(map).map(([hr, s]) => {
+    const total = s.wins + s.losses;
+    return { hr: parseInt(hr), label: `${hr}:00`, ...s, total, wr: total ? Math.round((s.wins / total) * 100) : 0 };
+  }).filter((s) => s.total > 0);
+}
+
+/* ── AI Feature Panel Helpers ── */
+async function callAI(prompt: string, systemPrompt: string): Promise<string> {
+  const res = await fetch("/api/mt-import/ai-chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, systemPrompt }),
+  });
+  if (!res.ok) throw new Error("AI request failed");
+  const json = await res.json();
+  return json.response || "";
+}
+
+/* ── Sub-components with local state (can't use hooks inside switch) ── */
+function AIChatFeaturePanel({ closedTrades, cur, aiResult, aiLoading, runAI }: any) {
+  const [chatInput, setChatInput] = useState("");
+  const stats = {
+    trades: closedTrades.length,
+    winRate: closedTrades.length ? Math.round(closedTrades.filter((t:any)=>computeTrade(t).result==="Win").length/closedTrades.length*100) : 0,
+    totalPnl: closedTrades.reduce((a:number,t:any)=>a+(computeTrade(t).pnl||0),0),
+  };
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] text-slate-500">AI knows your journal: {stats.trades} trades · {stats.winRate}% WR · {cur}{stats.totalPnl.toFixed(2)} net P/L</p>
+      {aiResult["aiChat"] && <div className="text-[11px] text-slate-300 whitespace-pre-wrap bg-slate-800 rounded-xl p-3 leading-relaxed max-h-40 overflow-y-auto">{aiResult["aiChat"]}</div>}
+      <div className="flex gap-2">
+        <input value={chatInput} onChange={(e)=>setChatInput(e.target.value)}
+          onKeyDown={(e)=>{ if(e.key==="Enter"&&chatInput.trim()&&!aiLoading){ runAI("aiChat", chatInput, `You are a trading coach with access to the user's journal. Stats: ${JSON.stringify(stats)}. Answer concisely in 2-4 sentences.`); setChatInput(""); }}}
+          placeholder="Ask anything about your trading…"
+          className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 outline-none focus:border-blue-500/50 transition placeholder:text-slate-600" />
+        <button disabled={!chatInput.trim()||aiLoading}
+          onClick={()=>{ runAI("aiChat", chatInput, `You are a trading coach. Journal stats: ${JSON.stringify(stats)}. Answer concisely.`); setChatInput(""); }}
+          className="px-3 py-2 rounded-xl bg-blue-500 text-white text-xs font-bold disabled:opacity-40 transition hover:bg-blue-400">
+          {aiLoading?"…":"Send"}
+        </button>
+      </div>
+      <div className="flex gap-1.5 flex-wrap">
+        {["Why am I losing?","What's my best setup?","Am I ready for a prop firm?","What should I focus on?"].map((q)=>(
+          <button key={q} onClick={()=>runAI("aiChat", q, `You are a trading coach. Journal stats: ${JSON.stringify(stats)}. Answer in 3 sentences.`)}
+            className="text-[10px] px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 transition">{q}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ConfluenceScorerPanel({ aiResult, aiLoading, runAI }: any) {
+  const [idea, setIdea] = useState("");
+  return (
+    <div className="space-y-2">
+      <textarea value={idea} onChange={(e)=>setIdea(e.target.value)} rows={3}
+        placeholder="Describe your trade idea… e.g. EURUSD buy, London session, trend is up, price at key support, RSI oversold, news in 2 hours"
+        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 outline-none focus:border-blue-500/50 transition placeholder:text-slate-600 resize-none" />
+      {aiResult["confluenceScorer"] && <div className="text-[11px] text-slate-300 whitespace-pre-wrap bg-slate-800 rounded-xl p-3 leading-relaxed">{aiResult["confluenceScorer"]}</div>}
+      <button disabled={!idea.trim()||aiLoading}
+        onClick={()=>runAI("confluenceScorer", `Score this trade idea's confluence out of 10: "${idea}"`,
+          "You are a senior forex trader. Score the confluence from 1-10, then list: ✅ factors in favour, ⚠️ risks/missing confluence, 📊 final verdict in one sentence.")}
+        className="w-full py-2 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 text-xs font-semibold hover:bg-blue-500/25 transition disabled:opacity-40">
+        {aiLoading?"Scoring…":"⭐ Score My Confluence"}
+      </button>
+    </div>
+  );
+}
+
+/* ── Feature Hub Panel ── */
+function FeatureHubPanel({ data, setData }: { data: any; setData: any }) {
+  const settings = data.settings || {};
+  const enabledFeatures: Record<string,boolean> = { ...(settings.enabledFeatures || {}) };
+  const cur = data.account?.currency || "€";
+  const accent = settings.accentColor || "#f59e0b";
+
+  const [filterTier, setFilterTier] = useState<"all"|"free"|"paid">("all");
+  const [filterCat, setFilterCat] = useState("All");
+  const [search, setSearch] = useState("");
+  const [activeFeature, setActiveFeature] = useState<string|null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<Record<string,string>>({});
+
+  const setEnabled = (id: string, val: boolean) => {
+    setData((d: any) => ({
+      ...d,
+      settings: { ...(d.settings||{}), enabledFeatures: { ...(d.settings?.enabledFeatures||{}), [id]: val } }
+    }));
+  };
+
+  const isEnabled = (id: string, def: FeatureDef) => {
+    if (def.alreadyActive) return true;
+    return enabledFeatures[id] === true;
+  };
+
+  const categories = ["All", ...Array.from(new Set(FEATURES_CATALOG.map((f) => f.category)))];
+  const filtered = FEATURES_CATALOG.filter((f) => {
+    if (filterTier !== "all" && f.tier !== filterTier) return false;
+    if (filterCat !== "All" && f.category !== filterCat) return false;
+    if (search && !f.label.toLowerCase().includes(search.toLowerCase()) && !f.desc.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const closedTrades = (data.trades || []).filter((t: any) => computeTrade(t).result !== null);
+  const activeCount = FEATURES_CATALOG.filter((f) => isEnabled(f.id, f)).length;
+  const freeEnabled = FEATURES_CATALOG.filter((f) => f.tier === "free" && isEnabled(f.id, f)).length;
+  const paidEnabled = FEATURES_CATALOG.filter((f) => f.tier === "paid" && isEnabled(f.id, f)).length;
+
+  const runAI = async (id: string, prompt: string, system: string) => {
+    setAiLoading(true);
+    try {
+      const res = await callAI(prompt, system);
+      setAiResult((r) => ({ ...r, [id]: res }));
+    } catch (e: any) {
+      setAiResult((r) => ({ ...r, [id]: `Error: ${e.message}` }));
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  /* ── Analytics panels for free features ── */
+  const renderFeaturePanel = (f: FeatureDef) => {
+    switch(f.id) {
+      case "sessionWinRate": {
+        const stats = getSessionStats(data.trades || []);
+        if (!stats.length) return <p className="text-slate-500 text-xs text-center py-4">No closed trades yet</p>;
+        return (
+          <div className="space-y-2">
+            {stats.map((s) => (
+              <div key={s.name} className="flex items-center gap-2">
+                <span className="text-xs text-slate-400 w-20 shrink-0">{s.name}</span>
+                <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${s.wr}%` }} />
+                </div>
+                <span className="text-xs font-bold text-slate-200 w-10 text-right">{s.wr}%</span>
+                <span className={cx("text-xs w-16 text-right", s.pnl >= 0 ? "text-emerald-400" : "text-rose-400")}>{s.pnl >= 0 ? "+" : ""}{cur}{s.pnl.toFixed(0)}</span>
+                <span className="text-[10px] text-slate-600 w-12 text-right">{s.total} trades</span>
+              </div>
+            ))}
+          </div>
+        );
+      }
+      case "bestDayOfWeek": {
+        const stats = getDayStats(data.trades || []).filter((d) => d.total > 0);
+        if (!stats.length) return <p className="text-slate-500 text-xs text-center py-4">No closed trades yet</p>;
+        const maxPnl = Math.max(...stats.map((s) => Math.abs(s.pnl)), 1);
+        return (
+          <div className="flex items-end gap-1 h-24 pt-2">
+            {getDayStats(data.trades || []).map((s) => {
+              const h = s.pnl === 0 ? 4 : Math.max(8, (Math.abs(s.pnl) / maxPnl) * 80);
+              const isPos = s.pnl >= 0;
+              return (
+                <div key={s.day} className="flex-1 flex flex-col items-center gap-1">
+                  <span className={cx("text-[9px] font-bold", s.total ? (isPos ? "text-emerald-400" : "text-rose-400") : "text-slate-700")}>
+                    {s.total ? `${s.pnl >= 0 ? "+" : ""}${cur}${Math.abs(s.pnl).toFixed(0)}` : "—"}
+                  </span>
+                  <div className={cx("w-full rounded-sm transition-all", s.total ? (isPos ? "bg-emerald-500" : "bg-rose-500") : "bg-slate-800")} style={{ height: s.total ? h : 4 }} />
+                  <span className="text-[10px] text-slate-500">{s.day}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+      case "worstPairTracker": {
+        const stats = getPairStats(data.trades || []).slice(0, 8);
+        if (!stats.length) return <p className="text-slate-500 text-xs text-center py-4">No closed trades yet</p>;
+        return (
+          <div className="space-y-1.5">
+            {stats.map((s) => (
+              <div key={s.sym} className="flex items-center justify-between bg-slate-900 rounded-lg px-3 py-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px]">{s.pnl < 0 ? "🔴" : "🟢"}</span>
+                  <span className="text-xs font-bold text-slate-100">{s.sym}</span>
+                  <span className="text-[10px] text-slate-500">{s.total} trades</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-500">{s.wr}% WR</span>
+                  <span className={cx("text-xs font-bold", s.pnl >= 0 ? "text-emerald-400" : "text-rose-400")}>{s.pnl >= 0 ? "+" : ""}{cur}{s.pnl.toFixed(2)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      }
+      case "consistencyScore": {
+        const trades = closedTrades;
+        if (trades.length < 3) return <p className="text-slate-500 text-xs text-center py-4">Need at least 3 closed trades</p>;
+        const rrs = trades.map((t: any) => computeTrade(t).rr || 0).filter((r: number) => r !== 0);
+        const lots = trades.map((t: any) => parseFloat(t.lots) || 0).filter((l: number) => l > 0);
+        const mean = (arr: number[]) => arr.reduce((a,b) => a+b, 0) / arr.length;
+        const std = (arr: number[]) => { const m = mean(arr); return Math.sqrt(arr.reduce((a,b) => a + (b-m)**2, 0) / arr.length); };
+        const rrStd = rrs.length > 1 ? std(rrs) : 0;
+        const lotStd = lots.length > 1 ? std(lots) / (mean(lots) || 1) * 100 : 0;
+        const score = Math.max(0, Math.min(100, Math.round(100 - (rrStd * 10 + lotStd * 0.5))));
+        const tone = score >= 70 ? "emerald" : score >= 40 ? "amber" : "rose";
+        return (
+          <div className="flex flex-col items-center gap-3 py-2">
+            <div className={cx("text-4xl font-black", tone === "emerald" ? "text-emerald-400" : tone === "amber" ? "text-amber-400" : "text-rose-400")}>{score}<span className="text-xl">/100</span></div>
+            <div className="text-xs text-slate-500 text-center">
+              {score >= 70 ? "Excellent consistency — keep it up" : score >= 40 ? "Moderate consistency — work on sizing discipline" : "High variability in your sizing or RR targets"}
+            </div>
+            <div className="grid grid-cols-2 gap-2 w-full text-center">
+              <div className="bg-slate-900 rounded-lg p-2">
+                <div className="text-xs font-bold text-slate-200">{rrStd.toFixed(2)}</div>
+                <div className="text-[10px] text-slate-500">RR std dev</div>
+              </div>
+              <div className="bg-slate-900 rounded-lg p-2">
+                <div className="text-xs font-bold text-slate-200">{lotStd.toFixed(1)}%</div>
+                <div className="text-[10px] text-slate-500">Lot size variance</div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+      case "revengeDetector": {
+        const sorted = [...(data.trades||[])].filter((t:any) => t.date && t.entryTime).sort((a:any,b:any) => (a.date+a.entryTime).localeCompare(b.date+b.entryTime));
+        const revenge: any[] = [];
+        for (let i = 1; i < sorted.length; i++) {
+          const prev = sorted[i-1]; const curr = sorted[i];
+          const pC = computeTrade(prev);
+          if (pC.result !== "Loss") continue;
+          const prevDt = new Date(`${prev.date}T${prev.exitTime||prev.entryTime||"00:00"}`);
+          const currDt = new Date(`${curr.date}T${curr.entryTime||"00:00"}`);
+          const diffMin = (currDt.getTime() - prevDt.getTime()) / 60000;
+          if (diffMin >= 0 && diffMin <= 15) revenge.push({ trade: curr, minAfter: Math.round(diffMin) });
+        }
+        return (
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-2xl font-black text-rose-400">{revenge.length}</span>
+              <span className="text-xs text-slate-400">potential revenge trades detected</span>
+            </div>
+            {revenge.slice(0,4).map((r,i) => (
+              <div key={i} className="flex items-center justify-between bg-rose-500/5 border border-rose-500/20 rounded-lg px-3 py-1.5 mb-1">
+                <span className="text-xs font-bold text-slate-200">{r.trade.symbol}</span>
+                <span className="text-[10px] text-rose-400">{r.minAfter} min after loss</span>
+                <span className="text-[10px] text-slate-500">{r.trade.date}</span>
+              </div>
+            ))}
+            {revenge.length === 0 && <p className="text-emerald-400 text-xs text-center py-2">✓ No revenge trades detected</p>}
+          </div>
+        );
+      }
+      case "holdingTime": {
+        const wins: number[] = []; const losses: number[] = [];
+        (data.trades||[]).forEach((t:any) => {
+          const c = computeTrade(t);
+          if (!t.entryTime || !t.exitTime || c.result === null) return;
+          const entry = new Date(`${t.date}T${t.entryTime}`);
+          const exit  = new Date(`${t.date}T${t.exitTime}`);
+          const diff = (exit.getTime() - entry.getTime()) / 60000;
+          if (diff > 0 && diff < 10000) { c.result === "Win" ? wins.push(diff) : losses.push(diff); }
+        });
+        const avg = (arr: number[]) => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : null;
+        const fmt = (m: number|null) => m === null ? "N/A" : m >= 60 ? `${Math.round(m/60)}h ${m%60}m` : `${m}m`;
+        return (
+          <div className="grid grid-cols-2 gap-3">
+            {[{label:"Avg Winning Hold", val:avg(wins), tone:"emerald"},{label:"Avg Losing Hold", val:avg(losses), tone:"rose"}].map(({label,val,tone}) => (
+              <div key={label} className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
+                <div className={cx("text-lg font-black", tone==="emerald"?"text-emerald-400":"text-rose-400")}>{fmt(val)}</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">{label}</div>
+              </div>
+            ))}
+          </div>
+        );
+      }
+      case "commissionLeak": {
+        let totalComm = 0, totalSwap = 0, totalPnl = 0;
+        (data.trades||[]).forEach((t:any) => {
+          const c = computeTrade(t);
+          totalComm += parseFloat(t.commission||"0")||0;
+          totalSwap += parseFloat(t.swap||"0")||0;
+          totalPnl += c.pnl||0;
+        });
+        const gross = totalPnl + Math.abs(totalComm) + Math.abs(totalSwap);
+        const leakPct = gross ? ((Math.abs(totalComm)+Math.abs(totalSwap))/gross*100) : 0;
+        return (
+          <div className="space-y-2">
+            {[{l:"Total Commission",v:totalComm,icon:"💳"},{l:"Total Swap",v:totalSwap,icon:"🔄"},{l:"Net Leak",v:totalComm+totalSwap,icon:"💸"}].map(({l,v,icon}) => (
+              <div key={l} className="flex items-center justify-between bg-slate-900 rounded-lg px-3 py-2">
+                <span className="text-xs text-slate-400">{icon} {l}</span>
+                <span className={cx("text-xs font-bold", v < 0 ? "text-rose-400" : "text-slate-300")}>{cur}{v.toFixed(2)}</span>
+              </div>
+            ))}
+            <div className="text-center text-[11px] text-slate-500 pt-1">Fees are eating <span className="text-amber-400 font-bold">{leakPct.toFixed(1)}%</span> of your gross P/L</div>
+          </div>
+        );
+      }
+      case "tradingHours": {
+        const stats = getHourStats(data.trades||[]);
+        if (!stats.length) return <p className="text-slate-500 text-xs text-center py-4">No closed trades yet</p>;
+        const maxAbs = Math.max(...stats.map((s) => Math.abs(s.pnl)), 1);
+        return (
+          <div className="space-y-1">
+            {stats.sort((a,b) => b.pnl-a.pnl).slice(0,6).map((s) => (
+              <div key={s.hr} className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-500 w-10">{s.label}</span>
+                <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                  <div className={cx("h-full rounded-full", s.pnl >= 0 ? "bg-emerald-500" : "bg-rose-500")} style={{ width:`${(Math.abs(s.pnl)/maxAbs)*100}%` }} />
+                </div>
+                <span className={cx("text-[10px] font-bold w-16 text-right", s.pnl>=0?"text-emerald-400":"text-rose-400")}>{s.pnl>=0?"+":""}{cur}{s.pnl.toFixed(0)}</span>
+                <span className="text-[10px] text-slate-600 w-8 text-right">{s.wr}%</span>
+              </div>
+            ))}
+          </div>
+        );
+      }
+      case "riskAdjusted": {
+        const rets = closedTrades.map((t:any) => computeTrade(t).pnl||0);
+        if (rets.length < 5) return <p className="text-slate-500 text-xs text-center py-4">Need at least 5 closed trades</p>;
+        const mean = rets.reduce((a,b)=>a+b,0)/rets.length;
+        const std = Math.sqrt(rets.reduce((a,b)=>a+(b-mean)**2,0)/rets.length);
+        const downRets = rets.filter((r:number)=>r<0);
+        const downStd = downRets.length > 1 ? Math.sqrt(downRets.reduce((a:number,b:number)=>a+b**2,0)/downRets.length) : std||1;
+        const sharpe = std ? (mean/std).toFixed(2) : "N/A";
+        const sortino = downStd ? (mean/downStd).toFixed(2) : "N/A";
+        const pfWins = rets.filter((r:number)=>r>0).reduce((a:number,b:number)=>a+b,0);
+        const pfLoss = Math.abs(rets.filter((r:number)=>r<0).reduce((a:number,b:number)=>a+b,0));
+        const pf = pfLoss ? (pfWins/pfLoss).toFixed(2) : "∞";
+        return (
+          <div className="grid grid-cols-3 gap-2">
+            {[{l:"Sharpe",v:sharpe,good:parseFloat(String(sharpe))>=1},{l:"Sortino",v:sortino,good:parseFloat(String(sortino))>=1},{l:"Profit Factor",v:pf,good:parseFloat(String(pf))>=1.5}].map(({l,v,good}) => (
+              <div key={l} className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-center">
+                <div className={cx("text-base font-black", good?"text-emerald-400":"text-amber-400")}>{v}</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">{l}</div>
+              </div>
+            ))}
+          </div>
+        );
+      }
+      /* Paid AI feature panels */
+      case "aiTradeCoach": {
+        const recent = closedTrades.slice(-3);
+        return (
+          <div className="space-y-2">
+            <p className="text-[11px] text-slate-400">Select a trade to get AI coaching feedback:</p>
+            {recent.map((t:any) => {
+              const c = computeTrade(t);
+              const key = t.id;
+              return (
+                <div key={key} className="bg-slate-900 border border-slate-800 rounded-xl p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-100">{t.symbol}</span>
+                      <span className={cx("text-[10px] px-1.5 rounded font-bold", c.result==="Win"?"bg-emerald-500/20 text-emerald-400":"bg-rose-500/20 text-rose-400")}>{c.result}</span>
+                    </div>
+                    <button
+                      disabled={aiLoading}
+                      onClick={() => runAI(key,
+                        `Analyse this trade: Symbol: ${t.symbol}, Side: ${t.side}, Entry: ${t.entryPrice}, Exit: ${t.exitPrice}, SL: ${t.sl}, TP: ${t.tp}, Result: ${c.result}, P/L: ${cur}${c.pnl?.toFixed(2)}, Notes: "${t.notes||"none"}". Give 3 bullet points of coaching feedback.`,
+                        "You are an expert forex trading coach. Be concise, specific, and constructive. Format as 3 bullet points."
+                      )}
+                      className="text-[10px] px-2 py-1 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-400 hover:bg-blue-500/25 transition disabled:opacity-50">
+                      {aiLoading ? "Thinking…" : "🧠 Coach me"}
+                    </button>
+                  </div>
+                  {aiResult[key] && <div className="text-[11px] text-slate-300 whitespace-pre-wrap bg-slate-800 rounded-lg p-2.5 leading-relaxed">{aiResult[key]}</div>}
+                </div>
+              );
+            })}
+            {!recent.length && <p className="text-slate-500 text-xs text-center py-3">No closed trades yet</p>}
+          </div>
+        );
+      }
+      case "aiChat":
+        return <AIChatFeaturePanel closedTrades={closedTrades} cur={cur} aiResult={aiResult} aiLoading={aiLoading} runAI={runAI} />;
+      case "strategyDNA": {
+        return (
+          <div className="space-y-2">
+            <p className="text-[11px] text-slate-400">AI analyses all your winning trades to find common patterns:</p>
+            {aiResult["strategyDNA"] ? (
+              <div className="text-[11px] text-slate-300 whitespace-pre-wrap bg-slate-800 rounded-xl p-3 leading-relaxed">{aiResult["strategyDNA"]}</div>
+            ) : (
+              <button disabled={aiLoading||closedTrades.length<5}
+                onClick={()=>{
+                  const wins = closedTrades.filter((t:any)=>computeTrade(t).result==="Win");
+                  runAI("strategyDNA",
+                    `Analyse these ${wins.length} winning trades and find the common DNA: ${JSON.stringify(wins.map((t:any)=>({ symbol:t.symbol, side:t.side, session:t.session, market:t.market, setup:t.setupType, tags:t.tags, rr:computeTrade(t).rr })))}. What conditions appear in 70%+ of wins?`,
+                    "You are a quant analyst. Find patterns in winning trades. Format as: 5 bullet points of specific conditions found in most winning trades."
+                  );
+                }}
+                className="w-full py-2.5 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 text-xs font-semibold hover:bg-blue-500/25 transition disabled:opacity-40">
+                {aiLoading ? "Analysing…" : closedTrades.length<5 ? "Need 5+ closed trades" : "🧬 Analyse My Strategy DNA"}
+              </button>
+            )}
+          </div>
+        );
+      }
+      case "weeklyAIReview": {
+        return (
+          <div className="space-y-2">
+            {aiResult["weeklyAIReview"] ? (
+              <div className="text-[11px] text-slate-300 whitespace-pre-wrap bg-slate-800 rounded-xl p-3 leading-relaxed max-h-52 overflow-y-auto">{aiResult["weeklyAIReview"]}</div>
+            ) : null}
+            <button disabled={aiLoading||closedTrades.length<1}
+              onClick={()=>{
+                const weekTrades = closedTrades.slice(-20);
+                const wins = weekTrades.filter((t:any)=>computeTrade(t).result==="Win").length;
+                const pnl = weekTrades.reduce((a:number,t:any)=>a+(computeTrade(t).pnl||0),0);
+                runAI("weeklyAIReview",
+                  `Write a weekly trading performance review. Trades: ${weekTrades.length}, Wins: ${wins}, Losses: ${weekTrades.length-wins}, Net P/L: ${cur}${pnl.toFixed(2)}. Trade details: ${JSON.stringify(weekTrades.map((t:any)=>({symbol:t.symbol,result:computeTrade(t).result,pnl:computeTrade(t).pnl,notes:t.notes})))}.`,
+                  "You are a professional trading coach writing a weekly review. Be specific, honest, and constructive. Format: 1) Performance Summary 2) What Went Well 3) What To Improve 4) Focus For Next Week."
+                );
+              }}
+              className="w-full py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/25 transition disabled:opacity-40">
+              {aiLoading ? "Generating…" : "📋 Generate Weekly Review"}
+            </button>
+          </div>
+        );
+      }
+      case "confluenceScorer":
+        return <ConfluenceScorerPanel aiResult={aiResult} aiLoading={aiLoading} runAI={runAI} />;
+      case "propReadiness": {
+        return (
+          <div className="space-y-2">
+            {aiResult["propReadiness"] ? (
+              <div className="text-[11px] text-slate-300 whitespace-pre-wrap bg-slate-800 rounded-xl p-3 leading-relaxed max-h-48 overflow-y-auto">{aiResult["propReadiness"]}</div>
+            ) : null}
+            <button disabled={aiLoading||closedTrades.length<10}
+              onClick={()=>{
+                const wins = closedTrades.filter((t:any)=>computeTrade(t).result==="Win").length;
+                const pnl = closedTrades.reduce((a:number,t:any)=>a+(computeTrade(t).pnl||0),0);
+                const rrs = closedTrades.map((t:any)=>computeTrade(t).rr||0).filter((r:number)=>r>0);
+                const avgRR = rrs.length ? rrs.reduce((a:number,b:number)=>a+b,0)/rrs.length : 0;
+                runAI("propReadiness",
+                  `Assess my prop firm readiness. Stats: ${closedTrades.length} trades, ${Math.round(wins/closedTrades.length*100)}% win rate, ${cur}${pnl.toFixed(2)} total P/L, avg RR ${avgRR.toFixed(2)}. Prop firm rules: 8% max drawdown, 5% daily drawdown, 10% profit target.`,
+                  "You are a prop firm evaluator. Give: 1) Readiness score out of 100 2) 3 strengths 3) 3 areas to improve 4) One-line verdict. Be direct."
+                );
+              }}
+              className="w-full py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/25 transition disabled:opacity-40">
+              {aiLoading?"Evaluating…":closedTrades.length<10?"Need 10+ trades":"🏅 Assess My Readiness"}
+            </button>
+          </div>
+        );
+      }
+      default:
+        return (
+          <div className="flex flex-col items-center gap-2 py-6 text-center">
+            <span className="text-3xl">{f.icon}</span>
+            <p className="text-slate-400 text-xs">{f.desc}</p>
+            <span className="text-[10px] text-slate-600 bg-slate-800 px-2 py-1 rounded-full">Coming soon in a future update</span>
+          </div>
+        );
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header stats */}
+      <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 rounded-2xl p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-500/20 flex items-center justify-center">
+            <Sparkles size={18} className="text-blue-400" />
+          </div>
+          <div>
+            <div className="text-sm font-bold text-slate-100">Feature Hub</div>
+            <div className="text-[11px] text-slate-400">Enable the features you want · Free + AI-powered</div>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label:"Active Features", value:activeCount, color:"text-blue-400" },
+            { label:"Free Enabled",    value:`${freeEnabled}/25`, color:"text-emerald-400" },
+            { label:"AI Enabled",      value:`${paidEnabled}/25`, color:"text-purple-400" },
+          ].map(({label,value,color})=>(
+            <div key={label} className="bg-slate-900/60 rounded-xl p-2 text-center">
+              <div className={cx("text-sm font-black", color)}>{value}</div>
+              <div className="text-[9px] text-slate-500">{label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-2 flex-wrap items-center">
+        <div className="flex rounded-xl overflow-hidden border border-slate-700 shrink-0">
+          {(["all","free","paid"] as const).map((t)=>(
+            <button key={t} onClick={()=>setFilterTier(t)}
+              className={cx("px-3 py-1.5 text-xs font-semibold transition capitalize",
+                filterTier===t ? "bg-blue-500 text-white" : "bg-slate-900 text-slate-400 hover:text-slate-200")}>
+              {t==="all"?"All":t==="free"?"🆓 Free":"💳 Paid"}
+            </button>
+          ))}
+        </div>
+        <input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search features…"
+          className="flex-1 min-w-[120px] bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-blue-500/50 transition placeholder:text-slate-600" />
+      </div>
+
+      {/* Category pills */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+        {categories.map((c)=>(
+          <button key={c} onClick={()=>setFilterCat(c)}
+            className={cx("px-2.5 py-1 rounded-lg text-[10px] font-semibold whitespace-nowrap transition shrink-0 border",
+              filterCat===c ? "bg-blue-500 text-white border-blue-500" : "bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-500")}>
+            {c}
+          </button>
+        ))}
+      </div>
+
+      {/* Feature list */}
+      <div className="space-y-2">
+        {filtered.map((f) => {
+          const on = isEnabled(f.id, f);
+          const isActive = activeFeature === f.id;
+          return (
+            <div key={f.id}
+              className={cx("border rounded-2xl overflow-hidden transition",
+                on ? (f.tier==="paid" ? "border-purple-500/30 bg-purple-500/5" : "border-emerald-500/30 bg-emerald-500/5") : "border-slate-700 bg-slate-900/60")}>
+              {/* Feature row */}
+              <div className="flex items-center gap-3 p-3">
+                <span className="text-xl shrink-0 w-7 text-center">{f.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs font-bold text-slate-100">{f.label}</span>
+                    {f.tier==="free"
+                      ? <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">🆓 FREE</span>
+                      : <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">💳 PAID</span>}
+                    {f.alreadyActive && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">✓ Active</span>}
+                    {f.cost && on && <span className="text-[9px] text-slate-500">{f.cost}</span>}
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">{f.desc}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {on && !f.alreadyActive && (
+                    <button onClick={()=>setActiveFeature(isActive?null:f.id)}
+                      className="text-[10px] px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 transition">
+                      {isActive?"Hide":"View"}
+                    </button>
+                  )}
+                  {!f.alreadyActive && (
+                    <button onClick={()=>setEnabled(f.id, !on)}
+                      className={cx("relative w-10 h-5 rounded-full transition-all shrink-0",
+                        on ? (f.tier==="paid"?"bg-purple-500":"bg-emerald-500") : "bg-slate-700")}>
+                      <span className={cx("absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-all", on?"translate-x-5":"translate-x-0")} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              {/* Feature panel — shown when enabled + View clicked */}
+              {on && isActive && (
+                <div className="border-t border-slate-800/50 p-3">
+                  {renderFeaturePanel(f)}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {filtered.length === 0 && (
+        <div className="text-center py-10 text-slate-600 text-sm">No features match your search</div>
+      )}
+    </div>
+  );
+}
+
 function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
-  const ALL_TABS = ["Account", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report", "Settings", "Owner"];
+  const ALL_TABS = ["Account", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report", "AI Lab", "Settings", "Owner"];
   const moreVis = (data as any)?.settings?.moreTabVisibility || {};
-  const tabs = ALL_TABS.filter((t) => t === "Settings" || t === "Owner" || moreVis[t] !== false);
+  const tabs = ALL_TABS.filter((t) => t === "Settings" || t === "Owner" || t === "AI Lab" || moreVis[t] !== false);
   const accent = (data as any)?.settings?.accentColor || "#f59e0b";
 
   if (subTab === "Report") {
@@ -12951,6 +13648,7 @@ function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
       {subTab === "Vault" && <VaultPanel data={data} setData={setData} goTo={goTo} />}
       {subTab === "Prop" && <PropChallengesPanel data={data} setData={setData} />}
       {subTab === "Backup" && <BackupPanel data={data} setData={setData} />}
+      {subTab === "AI Lab" && <FeatureHubPanel data={data} setData={setData} />}
       {subTab === "Settings" && <SettingsPanel data={data} setData={setData} />}
       {subTab === "Owner" && <OwnerPanel data={data} setData={setData} />}
     </div>

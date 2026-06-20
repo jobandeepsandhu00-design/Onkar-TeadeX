@@ -98,4 +98,40 @@ router.post("/mt-import/ocr", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/mt-import/ai-chat", async (req, res): Promise<void> => {
+  const { prompt, systemPrompt } = req.body as { prompt?: string; systemPrompt?: string };
+
+  if (!prompt || typeof prompt !== "string") {
+    res.status(400).json({ error: "Missing prompt" });
+    return;
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    res.status(500).json({ error: "OpenAI API key not configured on server" });
+    return;
+  }
+
+  const openai = new OpenAI({ apiKey });
+
+  try {
+    req.log.info("AI chat request received");
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      max_tokens: 1024,
+      messages: [
+        { role: "system", content: systemPrompt || "You are a professional forex trading coach. Be concise and specific." },
+        { role: "user", content: prompt },
+      ],
+    });
+
+    const text = response.choices[0]?.message?.content ?? "";
+    req.log.info("AI chat response generated");
+    res.json({ response: text });
+  } catch (err: any) {
+    logger.error({ err: err.message }, "AI chat error");
+    res.status(500).json({ error: err.message || "AI request failed" });
+  }
+});
+
 export default router;
