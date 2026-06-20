@@ -884,6 +884,7 @@ const DEFAULT_DATA = () => ({
   checkins: [],
   preSession: [],
   account: { startingBalance: 1000, currency: "€" },
+  tradingAccounts: [],
   propChallenges: [],
   sessionPlans: [],
   settings: DEFAULT_SETTINGS(),
@@ -2459,6 +2460,150 @@ function AccountBalanceCard({ account, a }) {
   );
 }
 
+/* ── Trading Accounts Manager ── */
+function TradingAccountsManager({ data, setData }: any) {
+  const accounts: any[] = data.tradingAccounts || [];
+  const emptyTA = () => ({ alias: "", accountNumber: "", platform: "MT4", accountType: "Live", currency: "USD" });
+  const [form, setForm] = useState<any>(emptyTA());
+  const [editId, setEditId] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const setF = (k: string) => (e: any) => setForm((f: any) => ({ ...f, [k]: e.target.value }));
+
+  const save = () => {
+    if (!form.accountNumber.trim()) return;
+    if (editId) {
+      setData((d: any) => ({ ...d, tradingAccounts: (d.tradingAccounts || []).map((a: any) => a.id === editId ? { ...form, id: editId } : a) }));
+    } else {
+      setData((d: any) => ({ ...d, tradingAccounts: [...(d.tradingAccounts || []), { ...form, id: uid() }] }));
+    }
+    setForm(emptyTA()); setEditId(null); setOpen(false);
+  };
+
+  const del = (id: string) => {
+    if (!confirm("Remove this account?")) return;
+    setData((d: any) => ({ ...d, tradingAccounts: (d.tradingAccounts || []).filter((a: any) => a.id !== id) }));
+  };
+
+  const startEdit = (a: any) => {
+    setForm({ alias: a.alias || "", accountNumber: a.accountNumber, platform: a.platform, accountType: a.accountType, currency: a.currency });
+    setEditId(a.id); setOpen(true);
+  };
+
+  const PLAT_CLR: Record<string, string> = { MT4: "#4fc3f7", MT5: "#29b6f6", TradingView: "#2196f3", cTrader: "#00bcd4", IBKR: "#ff7043" };
+  const TYPE_CLS: Record<string, string> = {
+    Live: "bg-emerald-500/15 text-emerald-400",
+    Demo: "bg-amber-500/15 text-amber-400",
+    Prop: "bg-sky-500/15 text-sky-400",
+    Challenge: "bg-purple-500/15 text-purple-400",
+  };
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Layers size={15} className="text-amber-400" />
+          <span className="font-semibold text-slate-100 text-sm">Trading Accounts</span>
+          {accounts.length > 0 && (
+            <span className="text-[10px] bg-slate-800 text-slate-400 rounded-full px-2 py-0.5 font-medium">{accounts.length}</span>
+          )}
+        </div>
+        {!open && (
+          <button onClick={() => { setForm(emptyTA()); setEditId(null); setOpen(true); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/25 transition">
+            <Plus size={12} /> Add Account
+          </button>
+        )}
+      </div>
+
+      {/* Add/Edit form */}
+      {open && (
+        <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 mb-4 space-y-3">
+          <div className="text-xs font-semibold text-amber-400">{editId ? "Edit Account" : "➕ New Trading Account"}</div>
+          <Field label="Account Number / Login ID">
+            <TextInput placeholder="e.g. 12345678" value={form.accountNumber} onChange={setF("accountNumber")} />
+          </Field>
+          <Field label="Nickname" hint="Optional — e.g. My FTMO Live">
+            <TextInput placeholder="My Live Account" value={form.alias} onChange={setF("alias")} />
+          </Field>
+          <Field label="Platform / Broker">
+            <TextInput list="ta-plat-list" placeholder="MT4, MT5, TradingView..." value={form.platform} onChange={setF("platform")} />
+            <datalist id="ta-plat-list">
+              {TRADING_PLATFORMS.map((p) => <option key={p} value={p} />)}
+            </datalist>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Account Type">
+              <Select value={form.accountType} onChange={setF("accountType")}>
+                {["Live", "Demo", "Prop", "Challenge"].map((t) => <option key={t}>{t}</option>)}
+              </Select>
+            </Field>
+            <Field label="Currency">
+              <Select value={form.currency} onChange={setF("currency")}>
+                {["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CHF", "SGD"].map((c) => <option key={c}>{c}</option>)}
+              </Select>
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button onClick={() => { setOpen(false); setEditId(null); setForm(emptyTA()); }}
+              className="py-2.5 rounded-xl border border-slate-700 text-slate-400 text-sm font-medium hover:bg-slate-800 transition">
+              Cancel
+            </button>
+            <button onClick={save} disabled={!form.accountNumber.trim()}
+              className="py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-bold disabled:opacity-40 transition">
+              {editId ? "Save Changes" : "Add Account"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Account list */}
+      {accounts.length === 0 && !open ? (
+        <div className="text-center py-6">
+          <div className="text-3xl mb-2">🏦</div>
+          <div className="text-slate-500 text-sm font-medium">No accounts yet</div>
+          <div className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+            Add your MT4/MT5 or broker account numbers<br />to tag your trades and prop challenges
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {accounts.map((a: any) => {
+            const platClr = PLAT_CLR[a.platform] || "#64748b";
+            return (
+              <div key={a.id} className="flex items-center gap-3 bg-slate-900 rounded-xl px-3 py-2.5 border border-slate-800">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-sm font-bold text-slate-100 tracking-wide">{a.accountNumber}</span>
+                    {a.alias && <span className="text-xs text-slate-500 truncate">{a.alias}</span>}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border"
+                      style={{ color: platClr, borderColor: platClr + "40", background: platClr + "18" }}>
+                      {a.platform}
+                    </span>
+                    <span className={cx("text-[10px] px-1.5 py-0.5 rounded-md font-medium", TYPE_CLS[a.accountType] || "bg-slate-800 text-slate-400")}>
+                      {a.accountType}
+                    </span>
+                    <span className="text-[10px] text-slate-600">{a.currency}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={() => startEdit(a)} className="p-1.5 rounded-lg text-slate-600 hover:text-amber-400 hover:bg-slate-800 transition">
+                    <Pencil size={13} />
+                  </button>
+                  <button onClick={() => del(a.id)} className="p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-slate-800 transition">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function AccountSettings({ data, setData }) {
   const acc = data.account || { startingBalance: 1000, currency: "€" };
   const [bal, setBal] = useState(String(acc.startingBalance));
@@ -2477,6 +2622,7 @@ function AccountSettings({ data, setData }) {
 
   return (
     <div className="space-y-4">
+      <TradingAccountsManager data={data} setData={setData} />
       <SectionTitle sub="Set your starting balance and currency">Account Settings</SectionTitle>
       <Card>
         <div className="flex items-center gap-2 mb-4">
@@ -5001,6 +5147,7 @@ function emptyTrade(settings?: any) {
     grade: "", mistakes: [], reviewNotes: "", rulesViolated: false,
     manualPnl: "",
     platform: "",
+    accountId: "",
   };
 }
 
@@ -5293,7 +5440,7 @@ function MistakeCostPanel({ trades }) {
   );
 }
 
-function TradeForm({ open, onClose, onSave, initial, setups, strategies, account, settings }) {
+function TradeForm({ open, onClose, onSave, initial, setups, strategies, account, settings, tradingAccounts = [] }) {
   const [form, setForm] = useState(emptyTrade(settings));
   const [step, setStep] = useState(0);
   useEffect(() => { setForm(initial || emptyTrade(settings)); setStep(0); }, [initial, open]);
@@ -5430,6 +5577,18 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                 {TRADING_PLATFORMS.map((p) => <option key={p} value={p} />)}
               </datalist>
             </Field>
+            {(tradingAccounts as any[]).length > 0 && (
+              <Field label="Trading Account" hint="Link this trade to one of your broker accounts">
+                <Select value={form.accountId || ""} onChange={set("accountId")}>
+                  <option value="">— No account selected —</option>
+                  {(tradingAccounts as any[]).map((a: any) => (
+                    <option key={a.id} value={a.id}>
+                      {a.accountNumber}{a.alias ? ` · ${a.alias}` : ""} ({a.platform} · {a.accountType})
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Field label="Setup used">
                 <Select value={form.setupId} onChange={set("setupId")}>
@@ -6193,7 +6352,7 @@ function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {}
 
   /* TradeForm is now full-page — render it as an overlay on top of journal */
   if (formOpen) {
-    return <TradeForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} onSave={save} initial={editing} setups={data.setups} strategies={data.strategies} account={data.account} settings={data.settings} />;
+    return <TradeForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} onSave={save} initial={editing} setups={data.setups} strategies={data.strategies} account={data.account} settings={data.settings} tradingAccounts={data.tradingAccounts || []} />;
   }
 
   if (csvImportOpen) {
@@ -8276,6 +8435,7 @@ function BackupPanel({ data, setData }) {
         checkins: parsed.checkins || [],
         preSession: parsed.preSession || [],
         account: parsed.account || { startingBalance: 1000, currency: "€" },
+        tradingAccounts: parsed.tradingAccounts || [],
         propChallenges: parsed.propChallenges || [],
         sessionPlans: parsed.sessionPlans || [],
       });
@@ -8607,7 +8767,7 @@ const PROP_FIRM_PRESETS: Record<string, any> = {
 function emptyChallenge() {
   return {
     id: null, name: "", firm: "FTMO", phase: "Evaluation",
-    accountSize: "100000", currency: "USD",
+    accountSize: "100000", currency: "USD", accountId: "",
     profitTargetPct: "10", maxDailyLossPct: "5", maxTotalDrawdownPct: "10",
     drawdownType: "initial", minTradingDays: "4", maxCalendarDays: "30",
     startDate: todayISO(), status: "active", notes: "",
@@ -8694,7 +8854,7 @@ function computePropChallenge(c: any) {
 }
 
 /* ── Prop Challenge Form ── */
-function PropChallengeForm({ initial, onSave, onBack }) {
+function PropChallengeForm({ initial, onSave, onBack, tradingAccounts = [] }: any) {
   const [form, setForm] = useState(() => initial ? { ...initial } : emptyChallenge());
   const [newRule, setNewRule] = useState("");
   const set = (k: string) => (v: any) => setForm((f: any) => ({ ...f, [k]: v && typeof v === "object" && "target" in v ? v.target.value : v }));
@@ -8781,6 +8941,23 @@ function PropChallengeForm({ initial, onSave, onBack }) {
         <Field label="Account Size"><TextInput value={form.accountSize} onChange={set("accountSize")} placeholder="100000" /></Field>
         <Field label="Start Date"><TextInput type="date" value={form.startDate} onChange={set("startDate")} /></Field>
       </div>
+
+      {/* Trading account link */}
+      {(tradingAccounts as any[]).length > 0 && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Broker Account</div>
+          <select value={form.accountId || ""} onChange={(e) => set("accountId")(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-amber-500/50">
+            <option value="">— No account selected —</option>
+            {(tradingAccounts as any[]).map((a: any) => (
+              <option key={a.id} value={a.id}>
+                {a.accountNumber}{a.alias ? ` · ${a.alias}` : ""} ({a.platform} · {a.accountType})
+              </option>
+            ))}
+          </select>
+          <p className="text-[10px] text-slate-600 mt-1">Link this challenge to a specific broker account number</p>
+        </div>
+      )}
 
       {/* Targets */}
       <div>
@@ -9165,7 +9342,8 @@ function PropChallengesPanel({ data, setData }) {
       <PropChallengeForm
         initial={selected}
         onSave={save}
-        onBack={() => setView(selected?.id ? "detail" : "list")} />
+        onBack={() => setView(selected?.id ? "detail" : "list")}
+        tradingAccounts={data.tradingAccounts || []} />
     );
   }
 
