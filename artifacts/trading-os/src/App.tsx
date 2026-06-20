@@ -6,10 +6,12 @@ import {
   BookMarked, Brain, ShieldAlert, Download, RotateCcw, Filter, Paperclip, ChevronUp,
   ChevronLeft, MoreHorizontal, Wallet, ClipboardList, ArrowLeft, Copy, Check, Sparkles,
   Trophy, Flame, Gauge, DollarSign, Smile, Zap, AlertCircle, CalendarDays, Activity, Calculator,
-  Play, Eye, EyeOff, Repeat2, Clock, Lock, Shield, LogOut, GripVertical, RefreshCw
+  Play, Eye, EyeOff, Repeat2, Clock, Lock, Shield, LogOut, GripVertical, RefreshCw,
+  ExternalLink, TrendingUpDown
 } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line,
+  AreaChart, Area, ReferenceLine
 } from "recharts";
 import { storage, getToken } from "./api";
 import CsvImportModal from "./CsvImport";
@@ -804,8 +806,10 @@ const DEFAULT_SETTINGS = () => ({
     statistics:      true,
     reference:       true,
     activeTrades:    true,
+    equityCurve:     true,
+    tvChart:         true,
   },
-  dashSectionOrder: ["moolMantar","liveTicker","activeTrades","marketOverview","marketSessions","accountOverview","todaysFocus","propChallenges","thisWeek","riskTools","recentTrades","insightsEdge","setupLibrary","marketCalendar","statistics","reference"],
+  dashSectionOrder: ["moolMantar","liveTicker","activeTrades","marketOverview","marketSessions","accountOverview","todaysFocus","propChallenges","thisWeek","riskTools","equityCurve","tvChart","recentTrades","insightsEdge","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -5160,6 +5164,7 @@ function ActiveTradeMonitor({ data, acc }: any) {
                   t.side === "Buy" ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400")}>
                   {t.side === "Buy" ? "▲ BUY" : "▼ SELL"}
                 </span>
+                <TVButton symbol={t.symbol} market={t.market} size={11} />
                 {t.platform && (
                   <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border shrink-0"
                     style={{ color: platClr, borderColor: platClr + "40", background: platClr + "18" }}>
@@ -5542,6 +5547,249 @@ function LiveMarketTicker() {
   );
 }
 
+/* ── TradingView symbol mapper ── */
+function toTVSymbol(symbol: string, market = "Forex"): string {
+  const s = (symbol || "").toUpperCase().trim().replace("/", "");
+  if (s === "XAUUSD" || s === "GOLD") return "TVC:GOLD";
+  if (s === "XAGUSD" || s === "SILVER") return "TVC:SILVER";
+  if (s === "USOIL" || s === "OIL" || s === "WTIUSD") return "TVC:USOIL";
+  if (s === "NATGAS") return "TVC:NATGAS";
+  if (s === "US30" || s === "DJ30") return "TVC:DJI";
+  if (s === "NAS100" || s === "NASDAQ100") return "NASDAQ:NDX";
+  if (s === "SP500" || s === "SPX500") return "SP:SPX";
+  if (s === "UK100" || s === "FTSE100") return "TVC:UKX";
+  if (s === "GER40" || s === "DAX40") return "XETR:DAX";
+  if (s === "BTCUSD" || s === "BTCUSDT") return "BITSTAMP:BTCUSD";
+  if (s === "ETHUSD" || s === "ETHUSDT") return "BITSTAMP:ETHUSD";
+  if (s.endsWith("USDT")) return `BINANCE:${s}`;
+  if (s.length === 6 && market !== "Crypto" && market !== "Indices" && market !== "Commodities") return `FX:${s}`;
+  return s;
+}
+
+function tvChartURL(symbol: string, market: string, interval = "60"): string {
+  const sym = toTVSymbol(symbol, market);
+  return `https://www.tradingview.com/widgetembed/?frameElementId=tv_wd&symbol=${encodeURIComponent(sym)}&interval=${interval}&hidesidetoolbar=1&hidetoptoolbar=0&symboledit=1&saveimage=0&toolbarbg=0f172a&studies=[]&theme=dark&style=1&timezone=Etc%2FUTC&locale=en`;
+}
+
+function tvOpenURL(symbol: string, market: string): string {
+  return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(toTVSymbol(symbol, market))}`;
+}
+
+/* ── Open-in-TradingView button ── */
+function TVButton({ symbol, market, size = 12 }: { symbol: string; market?: string; size?: number }) {
+  if (!symbol) return null;
+  return (
+    <a href={tvOpenURL(symbol, market || "Forex")} target="_blank" rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title={`Open ${symbol} on TradingView`}
+      className="inline-flex items-center gap-1 px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-700 hover:border-blue-500/50 hover:bg-blue-500/10 transition text-slate-500 hover:text-blue-400"
+      style={{ fontSize: 10 }}>
+      <ExternalLink size={size} />
+      <span className="font-semibold" style={{ fontSize: 9 }}>TV</span>
+    </a>
+  );
+}
+
+/* ── TradingView Chart Widget (embedded) ── */
+const TV_PAIRS = ["EURUSD","GBPUSD","USDJPY","GBPJPY","XAUUSD","EURJPY","AUDUSD","USDCAD","USDCHF","NZDUSD","EURGBP","BTCUSD","NAS100","US30"];
+const TV_INTERVALS = [
+  { label: "1m",  value: "1"   },
+  { label: "5m",  value: "5"   },
+  { label: "15m", value: "15"  },
+  { label: "1H",  value: "60"  },
+  { label: "4H",  value: "240" },
+  { label: "1D",  value: "D"   },
+  { label: "1W",  value: "W"   },
+];
+
+function TradingViewChartWidget({ defaultSymbol = "EURUSD", defaultMarket = "Forex" }: { defaultSymbol?: string; defaultMarket?: string }) {
+  const [sym, setSym] = useState(defaultSymbol || "EURUSD");
+  const [market, setMarket] = useState(defaultMarket || "Forex");
+  const [interval, setInterval] = useState("60");
+  const [customSym, setCustomSym] = useState("");
+  const iframeKey = `${sym}_${interval}`;
+
+  const activeSym = customSym.trim().toUpperCase() || sym;
+
+  return (
+    <Card onClick={undefined}>
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-7 h-7 rounded-lg bg-blue-500/15 flex items-center justify-center shrink-0">
+            <TrendingUpDown size={14} className="text-blue-400" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-slate-100">TradingView Chart</div>
+            <div className="text-[10px] text-slate-500">Live chart · Powered by TradingView</div>
+          </div>
+        </div>
+        <a href={tvOpenURL(activeSym, market)} target="_blank" rel="noopener noreferrer"
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-400 text-xs font-semibold hover:bg-blue-500/25 transition shrink-0">
+          <ExternalLink size={11} /> Full Chart
+        </a>
+      </div>
+
+      {/* Symbol quick-select */}
+      <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1">
+        {TV_PAIRS.map((p) => (
+          <button key={p} onClick={() => { setSym(p); setCustomSym(""); }}
+            className={cx("px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition shrink-0 border",
+              (customSym === "" && sym === p) ? "bg-blue-500 text-white border-blue-500" : "bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-500")}>
+            {p}
+          </button>
+        ))}
+      </div>
+
+      {/* Custom symbol + interval row */}
+      <div className="flex gap-2 mb-3">
+        <input
+          value={customSym}
+          onChange={(e) => setCustomSym(e.target.value.toUpperCase())}
+          placeholder="Custom symbol…"
+          className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500/50 transition placeholder:text-slate-600"
+        />
+        <select value={interval} onChange={(e) => setInterval(e.target.value)}
+          className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-300 outline-none focus:border-blue-500/50 transition shrink-0">
+          {TV_INTERVALS.map((iv) => (
+            <option key={iv.value} value={iv.value}>{iv.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Chart iframe */}
+      <div className="rounded-xl overflow-hidden border border-slate-800" style={{ height: 420 }}>
+        <iframe
+          key={iframeKey}
+          src={tvChartURL(activeSym, market, interval)}
+          width="100%"
+          height="100%"
+          frameBorder="0"
+          allowTransparency={true}
+          scrolling="no"
+          title={`TradingView chart — ${activeSym}`}
+          style={{ display: "block" }}
+        />
+      </div>
+      <p className="text-[10px] text-slate-600 text-center mt-1.5">
+        Chart data provided by TradingView · <a href={tvOpenURL(activeSym, market)} target="_blank" rel="noopener noreferrer" className="text-blue-500/60 hover:text-blue-400">Open in TradingView ↗</a>
+      </p>
+    </Card>
+  );
+}
+
+/* ── Equity Curve Card ── */
+function EquityCurveCard({ data }: { data: any }) {
+  const acc = data.account || { startingBalance: 1000, currency: "€" };
+  const cur = acc.currency || "€";
+  const startBal = parseFloat(String(acc.startingBalance)) || 0;
+
+  const curveData = useMemo(() => {
+    const trades = (data.trades || [])
+      .filter((t: any) => computeTrade(t).result !== null)
+      .sort((a: any, b: any) => {
+        const da = (a.date || "") + (a.exitTime || a.entryTime || "");
+        const db = (b.date || "") + (b.exitTime || b.entryTime || "");
+        return da.localeCompare(db);
+      });
+
+    let balance = startBal;
+    const points: { label: string; balance: number; pnl: number; symbol: string; date: string; idx: number }[] = [
+      { label: "Start", balance: startBal, pnl: 0, symbol: "—", date: "—", idx: 0 },
+    ];
+    trades.forEach((t: any, i: number) => {
+      const c = computeTrade(t);
+      balance += c.pnl || 0;
+      points.push({
+        label: t.symbol || "—",
+        balance: parseFloat(balance.toFixed(2)),
+        pnl: c.pnl || 0,
+        symbol: t.symbol || "—",
+        date: t.date || "—",
+        idx: i + 1,
+      });
+    });
+    return points;
+  }, [data.trades, startBal]);
+
+  const currentBal = curveData[curveData.length - 1]?.balance ?? startBal;
+  const totalPnl = currentBal - startBal;
+  const totalPnlPct = startBal > 0 ? (totalPnl / startBal) * 100 : 0;
+  const isUp = totalPnl >= 0;
+  const peak = Math.max(...curveData.map((p) => p.balance));
+  const trough = Math.min(...curveData.map((p) => p.balance));
+  const maxDD = startBal > 0 ? ((peak - trough) / peak) * 100 : 0;
+
+  const accent = isUp ? "#10b981" : "#ef4444";
+  const gradId = "equityGrad";
+
+  return (
+    <Card onClick={undefined}>
+      <SectionTitle action={undefined} sub="Running account balance across all closed trades">Equity Curve</SectionTitle>
+
+      {/* Summary row */}
+      <div className="grid grid-cols-3 gap-2 mt-3 mb-4">
+        {[
+          { label: "Current Balance", value: `${cur}${currentBal.toFixed(2)}`, tone: isUp ? "emerald" : "rose" },
+          { label: "Total P/L",       value: `${totalPnl >= 0 ? "+" : ""}${cur}${totalPnl.toFixed(2)} (${totalPnlPct >= 0 ? "+" : ""}${totalPnlPct.toFixed(1)}%)`, tone: isUp ? "emerald" : "rose" },
+          { label: "Max Drawdown",    value: `${maxDD.toFixed(1)}%`, tone: maxDD > 10 ? "rose" : "amber" },
+        ].map(({ label, value, tone }) => (
+          <div key={label} className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-center">
+            <div className={cx("text-xs font-bold leading-tight", tone === "emerald" ? "text-emerald-400" : tone === "rose" ? "text-rose-400" : "text-amber-400")}>{value}</div>
+            <div className="text-[9px] text-slate-500 mt-0.5 leading-tight">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {curveData.length < 2 ? (
+        <div className="flex flex-col items-center justify-center py-10 gap-2">
+          <TrendingUpDown size={28} className="text-slate-700" />
+          <p className="text-slate-600 text-sm">Log closed trades to see your equity curve</p>
+        </div>
+      ) : (
+        <div style={{ height: 220 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={curveData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor={accent} stopOpacity={0.25} />
+                  <stop offset="95%" stopColor={accent} stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <XAxis dataKey="idx" hide />
+              <YAxis
+                domain={["auto", "auto"]}
+                tickFormatter={(v) => `${cur}${v}`}
+                tick={{ fill: "#475569", fontSize: 9 }}
+                width={52}
+              />
+              <Tooltip
+                contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, fontSize: 11 }}
+                formatter={(val: any, _: any, props: any) => [
+                  <span style={{ color: accent }}>{`${cur}${Number(val).toFixed(2)}`}</span>,
+                  props.payload?.symbol || "Balance"
+                ]}
+                labelFormatter={(_, payload) => payload?.[0]?.payload?.date || ""}
+              />
+              <ReferenceLine y={startBal} stroke="#334155" strokeDasharray="4 4" />
+              <Area
+                type="monotone"
+                dataKey="balance"
+                stroke={accent}
+                strokeWidth={2}
+                fill={`url(#${gradId})`}
+                dot={false}
+                activeDot={{ r: 4, fill: accent, strokeWidth: 0 }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+      <p className="text-[10px] text-slate-600 text-center mt-1">Starting balance: {cur}{startBal.toFixed(2)} · {curveData.length - 1} closed trade{curveData.length !== 2 ? "s" : ""}</p>
+    </Card>
+  );
+}
+
 function Dashboard({ data, setData, goTo, onQuickLog }) {
   const a = useMemo(() => computeAnalytics(data), [data.trades, data.strategies, data.setups]);
   const acc = data.account || { startingBalance: 1000, currency: "€" };
@@ -5680,6 +5928,11 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
         <Card><PositionSizeCalc account={acc} /></Card>
       </>
     ),
+    equityCurve: <EquityCurveCard data={data} />,
+    tvChart: <TradingViewChartWidget
+      defaultSymbol={(data as any)?.settings?.defaultSymbol || "EURUSD"}
+      defaultMarket={(data as any)?.settings?.defaultMarket || "Forex"}
+    />,
     recentTrades: (
       <Card>
         <SectionTitle action={<button onClick={() => goTo("journal")} className="text-xs text-amber-400 font-medium">View all →</button>}>
@@ -7382,6 +7635,7 @@ function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {}
                       className="p-1.5 rounded-lg border bg-slate-900 border-slate-700 text-slate-500 hover:text-amber-400 hover:border-amber-500/40 transition">
                       <Play size={12} />
                     </button>
+                    <TVButton symbol={t.symbol} market={t.market} size={11} />
                     <button onClick={(e) => { e.stopPropagation(); setConfirmId(t.id); }} className="p-1 text-slate-600 hover:text-rose-400">
                       <Trash2 size={14} />
                     </button>
@@ -11104,6 +11358,8 @@ const DASH_SECTION_META = [
   { key: "propChallenges",  label: "Prop Challenges",        icon: "🏆" },
   { key: "thisWeek",        label: "This Week",              icon: "📅" },
   { key: "riskTools",       label: "Risk & Tools",           icon: "⚖️" },
+  { key: "equityCurve",     label: "Equity Curve",           icon: "📈" },
+  { key: "tvChart",         label: "TradingView Chart",      icon: "🖥️" },
   { key: "recentTrades",    label: "Recent Trades",          icon: "📋" },
   { key: "insightsEdge",    label: "Insights & Edge",        icon: "💡" },
   { key: "setupLibrary",    label: "Setup Library",          icon: "📚" },
