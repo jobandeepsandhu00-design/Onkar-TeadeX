@@ -6,7 +6,7 @@ import {
   BookMarked, Brain, ShieldAlert, Download, RotateCcw, Filter, Paperclip, ChevronUp,
   ChevronLeft, MoreHorizontal, Wallet, ClipboardList, ArrowLeft, Copy, Check, Sparkles,
   Trophy, Flame, Gauge, DollarSign, Smile, Zap, AlertCircle, CalendarDays, Activity, Calculator,
-  Play, Eye, EyeOff, Repeat2, Clock, Lock, Shield, LogOut, GripVertical
+  Play, Eye, EyeOff, Repeat2, Clock, Lock, Shield, LogOut, GripVertical, RefreshCw
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line
@@ -5300,6 +5300,28 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const live = useMemo(() => computeTrade(form), [form]);
 
+  const [livePrice, setLivePrice] = useState<{ price: number; bid: number | null; ask: number | null; change: number; changePct: number } | null>(null);
+  const [livePriceLoading, setLivePriceLoading] = useState(false);
+  const [livePriceError, setLivePriceError] = useState(false);
+
+  const fetchLivePrice = (sym: string) => {
+    if (!sym) return;
+    setLivePriceLoading(true);
+    setLivePriceError(false);
+    const token = localStorage.getItem("src_auth_token");
+    fetch(`/api/market/price/${encodeURIComponent(sym)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((d) => { setLivePrice(d); setLivePriceLoading(false); })
+      .catch(() => { setLivePrice(null); setLivePriceLoading(false); setLivePriceError(true); });
+  };
+
+  useEffect(() => {
+    if (step !== 1 || !form.symbol) { setLivePrice(null); setLivePriceError(false); return; }
+    fetchLivePrice(form.symbol);
+  }, [form.symbol, step]);
+
   const acc = account || { startingBalance: 1000, currency: "€" };
   const cur = acc.currency || "€";
   const riskPctNum = parseFloat(form.riskPct);
@@ -5428,6 +5450,91 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
         {/* Step 1: Entry */}
         {step === 1 && (
           <div className="space-y-0">
+
+            {/* ── Live Price Chip ── */}
+            {form.symbol && (
+              <div className={cx("rounded-2xl border p-3.5 mb-1",
+                livePriceError ? "bg-slate-900 border-slate-800" :
+                livePrice ? "bg-sky-500/8 border-sky-500/25" :
+                "bg-slate-900 border-slate-800")}>
+                {livePriceLoading && (
+                  <div className="flex items-center gap-2">
+                    <RefreshCw size={12} className="text-sky-400 animate-spin" />
+                    <span className="text-xs text-slate-500">Fetching live price for {form.symbol}…</span>
+                  </div>
+                )}
+                {livePriceError && !livePriceLoading && (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle size={12} className="text-slate-600" />
+                      <span className="text-xs text-slate-600">No live price available</span>
+                    </div>
+                    <button onClick={() => fetchLivePrice(form.symbol)}
+                      className="text-[11px] text-sky-400 flex items-center gap-1 hover:text-sky-300">
+                      <RefreshCw size={10} /> Retry
+                    </button>
+                  </div>
+                )}
+                {livePrice && !livePriceLoading && (() => {
+                  const isIndex = form.market === "Indices";
+                  const isCrypto = form.market === "Crypto";
+                  const isJpy = (form.symbol || "").toUpperCase().includes("JPY");
+                  const dec = isIndex || isCrypto ? 2 : isJpy ? 3 : 5;
+                  const priceStr = livePrice.price.toFixed(dec);
+                  const bidStr = livePrice.bid ? livePrice.bid.toFixed(dec) : null;
+                  const askStr = livePrice.ask ? livePrice.ask.toFixed(dec) : null;
+                  return (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+                          <span className="text-[10px] text-sky-400 font-semibold uppercase tracking-wide">Live Price</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={cx("text-[10px] font-semibold", livePrice.change >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                            {livePrice.change >= 0 ? "+" : ""}{livePrice.change.toFixed(dec)} ({livePrice.changePct >= 0 ? "+" : ""}{livePrice.changePct.toFixed(2)}%)
+                          </span>
+                          <button onClick={() => fetchLivePrice(form.symbol)}
+                            className="text-slate-600 hover:text-slate-400 transition">
+                            <RefreshCw size={10} />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-end gap-3 mb-3">
+                        <span className="text-2xl font-bold font-mono text-slate-100">{priceStr}</span>
+                        {bidStr && askStr && (
+                          <div className="text-[10px] leading-tight mb-0.5">
+                            <div className="text-slate-500">Bid <span className="text-rose-400 font-mono font-semibold">{bidStr}</span></div>
+                            <div className="text-slate-500">Ask <span className="text-emerald-400 font-mono font-semibold">{askStr}</span></div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <button
+                          onClick={() => setForm((f) => ({ ...f, entry: livePrice.ask ? String(livePrice.ask) : String(livePrice.price) }))}
+                          className="py-2 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 text-[11px] font-bold hover:bg-sky-500/25 transition">
+                          ↓ Use as Entry
+                        </button>
+                        <button
+                          onClick={() => setForm((f) => ({ ...f, exit: String(livePrice.price) }))}
+                          className="py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 text-[11px] font-bold hover:bg-slate-700 transition">
+                          ↓ Use as Exit
+                        </button>
+                        <button
+                          onClick={() => setForm((f) => ({
+                            ...f,
+                            sl: livePrice.bid ? String(livePrice.bid) : String(livePrice.price),
+                            entry: livePrice.ask ? String(livePrice.ask) : String(livePrice.price),
+                          }))}
+                          className="py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 text-[11px] font-bold hover:bg-slate-700 transition">
+                          ↓ Entry + SL
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Row 1: Entry + SL — the two prices a trader always knows first */}
             <div className="grid grid-cols-2 gap-3">
