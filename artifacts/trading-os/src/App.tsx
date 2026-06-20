@@ -3204,6 +3204,96 @@ function WeeklySummary({ data, a, cur, goTo }) {
   );
 }
 
+/* ── Prop Challenges Dashboard Card ── */
+function PropChallengesDashCard({ data, goTo }) {
+  const challenges: any[] = (data.propChallenges || []);
+  const active = challenges.filter((c: any) => c.status !== "passed" && c.status !== "failed");
+
+  if (challenges.length === 0) {
+    return (
+      <button onClick={() => goTo("more", "Prop")}
+        className="w-full flex items-center gap-3 px-4 py-3 bg-slate-950 border border-slate-800 border-dashed rounded-2xl text-left hover:border-amber-500/30 transition">
+        <Trophy size={18} className="text-amber-400/50 shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-slate-500">No prop challenges yet</p>
+          <p className="text-[11px] text-slate-700">Tap to add your first FTMO, The5ers, or custom challenge →</p>
+        </div>
+      </button>
+    );
+  }
+
+  return (
+    <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
+      <button onClick={() => goTo("more", "Prop")}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-900/40 transition">
+        <div className="flex items-center gap-2">
+          <Trophy size={15} className="text-amber-400" />
+          <span className="text-sm font-semibold text-slate-200" style={{ fontFamily: "'Sora', sans-serif" }}>Prop Challenges</span>
+          {active.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[9px] font-bold">
+              {active.length} active
+            </span>
+          )}
+        </div>
+        <ChevronRight size={14} className="text-slate-600" />
+      </button>
+
+      <div className="divide-y divide-slate-800/60">
+        {challenges.slice(0, 3).map((ch: any) => {
+          const m = computePropChallenge(ch);
+          const statusColor = m.hasFailed ? "text-rose-400" : m.hasPassed ? "text-emerald-400" : m.hasWarning ? "text-amber-400" : "text-sky-400";
+          const statusLabel = m.hasFailed ? "⛔ Failed" : m.hasPassed ? "🏆 Passed" : m.hasWarning ? "⚠ Warning" : "✅ On Track";
+          return (
+            <button key={ch.id} onClick={() => goTo("more", "Prop")}
+              className="w-full px-4 py-3 text-left hover:bg-slate-900/30 transition">
+              <div className="flex items-center justify-between mb-1.5">
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-300">{ch.name || ch.firm}</span>
+                  <span className="text-[9px] text-slate-600 ml-1.5">{ch.firm} · {ch.currency} {parseFloat(ch.accountSize || "0").toLocaleString()}</span>
+                </div>
+                <span className={cx("text-[9px] font-bold", statusColor)}>{statusLabel}</span>
+              </div>
+              {/* Profit progress */}
+              <div className="mb-1">
+                <div className="flex justify-between text-[9px] text-slate-600 mb-0.5">
+                  <span>Profit ({ch.profitTargetPct}% target)</span>
+                  <span className={m.totalPnl >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                    {m.totalPnlPct >= 0 ? "+" : ""}{m.totalPnlPct.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${m.profitProgress}%` }} />
+                </div>
+              </div>
+              {/* Drawdown */}
+              <div>
+                <div className="flex justify-between text-[9px] text-slate-600 mb-0.5">
+                  <span>Drawdown ({ch.maxTotalDrawdownPct}% max)</span>
+                  <span className={m.totalDrawdownViolated ? "text-rose-400" : m.totalDrawdownProgress >= 75 ? "text-amber-400" : "text-slate-500"}>
+                    {m.currentDrawdownPct.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full transition-all"
+                    style={{ width: `${m.totalDrawdownProgress}%`, background: m.totalDrawdownViolated ? "#f43f5e" : m.totalDrawdownProgress >= 75 ? "#f59e0b" : "#475569" }} />
+                </div>
+              </div>
+              {m.daysRemaining !== null && !m.hasPassed && !m.hasFailed && (
+                <p className="text-[9px] text-slate-600 mt-1">{m.daysRemaining}d remaining on deadline</p>
+              )}
+            </button>
+          );
+        })}
+        {challenges.length > 3 && (
+          <button onClick={() => goTo("more", "Prop")} className="w-full px-4 py-2 text-center text-[10px] text-amber-400 hover:bg-slate-900/30">
+            View all {challenges.length} challenges →
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ data, setData, goTo }) {
   const a = useMemo(() => computeAnalytics(data), [data.trades, data.strategies, data.setups]);
   const acc = data.account || { startingBalance: 1000, currency: "€" };
@@ -3273,6 +3363,9 @@ function Dashboard({ data, setData, goTo }) {
 
       {/* Trading Rules */}
       <TradingRulesPanel />
+
+      {/* Prop Challenges */}
+      <PropChallengesDashCard data={data} goTo={goTo} />
 
       {/* Live Risk Monitor */}
       <OpenRiskTracker data={data} a={a} acc={acc} />
@@ -5800,7 +5893,10 @@ function PropChallengeForm({ initial, onSave, onBack }) {
 
   const applyPreset = (firm: string) => {
     const preset = PROP_FIRM_PRESETS[firm] || {};
-    setForm((f: any) => ({ ...f, firm, ...preset }));
+    setForm((f: any) => ({
+      ...f, firm, ...preset,
+      name: firm !== "Custom" ? `${firm} ${f.phase || "Evaluation"}` : f.name,
+    }));
   };
 
   const addRule = () => {
@@ -6185,10 +6281,11 @@ function PropChallengesPanel({ data, setData }) {
 
   const save = (ch: any) => {
     setData((d: any) => {
-      const exists = d.propChallenges.some((c: any) => c.id === ch.id);
+      const list = d.propChallenges || [];
+      const exists = list.some((c: any) => c.id === ch.id);
       const propChallenges = exists
-        ? d.propChallenges.map((c: any) => c.id === ch.id ? ch : c)
-        : [...d.propChallenges, ch];
+        ? list.map((c: any) => c.id === ch.id ? ch : c)
+        : [...list, ch];
       return { ...d, propChallenges };
     });
     setSelected(ch);
@@ -6196,14 +6293,14 @@ function PropChallengesPanel({ data, setData }) {
   };
 
   const remove = (id: string) => {
-    setData((d: any) => ({ ...d, propChallenges: d.propChallenges.filter((c: any) => c.id !== id) }));
+    setData((d: any) => ({ ...d, propChallenges: (d.propChallenges || []).filter((c: any) => c.id !== id) }));
     setView("list");
   };
 
   const updateLog = (id: string, log: any[]) => {
     setData((d: any) => ({
       ...d,
-      propChallenges: d.propChallenges.map((c: any) => c.id === id ? { ...c, dailyLog: log } : c),
+      propChallenges: (d.propChallenges || []).map((c: any) => c.id === id ? { ...c, dailyLog: log } : c),
     }));
     setSelected((s: any) => s ? { ...s, dailyLog: log } : s);
   };
@@ -6211,7 +6308,7 @@ function PropChallengesPanel({ data, setData }) {
   const markStatus = (id: string, status: string) => {
     setData((d: any) => ({
       ...d,
-      propChallenges: d.propChallenges.map((c: any) => c.id === id ? { ...c, status } : c),
+      propChallenges: (d.propChallenges || []).map((c: any) => c.id === id ? { ...c, status } : c),
     }));
     setSelected((s: any) => s ? { ...s, status } : s);
   };
