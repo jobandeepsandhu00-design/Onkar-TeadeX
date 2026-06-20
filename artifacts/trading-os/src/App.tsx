@@ -780,6 +780,7 @@ const ACADEMY_MODULES = [
 ];
 
 const DEFAULT_SETTINGS = () => ({
+  /* ── Dashboard visibility ── */
   dashVisibility: {
     moolMantar:      true,
     marketOverview:  true,
@@ -796,9 +797,50 @@ const DEFAULT_SETTINGS = () => ({
     statistics:      true,
     reference:       true,
   },
+  /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
   borderColor: "#1e293b",
+  /* ── Journal / Trade Defaults ── */
+  defaultMarket:    "Forex",
+  defaultSide:      "Buy",
+  defaultSession:   "",
+  defaultRiskPct:   "1",
+  defaultTradeType: "Normal",
+  defaultSymbol:    "",
+  /* ── Risk Rules ── */
+  maxDailyLossPct:  "3",
+  maxRiskPerTrade:  "2",
+  maxTradesPerDay:  "",
+  maxOpenTrades:    "",
+  singleTradeLossAlertPct: "3",
+  /* ── Display ── */
+  dateFormat:   "DD/MM/YYYY",
+  timeFormat:   "24h",
+  pnlDisplay:   "currency",
+  compactMode:  false,
+  /* ── App Behaviour ── */
+  showQuickLogFAB: true,
+  defaultTab:      "home",
+  showSearchBar:   true,
+  /* ── Navigation visibility ── */
+  navVisibility: {
+    journal: true,
+    library: true,
+    academy: true,
+    more:    true,
+  },
+  /* ── More sub-tab visibility ── */
+  moreTabVisibility: {
+    Account:    true,
+    Session:    true,
+    Plans:      true,
+    Psychology: true,
+    Vault:      true,
+    Prop:       true,
+    Backup:     true,
+    Report:     true,
+  },
 });
 
 const DEFAULT_DATA = () => ({
@@ -4280,14 +4322,16 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
     </div>
 
     {/* ── Floating Quick-Log button ── */}
-    <button
-      onClick={onQuickLog}
-      className="fixed bottom-20 right-4 z-50 w-14 h-14 rounded-full bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 shadow-lg shadow-amber-900/40 flex items-center justify-center transition-all"
-      style={{ boxShadow: "0 0 20px rgba(245,158,11,0.35)" }}
-      aria-label="Log Trade"
-    >
-      <Plus size={26} strokeWidth={2.5} />
-    </button>
+    {vis.moolMantar !== undefined && settings.showQuickLogFAB !== false && (
+      <button
+        onClick={onQuickLog}
+        className="fixed bottom-20 right-4 z-50 w-14 h-14 rounded-full bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 shadow-lg shadow-amber-900/40 flex items-center justify-center transition-all"
+        style={{ background: "var(--otx-accent,#f59e0b)", boxShadow: "0 0 20px rgba(245,158,11,0.35)" }}
+        aria-label="Log Trade"
+      >
+        <Plus size={26} strokeWidth={2.5} />
+      </button>
+    )}
     </>
   );
 }
@@ -4296,13 +4340,21 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
 /* ============================================================
    JOURNAL — TRADE FORM
    ============================================================ */
-function emptyTrade() {
+function emptyTrade(settings?: any) {
+  const s = settings || {};
   return {
-    id: null, date: todayISO(), symbol: "", market: "Forex", side: "Buy",
-    entry: "", exit: "", sl: "", tp: "", riskPct: "", positionSize: "",
+    id: null, date: todayISO(),
+    symbol:    s.defaultSymbol    || "",
+    market:    s.defaultMarket    || "Forex",
+    side:      s.defaultSide      || "Buy",
+    entry: "", exit: "", sl: "", tp: "",
+    riskPct:   s.defaultRiskPct   || "",
+    positionSize: "",
     strategyId: "", setupId: "", notes: "", attachments: [],
-    session: "", entryTime: "", exitDate: "", exitTime: "", fees: "", commission: "",
-    tradeType: "Normal", grade: "", mistakes: [], reviewNotes: "", rulesViolated: false,
+    session:   s.defaultSession   || "",
+    entryTime: "", exitDate: "", exitTime: "", fees: "", commission: "",
+    tradeType: s.defaultTradeType || "Normal",
+    grade: "", mistakes: [], reviewNotes: "", rulesViolated: false,
     manualPnl: "",
   };
 }
@@ -4596,10 +4648,10 @@ function MistakeCostPanel({ trades }) {
   );
 }
 
-function TradeForm({ open, onClose, onSave, initial, setups, strategies, account }) {
-  const [form, setForm] = useState(emptyTrade());
+function TradeForm({ open, onClose, onSave, initial, setups, strategies, account, settings }) {
+  const [form, setForm] = useState(emptyTrade(settings));
   const [step, setStep] = useState(0);
-  useEffect(() => { setForm(initial || emptyTrade()); setStep(0); }, [initial, open]);
+  useEffect(() => { setForm(initial || emptyTrade(settings)); setStep(0); }, [initial, open]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const live = useMemo(() => computeTrade(form), [form]);
 
@@ -5377,7 +5429,7 @@ function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {}
 
   /* TradeForm is now full-page — render it as an overlay on top of journal */
   if (formOpen) {
-    return <TradeForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} onSave={save} initial={editing} setups={data.setups} strategies={data.strategies} account={data.account} />;
+    return <TradeForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} onSave={save} initial={editing} setups={data.setups} strategies={data.strategies} account={data.account} settings={data.settings} />;
   }
 
   if (csvImportOpen) {
@@ -9144,104 +9196,325 @@ const DASH_SECTION_META = [
   { key: "reference",       label: "Reference",              icon: "📖" },
 ];
 
+/* ── small helpers ── */
+function SettingRow({ label, sub, children }: { label: string; sub?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-3 border-b border-slate-800/50 last:border-0 gap-3">
+      <div className="min-w-0">
+        <div className="text-sm text-slate-200">{label}</div>
+        {sub && <div className="text-[11px] text-slate-500 mt-0.5">{sub}</div>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+function ToggleSwitch({ on, onChange, accent }: { on: boolean; onChange: () => void; accent: string }) {
+  return (
+    <button onClick={onChange}
+      className="w-12 h-6 rounded-full transition-all relative"
+      style={{ background: on ? accent + "50" : "#1e293b", border: `1px solid ${on ? accent + "70" : "#334155"}` }}>
+      <div className="absolute top-0.5 transition-all duration-200 w-5 h-5 rounded-full shadow"
+        style={{ background: on ? accent : "#475569", left: on ? "calc(100% - 22px)" : "2px" }} />
+    </button>
+  );
+}
+function ChipSelect({ options, value, onChange, accent }: { options: string[]; value: string; onChange: (v: string) => void; accent: string }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {options.map((o) => (
+        <button key={o} onClick={() => onChange(o)}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium border transition"
+          style={value === o ? { background: accent + "20", borderColor: accent + "60", color: accent } : { background: "#0f172a", borderColor: "#334155", color: "#94a3b8" }}>
+          {o}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function SettingsPanel({ data, setData }) {
-  const settings = data.settings || DEFAULT_SETTINGS();
+  const settings: any = { ...DEFAULT_SETTINGS(), ...(data.settings || {}) };
   const vis = { ...DEFAULT_SETTINGS().dashVisibility, ...(settings.dashVisibility || {}) };
-  const accentColor = settings.accentColor || "#f59e0b";
+  const navVis = { ...DEFAULT_SETTINGS().navVisibility, ...(settings.navVisibility || {}) };
+  const moreVis = { ...DEFAULT_SETTINGS().moreTabVisibility, ...(settings.moreTabVisibility || {}) };
+  const accent = settings.accentColor || "#f59e0b";
   const cardBg = settings.cardBg || "#0f172a";
 
-  const updateSettings = (patch: any) =>
-    setData((d: any) => ({ ...d, settings: { ...DEFAULT_SETTINGS(), ...(d.settings || {}), ...patch } }));
-
-  const toggleSection = (key: string) => {
-    const newVis = { ...DEFAULT_SETTINGS().dashVisibility, ...(settings.dashVisibility || {}), [key]: !(vis[key] ?? true) };
-    updateSettings({ dashVisibility: newVis });
+  const upd = (patch: any) => setData((d: any) => ({ ...d, settings: { ...DEFAULT_SETTINGS(), ...(d.settings || {}), ...patch } }));
+  const updNested = (key: string, subKey: string, val: any) => {
+    setData((d: any) => {
+      const s = { ...DEFAULT_SETTINGS(), ...(d.settings || {}) };
+      return { ...d, settings: { ...s, [key]: { ...(s[key] || {}), [subKey]: val } } };
+    });
   };
 
-  const hiddenCount = DASH_SECTION_META.filter(({ key }) => vis[key] === false).length;
+  const [openSection, setOpenSection] = useState<string>("theme");
+  const toggle = (s: string) => setOpenSection((prev) => prev === s ? "" : s);
+
+  const sections: { id: string; label: string; icon: string }[] = [
+    { id: "theme",     label: "Theme & Colors",        icon: "🎨" },
+    { id: "dashboard", label: "Dashboard Sections",     icon: "🏠" },
+    { id: "journal",   label: "Journal Defaults",       icon: "📝" },
+    { id: "risk",      label: "Risk Rules & Alerts",    icon: "⚠️" },
+    { id: "display",   label: "Display Preferences",    icon: "🖥️" },
+    { id: "behaviour", label: "App Behaviour",          icon: "⚙️" },
+    { id: "nav",       label: "Navigation Visibility",  icon: "🧭" },
+  ];
 
   return (
-    <div className="space-y-4 pb-4">
+    <div className="space-y-2 pb-8">
 
-      {/* Accent color */}
-      <Card>
-        <SectionTitle sub="Changes highlight color throughout the app">Accent Color</SectionTitle>
-        <div className="grid grid-cols-4 gap-2 mt-3">
-          {ACCENT_COLORS.map(({ hex, label }) => (
-            <button key={hex} onClick={() => updateSettings({ accentColor: hex })}
-              className="flex flex-col items-center gap-1.5 py-3 rounded-xl border transition"
-              style={{ borderColor: accentColor === hex ? hex : "transparent", background: hex + "18" }}>
-              <div className="w-7 h-7 rounded-full shadow-lg" style={{ background: hex, boxShadow: accentColor === hex ? `0 0 12px ${hex}80` : "none" }} />
-              <span className="text-[10px] text-slate-400">{label}</span>
-              {accentColor === hex && <div className="w-1.5 h-1.5 rounded-full" style={{ background: hex }} />}
-            </button>
-          ))}
-        </div>
-      </Card>
-
-      {/* Card background */}
-      <Card>
-        <SectionTitle sub="Background color for cards and panels">Card Background</SectionTitle>
-        <div className="grid grid-cols-3 gap-2 mt-3">
-          {CARD_BG_OPTIONS.map(({ hex, label }) => (
-            <button key={hex} onClick={() => updateSettings({ cardBg: hex })}
-              className="flex flex-col items-center gap-1.5 py-3 rounded-xl border transition"
-              style={{ borderColor: cardBg === hex ? accentColor : "#1e293b", background: hex }}>
-              <span className="text-xs text-slate-300 font-medium">{label}</span>
-              <span className="text-[10px] text-slate-500 font-mono">{hex}</span>
-              {cardBg === hex && <div className="w-1.5 h-1.5 rounded-full" style={{ background: accentColor }} />}
-            </button>
-          ))}
-        </div>
-      </Card>
-
-      {/* Dashboard sections */}
-      <Card>
-        <SectionTitle
-          sub={hiddenCount > 0 ? `${hiddenCount} section${hiddenCount > 1 ? "s" : ""} hidden` : "All sections visible"}
-          action={
-            <button onClick={() => {
-              const allOn = { ...DEFAULT_SETTINGS().dashVisibility };
-              Object.keys(allOn).forEach((k) => { (allOn as any)[k] = true; });
-              updateSettings({ dashVisibility: allOn });
-            }} className="text-xs font-medium" style={{ color: accentColor }}>
-              Show all
-            </button>
-          }>
-          Dashboard Sections
-        </SectionTitle>
-        <div className="space-y-1 mt-3">
-          {DASH_SECTION_META.map(({ key, label, icon }) => {
-            const on = vis[key] !== false;
-            return (
-              <div key={key} className="flex items-center justify-between py-2.5 border-b border-slate-800/50 last:border-0">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-base">{icon}</span>
-                  <span className={cx("text-sm", on ? "text-slate-200" : "text-slate-500 line-through")}>{label}</span>
-                </div>
-                <button onClick={() => toggleSection(key)}
-                  className={cx("w-12 h-6 rounded-full transition-all relative shrink-0")}
-                  style={{ background: on ? accentColor + "40" : "#1e293b", borderWidth: 1, borderColor: on ? accentColor + "60" : "#334155" }}>
-                  <div className="absolute top-0.5 transition-all duration-200 w-5 h-5 rounded-full shadow"
-                    style={{ background: on ? accentColor : "#475569", left: on ? "calc(100% - 22px)" : "2px" }} />
-                </button>
+      {sections.map(({ id, label, icon }) => {
+        const open = openSection === id;
+        return (
+          <div key={id} className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
+            {/* Accordion header */}
+            <button onClick={() => toggle(id)}
+              className="w-full flex items-center justify-between px-4 py-3.5">
+              <div className="flex items-center gap-3">
+                <span className="text-lg">{icon}</span>
+                <span className="text-sm font-semibold text-slate-200">{label}</span>
               </div>
-            );
-          })}
-        </div>
-      </Card>
+              {open ? <ChevronUp size={16} className="text-slate-500" /> : <ChevronDown size={16} className="text-slate-500" />}
+            </button>
+
+            {/* ── THEME & COLORS ── */}
+            {open && id === "theme" && (
+              <div className="px-4 pb-4 space-y-4 border-t border-slate-800">
+                <div className="pt-3">
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Accent Color</div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {ACCENT_COLORS.map(({ hex, label: l }) => (
+                      <button key={hex} onClick={() => upd({ accentColor: hex })}
+                        className="flex flex-col items-center gap-1.5 py-3 rounded-xl border transition"
+                        style={{ borderColor: accent === hex ? hex : "transparent", background: hex + "18" }}>
+                        <div className="w-7 h-7 rounded-full" style={{ background: hex, boxShadow: accent === hex ? `0 0 12px ${hex}80` : "none" }} />
+                        <span className="text-[10px] text-slate-400">{l}</span>
+                        {accent === hex && <div className="w-1.5 h-1.5 rounded-full" style={{ background: hex }} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Card Background</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {CARD_BG_OPTIONS.map(({ hex, label: l }) => (
+                      <button key={hex} onClick={() => upd({ cardBg: hex })}
+                        className="flex flex-col items-center gap-1.5 py-3 rounded-xl border transition"
+                        style={{ borderColor: cardBg === hex ? accent : "#1e293b", background: hex }}>
+                        <span className="text-xs text-slate-300 font-medium">{l}</span>
+                        <span className="text-[10px] text-slate-500 font-mono">{hex}</span>
+                        {cardBg === hex && <div className="w-1.5 h-1.5 rounded-full" style={{ background: accent }} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── DASHBOARD SECTIONS ── */}
+            {open && id === "dashboard" && (
+              <div className="px-4 pb-4 border-t border-slate-800">
+                <div className="flex justify-between items-center pt-3 pb-2">
+                  <span className="text-xs text-slate-500">{DASH_SECTION_META.filter(({ key }) => vis[key] === false).length} hidden</span>
+                  <button onClick={() => upd({ dashVisibility: DEFAULT_SETTINGS().dashVisibility })}
+                    className="text-xs font-medium" style={{ color: accent }}>Show all</button>
+                </div>
+                {DASH_SECTION_META.map(({ key, label: l, icon: ic }) => {
+                  const on = vis[key] !== false;
+                  return (
+                    <div key={key} className="flex items-center justify-between py-2.5 border-b border-slate-800/50 last:border-0">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-sm">{ic}</span>
+                        <span className={cx("text-sm", on ? "text-slate-200" : "text-slate-500 line-through")}>{l}</span>
+                      </div>
+                      <ToggleSwitch on={on} accent={accent} onChange={() => updNested("dashVisibility", key, !on)} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ── JOURNAL DEFAULTS ── */}
+            {open && id === "journal" && (
+              <div className="px-4 pb-4 border-t border-slate-800">
+                <SettingRow label="Default Market" sub="Auto-selected when you open Log Trade">
+                  <ChipSelect options={MARKET_TYPES} value={settings.defaultMarket || "Forex"} onChange={(v) => upd({ defaultMarket: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Default Side" sub="Buy or Sell pre-selected">
+                  <ChipSelect options={["Buy", "Sell"]} value={settings.defaultSide || "Buy"} onChange={(v) => upd({ defaultSide: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Default Session" sub="Pre-fill the session field">
+                  <ChipSelect options={["", ...SESSION_OPTIONS.filter((s) => s !== "Unspecified")]} value={settings.defaultSession || ""} onChange={(v) => upd({ defaultSession: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Default Trade Type">
+                  <ChipSelect options={["Normal", "Impulse"]} value={settings.defaultTradeType || "Normal"} onChange={(v) => upd({ defaultTradeType: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Default Risk %" sub="Pre-filled risk per trade">
+                  <div className="flex gap-1.5 flex-wrap justify-end">
+                    {["0.5", "1", "1.5", "2", "2.5", "3"].map((v) => (
+                      <button key={v} onClick={() => upd({ defaultRiskPct: v })}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium border transition"
+                        style={settings.defaultRiskPct === v ? { background: accent + "20", borderColor: accent + "60", color: accent } : { background: "#0f172a", borderColor: "#334155", color: "#94a3b8" }}>
+                        {v}%
+                      </button>
+                    ))}
+                  </div>
+                </SettingRow>
+                <SettingRow label="Default Symbol" sub="Auto-fill the symbol field (optional)">
+                  <input value={settings.defaultSymbol || ""} onChange={(e) => upd({ defaultSymbol: e.target.value })}
+                    placeholder="e.g. EURUSD"
+                    className="w-28 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-slate-500 text-right uppercase" />
+                </SettingRow>
+              </div>
+            )}
+
+            {/* ── RISK RULES ── */}
+            {open && id === "risk" && (
+              <div className="px-4 pb-4 border-t border-slate-800">
+                <SettingRow label="Max Daily Loss %" sub="Triggers risk alert when breached (overrides master plan)">
+                  <div className="flex gap-1.5 flex-wrap justify-end">
+                    {["1", "2", "3", "4", "5"].map((v) => (
+                      <button key={v} onClick={() => upd({ maxDailyLossPct: v })}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium border transition"
+                        style={(settings.maxDailyLossPct || "3") === v ? { background: "#f43f5e20", borderColor: "#f43f5e60", color: "#f43f5e" } : { background: "#0f172a", borderColor: "#334155", color: "#94a3b8" }}>
+                        {v}%
+                      </button>
+                    ))}
+                  </div>
+                </SettingRow>
+                <SettingRow label="Max Risk Per Trade %" sub="Soft limit reminder on the form">
+                  <div className="flex gap-1.5 flex-wrap justify-end">
+                    {["1", "2", "3", "5"].map((v) => (
+                      <button key={v} onClick={() => upd({ maxRiskPerTrade: v })}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium border transition"
+                        style={(settings.maxRiskPerTrade || "2") === v ? { background: accent + "20", borderColor: accent + "60", color: accent } : { background: "#0f172a", borderColor: "#334155", color: "#94a3b8" }}>
+                        {v}%
+                      </button>
+                    ))}
+                  </div>
+                </SettingRow>
+                <SettingRow label="Single Trade Alert %" sub="Alert if one trade loses more than this">
+                  <div className="flex gap-1.5 flex-wrap justify-end">
+                    {["1", "2", "3", "5"].map((v) => (
+                      <button key={v} onClick={() => upd({ singleTradeLossAlertPct: v })}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium border transition"
+                        style={(settings.singleTradeLossAlertPct || "3") === v ? { background: "#f43f5e20", borderColor: "#f43f5e60", color: "#f43f5e" } : { background: "#0f172a", borderColor: "#334155", color: "#94a3b8" }}>
+                        {v}%
+                      </button>
+                    ))}
+                  </div>
+                </SettingRow>
+                <SettingRow label="Max Trades Per Day" sub="Reminder only (no hard block)">
+                  <div className="flex gap-1.5 flex-wrap justify-end">
+                    {["", "1", "2", "3", "5", "10"].map((v) => (
+                      <button key={v || "none"} onClick={() => upd({ maxTradesPerDay: v })}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium border transition"
+                        style={(settings.maxTradesPerDay || "") === v ? { background: accent + "20", borderColor: accent + "60", color: accent } : { background: "#0f172a", borderColor: "#334155", color: "#94a3b8" }}>
+                        {v || "Off"}
+                      </button>
+                    ))}
+                  </div>
+                </SettingRow>
+                <SettingRow label="Max Open Trades" sub="Warning when exceeded">
+                  <div className="flex gap-1.5 flex-wrap justify-end">
+                    {["", "1", "2", "3", "5"].map((v) => (
+                      <button key={v || "none"} onClick={() => upd({ maxOpenTrades: v })}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium border transition"
+                        style={(settings.maxOpenTrades || "") === v ? { background: accent + "20", borderColor: accent + "60", color: accent } : { background: "#0f172a", borderColor: "#334155", color: "#94a3b8" }}>
+                        {v || "Off"}
+                      </button>
+                    ))}
+                  </div>
+                </SettingRow>
+              </div>
+            )}
+
+            {/* ── DISPLAY ── */}
+            {open && id === "display" && (
+              <div className="px-4 pb-4 border-t border-slate-800">
+                <SettingRow label="Date Format">
+                  <ChipSelect options={["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"]} value={settings.dateFormat || "DD/MM/YYYY"} onChange={(v) => upd({ dateFormat: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Time Format">
+                  <ChipSelect options={["24h", "12h"]} value={settings.timeFormat || "24h"} onChange={(v) => upd({ timeFormat: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="P&L Display" sub="How profit/loss shows in tables">
+                  <ChipSelect options={["currency", "R-multiple", "both"]} value={settings.pnlDisplay || "currency"} onChange={(v) => upd({ pnlDisplay: v })} accent={accent} />
+                </SettingRow>
+                <SettingRow label="Compact Mode" sub="Smaller cards, denser layout">
+                  <ToggleSwitch on={!!settings.compactMode} accent={accent} onChange={() => upd({ compactMode: !settings.compactMode })} />
+                </SettingRow>
+              </div>
+            )}
+
+            {/* ── APP BEHAVIOUR ── */}
+            {open && id === "behaviour" && (
+              <div className="px-4 pb-4 border-t border-slate-800">
+                <SettingRow label="Quick-Log FAB Button" sub="Floating ＋ button on dashboard">
+                  <ToggleSwitch on={settings.showQuickLogFAB !== false} accent={accent} onChange={() => upd({ showQuickLogFAB: !settings.showQuickLogFAB })} />
+                </SettingRow>
+                <SettingRow label="Search Button" sub="Search icon in top bar">
+                  <ToggleSwitch on={settings.showSearchBar !== false} accent={accent} onChange={() => upd({ showSearchBar: !settings.showSearchBar })} />
+                </SettingRow>
+                <SettingRow label="Default Landing Tab" sub="Which tab opens on app start">
+                  <ChipSelect options={["home", "journal", "library", "academy", "more"]} value={settings.defaultTab || "home"} onChange={(v) => upd({ defaultTab: v })} accent={accent} />
+                </SettingRow>
+                <div className="pt-3">
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">More Menu Tabs</div>
+                  {["Account", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report"].map((t) => {
+                    const on = moreVis[t] !== false;
+                    return (
+                      <div key={t} className="flex items-center justify-between py-2.5 border-b border-slate-800/50 last:border-0">
+                        <span className={cx("text-sm", on ? "text-slate-200" : "text-slate-500")}>{t}</span>
+                        <ToggleSwitch on={on} accent={accent} onChange={() => updNested("moreTabVisibility", t, !on)} />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── NAVIGATION VISIBILITY ── */}
+            {open && id === "nav" && (
+              <div className="px-4 pb-4 border-t border-slate-800">
+                <div className="text-xs text-slate-500 pt-3 pb-2">Home and More tabs are always visible.</div>
+                {[
+                  { key: "journal", label: "Journal", icon: "📓" },
+                  { key: "library", label: "Library", icon: "📚" },
+                  { key: "academy", label: "Academy", icon: "🎓" },
+                ].map(({ key, label: l, icon: ic }) => {
+                  const on = navVis[key] !== false;
+                  return (
+                    <div key={key} className="flex items-center justify-between py-3 border-b border-slate-800/50 last:border-0">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-sm">{ic}</span>
+                        <span className={cx("text-sm", on ? "text-slate-200" : "text-slate-500 line-through")}>{l}</span>
+                      </div>
+                      <ToggleSwitch on={on} accent={accent} onChange={() => updNested("navVisibility", key, !on)} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {/* Reset */}
       <button onClick={() => setData((d: any) => ({ ...d, settings: DEFAULT_SETTINGS() }))}
-        className="w-full py-3 rounded-xl border border-slate-700 text-slate-400 text-sm hover:border-rose-500/40 hover:text-rose-400 transition">
-        Reset all settings to default
+        className="w-full py-3 rounded-xl border border-slate-700 text-slate-400 text-sm hover:border-rose-500/40 hover:text-rose-400 transition mt-2">
+        ↺ Reset all settings to default
       </button>
     </div>
   );
 }
 
 function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
-  const tabs = ["Account", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report", "Settings"];
+  const ALL_TABS = ["Account", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report", "Settings"];
+  const moreVis = (data as any)?.settings?.moreTabVisibility || {};
+  const tabs = ALL_TABS.filter((t) => t === "Settings" || moreVis[t] !== false);
+  const accent = (data as any)?.settings?.accentColor || "#f59e0b";
 
   if (subTab === "Report") {
     return <PerformanceReport data={data} onClose={() => setSubTab("Account")} />;
@@ -9252,7 +9525,9 @@ function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
         {tabs.map((t) => (
           <button key={t} onClick={() => setSubTab(t)}
-            className={cx("px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition", subTab === t ? "bg-amber-500 text-slate-950" : "bg-slate-900 border border-slate-800 text-slate-400")}>
+            className={cx("px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition",
+              subTab === t ? "text-slate-950" : "bg-slate-900 border border-slate-800 text-slate-400")}
+            style={subTab === t ? { background: accent } : {}}>
             {t}
           </button>
         ))}
@@ -9558,9 +9833,10 @@ export default function App() {
     const todayNetPnl = todayTrades.reduce((s: number, t: any) => s + (computeTrade(t).pnl || 0), 0);
     const todayLossAmt = Math.max(0, -todayNetPnl);
 
-    /* ── Check 1: Daily loss limit from master plan ── */
-    const maxDailyLossStr = data.plans?.master?.maxDailyLoss || "";
-    const maxDailyLossPct = parseFloat(maxDailyLossStr) || 0;
+    /* ── Check 1: Daily loss limit — settings override, then master plan ── */
+    const settingsDailyPct = parseFloat((data as any).settings?.maxDailyLossPct || "") || 0;
+    const planDailyPct     = parseFloat((data as any).plans?.master?.maxDailyLoss || "") || 0;
+    const maxDailyLossPct  = settingsDailyPct || planDailyPct;
 
     if (maxDailyLossPct > 0) {
       const limitAmt = (maxDailyLossPct / 100) * startBal;
@@ -9570,34 +9846,30 @@ export default function App() {
         setRiskAlert({ type: "daily_loss", todayLossAmt, limitAmt, limitPct: maxDailyLossPct, currency: cur, overByAmt, overByPct });
         return;
       }
-      // Loss improved past dismissed level — reset so alert can fire again
-      if (todayLossAmt < dismissedAtRef.current - 0.01) {
-        dismissedAtRef.current = 0;
-        setRiskAlert(null);
-      }
+      if (todayLossAmt < dismissedAtRef.current - 0.01) { dismissedAtRef.current = 0; setRiskAlert(null); }
       if (todayLossAmt < limitAmt) setRiskAlert(null);
     }
 
-    /* ── Check 2: Single trade loss alert — most recent losing trade > 3% of balance ── */
+    /* ── Check 2: Single trade loss alert — threshold from settings (default 3%) ── */
+    const singleAlertPct = parseFloat((data as any).settings?.singleTradeLossAlertPct || "") || 3;
     const sortedToday = [...todayTrades].sort((a: any, b: any) => (b.id || "").localeCompare(a.id || ""));
     const lastTrade = sortedToday[0];
     if (lastTrade) {
       const c = computeTrade(lastTrade);
       if (c.pnl !== null && c.pnl < 0) {
         const lossPct = (Math.abs(c.pnl) / startBal) * 100;
-        // Only alert for single-trade loss if no daily limit is set (avoid double-alerting)
-        if (maxDailyLossPct <= 0 && lossPct >= 3) {
-          const overByAmt = Math.abs(c.pnl) - (3 / 100) * startBal;
+        if (maxDailyLossPct <= 0 && lossPct >= singleAlertPct) {
+          const overByAmt = Math.abs(c.pnl) - (singleAlertPct / 100) * startBal;
           setRiskAlert({
             type: "trade_loss",
             todayLossAmt,
-            limitAmt: (3 / 100) * startBal,
-            limitPct: 3,
+            limitAmt: (singleAlertPct / 100) * startBal,
+            limitPct: singleAlertPct,
             currency: cur,
             tradePnl: c.pnl,
             tradeSymbol: lastTrade.symbol || "",
             overByAmt: Math.max(0, overByAmt),
-            overByPct: Math.max(0, (overByAmt / ((3 / 100) * startBal)) * 100),
+            overByPct: Math.max(0, (overByAmt / ((singleAlertPct / 100) * startBal)) * 100),
           });
         }
       }
@@ -9641,21 +9913,28 @@ export default function App() {
       </div>
 
       {/* Fixed bottom navigation — always visible, respects iPhone home indicator */}
-      <div
-        className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-5 border-t border-slate-800 bg-slate-950/95 backdrop-blur"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.key;
-          return (
-            <button key={item.key} onClick={() => setActiveTab(item.key)}
-              className="flex flex-col items-center justify-center gap-1 py-2.5">
-              <Icon size={19} className={isActive ? "text-amber-400" : "text-slate-500"} />
-              <span className={cx("text-[10px] font-medium", isActive ? "text-amber-400" : "text-slate-500")}>{item.label}</span>
-            </button>
-          );
-        })}
-      </div>
+      {(() => {
+        const navVis = (data as any)?.settings?.navVisibility || {};
+        const visibleNav = NAV_ITEMS.filter((it) => it.key === "home" || it.key === "more" || navVis[it.key] !== false);
+        const cols = visibleNav.length;
+        return (
+          <div className={`fixed bottom-0 left-0 right-0 z-40 grid border-t border-slate-800 bg-slate-950/95 backdrop-blur`}
+            style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, paddingBottom: "env(safe-area-inset-bottom)" }}>
+            {visibleNav.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.key;
+              return (
+                <button key={item.key} onClick={() => setActiveTab(item.key)}
+                  className="flex flex-col items-center justify-center gap-1 py-2.5">
+                  <Icon size={19} style={{ color: isActive ? "var(--otx-accent,#f59e0b)" : undefined }} className={isActive ? "" : "text-slate-500"} />
+                  <span className={cx("text-[10px] font-medium", isActive ? "" : "text-slate-500")}
+                    style={{ color: isActive ? "var(--otx-accent,#f59e0b)" : undefined }}>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {searchOpen && <SearchOverlay data={data} onClose={() => setSearchOpen(false)} onJump={goTo} />}
 
