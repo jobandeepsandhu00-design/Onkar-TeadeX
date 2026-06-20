@@ -6,7 +6,7 @@ import {
   BookMarked, Brain, ShieldAlert, Download, RotateCcw, Filter, Paperclip, ChevronUp,
   ChevronLeft, MoreHorizontal, Wallet, ClipboardList, ArrowLeft, Copy, Check, Sparkles,
   Trophy, Flame, Gauge, DollarSign, Smile, Zap, AlertCircle, CalendarDays, Activity, Calculator,
-  Play, Eye, EyeOff, Repeat2, Clock, Lock, Shield, LogOut
+  Play, Eye, EyeOff, Repeat2, Clock, Lock, Shield, LogOut, GripVertical
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line
@@ -797,6 +797,7 @@ const DEFAULT_SETTINGS = () => ({
     statistics:      true,
     reference:       true,
   },
+  dashSectionOrder: ["moolMantar","marketOverview","marketSessions","accountOverview","todaysFocus","propChallenges","thisWeek","riskTools","recentTrades","insightsEdge","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -3970,12 +3971,27 @@ function ForexMarketClock() {
   );
 }
 
-function DashSectionLabel({ children, visible, onToggle }: { children: React.ReactNode; visible?: boolean; onToggle?: () => void }) {
+function DashSectionLabel({ children, visible, onToggle, editMode, onMoveUp, onMoveDown, isFirst, isLast }: {
+  children: React.ReactNode; visible?: boolean; onToggle?: () => void;
+  editMode?: boolean; onMoveUp?: () => void; onMoveDown?: () => void; isFirst?: boolean; isLast?: boolean;
+}) {
   return (
-    <div className="flex items-center gap-3 pt-2">
+    <div className="flex items-center gap-2 pt-2">
+      {editMode && (
+        <div className="flex flex-col">
+          <button onClick={onMoveUp} disabled={isFirst}
+            className="p-0.5 rounded text-slate-600 hover:text-amber-400 disabled:opacity-20 transition">
+            <ChevronUp size={13} />
+          </button>
+          <button onClick={onMoveDown} disabled={isLast}
+            className="p-0.5 rounded text-slate-600 hover:text-amber-400 disabled:opacity-20 transition">
+            <ChevronDown size={13} />
+          </button>
+        </div>
+      )}
       <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">{children}</span>
       <div className="flex-1 h-px bg-slate-800" />
-      {onToggle && (
+      {!editMode && onToggle && (
         <button onClick={onToggle}
           className={cx("transition p-1 rounded-lg", visible !== false ? "text-slate-600 hover:text-amber-400" : "text-amber-500 hover:text-amber-300")}
           title={visible !== false ? "Hide section" : "Show section"}>
@@ -4477,6 +4493,32 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
     return { ...d, settings: { ...s, dashVisibility: { ...DEFAULT_SETTINGS().dashVisibility, ...(s.dashVisibility || {}), [key]: !(s.dashVisibility?.[key] ?? true) } } };
   });
 
+  const [editLayout, setEditLayout] = useState(false);
+
+  const sectionOrder: string[] = (() => {
+    const allKeys = DASH_SECTION_META.map((m: any) => m.key);
+    const stored = (settings.dashSectionOrder as string[] | undefined);
+    if (stored && Array.isArray(stored) && stored.length === allKeys.length) return stored;
+    return allKeys;
+  })();
+
+  const moveSection = (key: string, dir: -1 | 1) => {
+    setData((d: any) => {
+      const s = { ...DEFAULT_SETTINGS(), ...(d.settings || {}) };
+      const allKeys = DASH_SECTION_META.map((m: any) => m.key);
+      const order = (s.dashSectionOrder && Array.isArray(s.dashSectionOrder) && s.dashSectionOrder.length === allKeys.length)
+        ? [...s.dashSectionOrder]
+        : [...allKeys];
+      const idx = order.indexOf(key);
+      if (idx < 0) return d;
+      const newIdx = idx + dir;
+      if (newIdx < 0 || newIdx >= order.length) return d;
+      const next = [...order];
+      [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
+      return { ...d, settings: { ...s, dashSectionOrder: next } };
+    });
+  };
+
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
@@ -4491,12 +4533,139 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
 
   const toneClass = { emerald: "text-emerald-400", rose: "text-rose-400", amber: "text-amber-400", slate: "text-slate-100" };
 
+  const sectionContent: Record<string, React.ReactNode> = {
+    moolMantar: <MoolMantar />,
+    marketOverview: (
+      <div className="relative rounded-2xl overflow-hidden border border-slate-800/60 shadow-2xl shadow-black/60"
+        style={{ background: "linear-gradient(160deg,#070d1c 0%,#0b1525 60%,#070d1c 100%)", minHeight: 300 }}>
+        <div className="absolute inset-0 opacity-30"
+          style={{ backgroundImage: "linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px)", backgroundSize: "24px 24px" }} />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 opacity-15 pointer-events-none"
+          style={{ background: "radial-gradient(ellipse,#f59e0b 0%,transparent 70%)" }} />
+        <HeroTopBar a={a} cur={cur} />
+        <div className="relative px-2" style={{ height: 230 }}>
+          <AnimatedCandlestickChart />
+        </div>
+        <div className="relative flex items-center justify-between px-4 py-3 border-t border-slate-800/60"
+          style={{ background: "rgba(7,13,28,0.7)" }}>
+          <div className="flex gap-4">
+            <div>
+              <div className="text-[8px] text-slate-600 uppercase tracking-wide">Trades</div>
+              <div className="text-[11px] font-bold text-slate-300">{a.tradeCount ?? 0}</div>
+            </div>
+            <div>
+              <div className="text-[8px] text-slate-600 uppercase tracking-wide">Best</div>
+              <div className="text-[11px] font-bold text-emerald-400">{a.bestTrade != null ? fmtBalSigned(a.bestTrade, cur) : "—"}</div>
+            </div>
+            <div>
+              <div className="text-[8px] text-slate-600 uppercase tracking-wide">Worst</div>
+              <div className="text-[11px] font-bold text-rose-400">{a.worstTrade != null ? fmtBalSigned(a.worstTrade, cur) : "—"}</div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-[8px] text-slate-600 uppercase tracking-wide">Local Time</div>
+            <div className="text-[11px] font-mono text-slate-400">
+              {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </div>
+          </div>
+        </div>
+      </div>
+    ),
+    marketSessions: <ForexMarketClock />,
+    accountOverview: (
+      <>
+        <AccountBalanceCard account={acc} a={a} />
+        <div className="grid grid-cols-3 gap-2">
+          {kpis.map((k, ki) => (
+            <div key={ki} className="bg-slate-900 border border-slate-800 rounded-2xl p-3 text-center hover:border-slate-700 transition">
+              <div className={cx("text-sm font-bold leading-tight", toneClass[k.tone] || "text-slate-100")}
+                style={{ fontFamily: "'Sora', sans-serif" }}>{k.value}</div>
+              <div className="text-[10px] text-slate-500 mt-1 leading-tight">{k.label}</div>
+            </div>
+          ))}
+        </div>
+      </>
+    ),
+    todaysFocus: (
+      <>
+        <SessionPlanDashCard data={data} goTo={goTo} />
+        <MorningCheckIn data={data} setData={setData} />
+        <PreSessionChecklist data={data} setData={setData} />
+      </>
+    ),
+    propChallenges: <PropChallengesDashCard data={data} goTo={goTo} />,
+    thisWeek: <WeeklySummary data={data} a={a} cur={cur} goTo={goTo} />,
+    riskTools: (
+      <>
+        <OpenRiskTracker data={data} a={a} acc={acc} />
+        <Card><PositionSizeCalc account={acc} /></Card>
+      </>
+    ),
+    recentTrades: (
+      <Card>
+        <SectionTitle action={<button onClick={() => goTo("journal")} className="text-xs text-amber-400 font-medium">View all →</button>}>
+          Last 5 Trades
+        </SectionTitle>
+        {recentTrades.length ? (
+          <div className="space-y-0">
+            {recentTrades.map((t) => (
+              <div key={t.id} className="flex items-center justify-between py-2.5 border-b border-slate-800/60 last:border-0">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {t.side === "Sell"
+                    ? <TrendingDown size={15} className="text-rose-400 shrink-0" />
+                    : <TrendingUp size={15} className="text-emerald-400 shrink-0" />}
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-slate-200">{t.symbol || "—"}</div>
+                    <div className="text-[11px] text-slate-500">{t.date}{t.session ? ` · ${t.session}` : ""}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={cx("text-sm font-semibold", t.c.pnl === null ? "text-slate-500" : t.c.pnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                    {fmtBalSigned(t.c.pnl, cur)}
+                  </span>
+                  <Pill tone={RESULT_TONE[t.c.result || "Open"]}>{t.c.result || "Open"}</Pill>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState icon={ClipboardList} title="No trades yet" sub="Tap Log Trade in the Journal tab to get started." />
+        )}
+      </Card>
+    ),
+    insightsEdge: (
+      <>
+        <AIInsights a={a} account={acc} />
+        <YourEdgePanel a={a} />
+      </>
+    ),
+    setupLibrary: <BestSetupsCard data={data} goTo={goTo} />,
+    marketCalendar: (
+      <>
+        <EconomicCalendarWidget />
+        <TradingCalendar a={a} />
+      </>
+    ),
+    statistics: (
+      <>
+        <DetailedStatsPanel a={a} />
+        <MistakeCostPanel trades={data.trades} />
+      </>
+    ),
+    reference: (
+      <>
+        <TodaysPlanWidget master={data.plans.master} />
+        <TradingRulesPanel />
+        <CandleChecklist />
+        <TraderMindset />
+        <DailyRulesReminder />
+      </>
+    ),
+  };
+
   return (
     <>
     <div className="space-y-3 pb-4">
-
-      {/* ── MOOL MANTAR ── */}
-      {vis.moolMantar !== false && <MoolMantar />}
 
       {/* ── HEADER ── */}
       <div className="flex items-center justify-between pt-1">
@@ -4507,181 +4676,52 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
             <p className="text-[11px] text-slate-500">{greeting} · {todayISO()}</p>
           </div>
         </div>
-        <button onClick={() => goTo("more", "Account")}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 hover:text-amber-400 hover:border-slate-700 transition">
-          <Pencil size={12} /> Account
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setEditLayout((e) => !e)}
+            className={cx(
+              "flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium transition",
+              editLayout
+                ? "bg-amber-500/15 border-amber-500/40 text-amber-400"
+                : "bg-slate-900 border-slate-800 text-slate-400 hover:text-amber-400 hover:border-slate-700"
+            )}
+          >
+            {editLayout ? <Check size={12} /> : <GripVertical size={12} />}
+            {editLayout ? "Done" : "Reorder"}
+          </button>
+          <button onClick={() => goTo("more", "Account")}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 hover:text-amber-400 hover:border-slate-700 transition">
+            <Pencil size={12} /> Account
+          </button>
+        </div>
       </div>
 
-      {/* ── ANIMATED CANDLESTICK HERO ── */}
-      <DashSectionLabel visible={vis.marketOverview} onToggle={() => toggle("marketOverview")}>Market Overview</DashSectionLabel>
-      {vis.marketOverview !== false && (
-        <div className="relative rounded-2xl overflow-hidden border border-slate-800/60 shadow-2xl shadow-black/60"
-          style={{ background: "linear-gradient(160deg,#070d1c 0%,#0b1525 60%,#070d1c 100%)", minHeight: 300 }}>
-          <div className="absolute inset-0 opacity-30"
-            style={{ backgroundImage: "linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px)", backgroundSize: "24px 24px" }} />
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 opacity-15 pointer-events-none"
-            style={{ background: "radial-gradient(ellipse,#f59e0b 0%,transparent 70%)" }} />
-          <HeroTopBar a={a} cur={cur} />
-          <div className="relative px-2" style={{ height: 230 }}>
-            <AnimatedCandlestickChart />
-          </div>
-          <div className="relative flex items-center justify-between px-4 py-3 border-t border-slate-800/60"
-            style={{ background: "rgba(7,13,28,0.7)" }}>
-            <div className="flex gap-4">
-              <div>
-                <div className="text-[8px] text-slate-600 uppercase tracking-wide">Trades</div>
-                <div className="text-[11px] font-bold text-slate-300">{a.tradeCount ?? 0}</div>
-              </div>
-              <div>
-                <div className="text-[8px] text-slate-600 uppercase tracking-wide">Best</div>
-                <div className="text-[11px] font-bold text-emerald-400">{a.bestTrade != null ? fmtBalSigned(a.bestTrade, cur) : "—"}</div>
-              </div>
-              <div>
-                <div className="text-[8px] text-slate-600 uppercase tracking-wide">Worst</div>
-                <div className="text-[11px] font-bold text-rose-400">{a.worstTrade != null ? fmtBalSigned(a.worstTrade, cur) : "—"}</div>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[8px] text-slate-600 uppercase tracking-wide">Local Time</div>
-              <div className="text-[11px] font-mono text-slate-400">
-                {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── SECTION: MARKET SESSIONS ── */}
-      <DashSectionLabel visible={vis.marketSessions} onToggle={() => toggle("marketSessions")}>Forex Market Sessions</DashSectionLabel>
-      {vis.marketSessions !== false && <ForexMarketClock />}
-
-      {/* ── SECTION: ACCOUNT ── */}
-      <DashSectionLabel visible={vis.accountOverview} onToggle={() => toggle("accountOverview")}>Account Overview</DashSectionLabel>
-      {vis.accountOverview !== false && (
-        <>
-          <AccountBalanceCard account={acc} a={a} />
-          <div className="grid grid-cols-3 gap-2">
-            {kpis.map((k, i) => (
-              <div key={i} className="bg-slate-900 border border-slate-800 rounded-2xl p-3 text-center hover:border-slate-700 transition">
-                <div className={cx("text-sm font-bold leading-tight", toneClass[k.tone] || "text-slate-100")}
-                  style={{ fontFamily: "'Sora', sans-serif" }}>{k.value}</div>
-                <div className="text-[10px] text-slate-500 mt-1 leading-tight">{k.label}</div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* ── SECTION: TODAY'S FOCUS ── */}
-      <DashSectionLabel visible={vis.todaysFocus} onToggle={() => toggle("todaysFocus")}>Today's Focus</DashSectionLabel>
-      {vis.todaysFocus !== false && (
-        <>
-          <SessionPlanDashCard data={data} goTo={goTo} />
-          <MorningCheckIn data={data} setData={setData} />
-          <PreSessionChecklist data={data} setData={setData} />
-        </>
-      )}
-
-      {/* ── SECTION: PROP CHALLENGES ── */}
-      <DashSectionLabel visible={vis.propChallenges} onToggle={() => toggle("propChallenges")}>Prop Challenges</DashSectionLabel>
-      {vis.propChallenges !== false && <PropChallengesDashCard data={data} goTo={goTo} />}
-
-      {/* ── SECTION: THIS WEEK ── */}
-      <DashSectionLabel visible={vis.thisWeek} onToggle={() => toggle("thisWeek")}>This Week</DashSectionLabel>
-      {vis.thisWeek !== false && <WeeklySummary data={data} a={a} cur={cur} goTo={goTo} />}
-
-      {/* ── SECTION: RISK & TOOLS ── */}
-      <DashSectionLabel visible={vis.riskTools} onToggle={() => toggle("riskTools")}>Risk & Tools</DashSectionLabel>
-      {vis.riskTools !== false && (
-        <>
-          <OpenRiskTracker data={data} a={a} acc={acc} />
-          <Card><PositionSizeCalc account={acc} /></Card>
-        </>
-      )}
-
-      {/* ── SECTION: RECENT TRADES ── */}
-      <DashSectionLabel visible={vis.recentTrades} onToggle={() => toggle("recentTrades")}>Recent Trades</DashSectionLabel>
-      {vis.recentTrades !== false && (
-        <Card>
-          <SectionTitle action={<button onClick={() => goTo("journal")} className="text-xs text-amber-400 font-medium">View all →</button>}>
-            Last 5 Trades
-          </SectionTitle>
-          {recentTrades.length ? (
-            <div className="space-y-0">
-              {recentTrades.map((t) => (
-                <div key={t.id} className="flex items-center justify-between py-2.5 border-b border-slate-800/60 last:border-0">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    {t.side === "Sell"
-                      ? <TrendingDown size={15} className="text-rose-400 shrink-0" />
-                      : <TrendingUp size={15} className="text-emerald-400 shrink-0" />}
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-200">{t.symbol || "—"}</div>
-                      <div className="text-[11px] text-slate-500">{t.date}{t.session ? ` · ${t.session}` : ""}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={cx("text-sm font-semibold", t.c.pnl === null ? "text-slate-500" : t.c.pnl >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                      {fmtBalSigned(t.c.pnl, cur)}
-                    </span>
-                    <Pill tone={RESULT_TONE[t.c.result || "Open"]}>{t.c.result || "Open"}</Pill>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState icon={ClipboardList} title="No trades yet" sub="Tap Log Trade in the Journal tab to get started." />
-          )}
-        </Card>
-      )}
-
-      {/* ── SECTION: INSIGHTS & EDGE ── */}
-      <DashSectionLabel visible={vis.insightsEdge} onToggle={() => toggle("insightsEdge")}>Insights & Edge</DashSectionLabel>
-      {vis.insightsEdge !== false && (
-        <>
-          <AIInsights a={a} account={acc} />
-          <YourEdgePanel a={a} />
-        </>
-      )}
-
-      {/* ── SECTION: SETUP LIBRARY ── */}
-      <DashSectionLabel visible={vis.setupLibrary} onToggle={() => toggle("setupLibrary")}>Setup Library</DashSectionLabel>
-      {vis.setupLibrary !== false && <BestSetupsCard data={data} goTo={goTo} />}
-
-      {/* ── SECTION: MARKET CALENDAR ── */}
-      <DashSectionLabel visible={vis.marketCalendar} onToggle={() => toggle("marketCalendar")}>Market Calendar</DashSectionLabel>
-      {vis.marketCalendar !== false && (
-        <>
-          <EconomicCalendarWidget />
-          <TradingCalendar a={a} />
-        </>
-      )}
-
-      {/* ── SECTION: STATISTICS ── */}
-      <DashSectionLabel visible={vis.statistics} onToggle={() => toggle("statistics")}>Statistics</DashSectionLabel>
-      {vis.statistics !== false && (
-        <>
-          <DetailedStatsPanel a={a} />
-          <MistakeCostPanel trades={data.trades} />
-        </>
-      )}
-
-      {/* ── SECTION: REFERENCE ── */}
-      <DashSectionLabel visible={vis.reference} onToggle={() => toggle("reference")}>Reference</DashSectionLabel>
-      {vis.reference !== false && (
-        <>
-          <TodaysPlanWidget master={data.plans.master} />
-          <TradingRulesPanel />
-          <CandleChecklist />
-          <TraderMindset />
-          <DailyRulesReminder />
-        </>
-      )}
+      {/* ── ORDERED SECTIONS ── */}
+      {sectionOrder.map((key, i) => {
+        const meta = DASH_SECTION_META.find((m: any) => m.key === key);
+        if (!meta) return null;
+        return (
+          <React.Fragment key={key}>
+            <DashSectionLabel
+              visible={vis[key]}
+              onToggle={!editLayout ? () => toggle(key) : undefined}
+              editMode={editLayout}
+              onMoveUp={() => moveSection(key, -1)}
+              onMoveDown={() => moveSection(key, 1)}
+              isFirst={i === 0}
+              isLast={i === sectionOrder.length - 1}
+            >
+              {meta.label}
+            </DashSectionLabel>
+            {vis[key] !== false && sectionContent[key]}
+          </React.Fragment>
+        );
+      })}
 
     </div>
 
     {/* ── Floating Quick-Log button ── */}
-    {vis.moolMantar !== undefined && settings.showQuickLogFAB !== false && (
+    {settings.showQuickLogFAB !== false && (
       <button
         onClick={onQuickLog}
         className="fixed bottom-20 right-4 z-50 w-14 h-14 rounded-full bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 shadow-lg shadow-amber-900/40 flex items-center justify-center transition-all"
@@ -9683,8 +9723,9 @@ function SettingsPanel({ data, setData }) {
             {/* ── DASHBOARD SECTIONS ── */}
             {open && id === "dashboard" && (
               <div className="px-4 pb-4 border-t border-slate-800">
+                {/* Show / Hide */}
                 <div className="flex justify-between items-center pt-3 pb-2">
-                  <span className="text-xs text-slate-500">{DASH_SECTION_META.filter(({ key }) => vis[key] === false).length} hidden</span>
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Show / Hide</span>
                   <button onClick={() => upd({ dashVisibility: DEFAULT_SETTINGS().dashVisibility })}
                     className="text-xs font-medium" style={{ color: accent }}>Show all</button>
                 </div>
@@ -9700,6 +9741,47 @@ function SettingsPanel({ data, setData }) {
                     </div>
                   );
                 })}
+                {/* Section Order */}
+                <div className="flex justify-between items-center pt-4 pb-2">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Section Order</span>
+                  <button onClick={() => upd({ dashSectionOrder: DEFAULT_SETTINGS().dashSectionOrder })}
+                    className="text-xs font-medium" style={{ color: accent }}>Reset</button>
+                </div>
+                {(() => {
+                  const allKeys = DASH_SECTION_META.map((m) => m.key);
+                  const stored = (settings.dashSectionOrder as string[] | undefined);
+                  const order = (stored && Array.isArray(stored) && stored.length === allKeys.length) ? stored : allKeys;
+                  const moveFn = (key: string, dir: -1 | 1) => {
+                    const idx = order.indexOf(key);
+                    if (idx < 0) return;
+                    const newIdx = idx + dir;
+                    if (newIdx < 0 || newIdx >= order.length) return;
+                    const next = [...order];
+                    [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
+                    upd({ dashSectionOrder: next });
+                  };
+                  return order.map((key, i) => {
+                    const meta = DASH_SECTION_META.find((m) => m.key === key);
+                    if (!meta) return null;
+                    return (
+                      <div key={key} className="flex items-center gap-3 py-2 border-b border-slate-800/50 last:border-0">
+                        <span className="text-[11px] text-slate-600 w-4 text-right shrink-0">{i + 1}</span>
+                        <span className="text-sm shrink-0">{meta.icon}</span>
+                        <span className="text-sm text-slate-300 flex-1 min-w-0">{meta.label}</span>
+                        <div className="flex flex-col gap-0.5 shrink-0">
+                          <button onClick={() => moveFn(key, -1)} disabled={i === 0}
+                            className="p-1 rounded text-slate-600 hover:text-amber-400 disabled:opacity-20 transition">
+                            <ChevronUp size={13} />
+                          </button>
+                          <button onClick={() => moveFn(key, 1)} disabled={i === order.length - 1}
+                            className="p-1 rounded text-slate-600 hover:text-amber-400 disabled:opacity-20 transition">
+                            <ChevronDown size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             )}
 
