@@ -4849,7 +4849,7 @@ function emptySetup() {
     id: null, name: "", tags: [], trend: "", entry: "",
     stop: STANDARD_TEMPLATE.stop, target: STANDARD_TEMPLATE.target, midTrade: STANDARD_TEMPLATE.midTrade,
     exception: false, checklist: [], notes: "", attachments: [],
-    image: null, marketBias: "", setupType: "",
+    image: null, marketBias: "", setupType: "", photos: [] as any[],
   };
 }
 
@@ -4897,6 +4897,79 @@ function HeroImageUpload({ image, onChange }) {
       {image?.tooBig && <span className="text-[11px] text-rose-400 mt-1">"{image.name}" is over 3.5MB — try a smaller screenshot</span>}
       <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} />
     </button>
+  );
+}
+
+/* Multi-photo gallery for setups — add/caption/remove */
+function SetupPhotoGallery({ photos, onChange }: { photos: any[]; onChange: (p: any[]) => void }) {
+  const inputRef = useRef<any>(null);
+  const [captionId, setCaptionId] = useState<string | null>(null);
+
+  const addPhotos = async (files: FileList | null) => {
+    if (!files) return;
+    const added: any[] = [];
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith("image/")) continue;
+      if (file.size > 4 * 1024 * 1024) continue;
+      const url = await fileToDataUrl(file);
+      added.push({ id: uid(), url, caption: "" });
+    }
+    onChange([...photos, ...added]);
+  };
+
+  const remove = (id: string) => onChange(photos.filter((p) => p.id !== id));
+  const setCaption = (id: string, caption: string) =>
+    onChange(photos.map((p) => (p.id === id ? { ...p, caption } : p)));
+
+  return (
+    <div>
+      {photos.length === 0 ? (
+        <button onClick={() => inputRef.current?.click()}
+          className="w-full rounded-xl border-2 border-dashed border-slate-700 hover:border-amber-500/50 bg-slate-900/50 py-8 flex flex-col items-center gap-2 transition">
+          <ImageIcon size={22} className="text-slate-600" />
+          <span className="text-sm text-slate-400 font-medium">Add chart screenshots</span>
+          <span className="text-[11px] text-slate-600">Multiple photos supported · 4MB each max</span>
+        </button>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {photos.map((ph) => (
+            <div key={ph.id} className="relative group rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
+              <img src={ph.url} alt={ph.caption || "Chart"} className="w-full h-28 object-cover" />
+              <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition flex items-end p-1.5 gap-1">
+                <button onClick={() => setCaptionId(captionId === ph.id ? null : ph.id)}
+                  className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-amber-400">
+                  <Pencil size={11} />
+                </button>
+                <button onClick={() => remove(ph.id)}
+                  className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-rose-400">
+                  <Trash2 size={11} />
+                </button>
+              </div>
+              {ph.caption && (
+                <div className="px-2 py-1 bg-slate-900/90 text-[10px] text-slate-400 truncate">{ph.caption}</div>
+              )}
+              {captionId === ph.id && (
+                <div className="absolute inset-x-0 bottom-0 px-2 py-1.5 bg-slate-950/95">
+                  <input autoFocus value={ph.caption}
+                    onChange={(e) => setCaption(ph.id, e.target.value)}
+                    onBlur={() => setCaptionId(null)}
+                    onKeyDown={(e) => e.key === "Enter" && setCaptionId(null)}
+                    className="w-full bg-transparent text-[11px] text-amber-400 outline-none border-b border-amber-500/40 pb-0.5"
+                    placeholder="Add caption…" />
+                </div>
+              )}
+            </div>
+          ))}
+          <button onClick={() => inputRef.current?.click()}
+            className="rounded-xl border-2 border-dashed border-slate-700 hover:border-amber-500/50 bg-slate-900/50 h-28 flex flex-col items-center justify-center gap-1 transition">
+            <Plus size={16} className="text-slate-600" />
+            <span className="text-[10px] text-slate-600">Add more</span>
+          </button>
+        </div>
+      )}
+      <input ref={inputRef} type="file" accept="image/*" multiple className="hidden"
+        onChange={(e) => addPhotos(e.target.files)} />
+    </div>
   );
 }
 
@@ -5009,7 +5082,11 @@ function SetupForm({ onClose, onSave, onBack, initial, mode, goTo }) {
           <TextArea value={form.notes} onChange={set("notes")} placeholder="Your own observations, exceptions, reminders..." className="min-h-[100px]" />
         </Accordion>
 
-        <Accordion id="attachments" open={openSection} onToggle={setOpenSection} title={`Additional Chart Examples (${form.attachments.length})`} icon={ImageIcon}>
+        <Accordion id="photos" open={openSection} onToggle={setOpenSection} title={`Chart Screenshots (${(form.photos || []).length})`} icon={ImageIcon}>
+          <SetupPhotoGallery photos={form.photos || []} onChange={(photos) => setForm((f) => ({ ...f, photos }))} />
+        </Accordion>
+
+        <Accordion id="attachments" open={openSection} onToggle={setOpenSection} title={`Attachments (${form.attachments.length})`} icon={Paperclip}>
           <Attachments items={form.attachments} onChange={(items) => setForm((f) => ({ ...f, attachments: items }))} />
         </Accordion>
       </div>
@@ -5089,6 +5166,16 @@ function SetupsPanel({ data, setData, goTo }) {
           <Accordion key={s.id} id={s.id} open={open} onToggle={setOpen} title={s.name}
             badge={s.exception && <Pill tone="rose">Exception</Pill>}>
             {s.image && <img src={s.image} alt={s.name} className="w-full max-h-56 object-contain bg-slate-950 rounded-xl border border-slate-800 mb-3" />}
+            {(s.photos || []).length > 0 && (
+              <div className="grid grid-cols-2 gap-1.5 mb-3">
+                {(s.photos || []).map((ph: any) => (
+                  <div key={ph.id} className="rounded-xl overflow-hidden border border-slate-800">
+                    <img src={ph.url} alt={ph.caption || "Chart"} className="w-full h-24 object-cover bg-slate-950" />
+                    {ph.caption && <div className="px-2 py-1 bg-slate-900 text-[10px] text-slate-400 truncate">{ph.caption}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex flex-wrap gap-1.5 mb-3">
               {s.tags.map((t) => <Pill key={t} tone="sky">{t}</Pill>)}
               {s.marketBias && <Pill tone={s.marketBias === "Bullish" ? "emerald" : s.marketBias === "Bearish" ? "rose" : "slate"}>{s.marketBias}</Pill>}
@@ -5317,21 +5404,172 @@ function SmartMoneyAcademy({ data, setData }) {
 /* ============================================================
    ACADEMY TAB
    ============================================================ */
+/* ============================================================
+   ACADEMY — PLAYBOOK TAB
+   ============================================================ */
+function SetupDetailModal({ setup, onClose }: { setup: any; onClose: () => void }) {
+  const [photoIdx, setPhotoIdx] = useState(0);
+  const photos: any[] = setup.photos || [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/80 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 sticky top-0 bg-slate-900 z-10">
+          <span className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora',sans-serif" }}>{setup.name}</span>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200"><X size={16} /></button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* Hero image */}
+          {setup.image && (
+            <img src={setup.image} alt={setup.name} className="w-full max-h-56 object-contain bg-slate-950 rounded-xl border border-slate-800" />
+          )}
+
+          {/* Photo gallery */}
+          {photos.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Chart Screenshots ({photos.length})</div>
+              <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
+                <img src={photos[photoIdx].url} alt={photos[photoIdx].caption || "Chart"} className="w-full max-h-52 object-contain" />
+                {photos[photoIdx].caption && (
+                  <div className="px-3 py-1.5 bg-slate-900 text-xs text-slate-400">{photos[photoIdx].caption}</div>
+                )}
+                {photos.length > 1 && (
+                  <div className="flex items-center justify-between px-3 py-2 bg-slate-900 border-t border-slate-800">
+                    <button onClick={() => setPhotoIdx((i) => (i - 1 + photos.length) % photos.length)}
+                      className="text-xs text-slate-400 hover:text-amber-400 px-2 py-1 rounded-lg bg-slate-800">◀</button>
+                    <span className="text-[11px] text-slate-500">{photoIdx + 1} / {photos.length}</span>
+                    <button onClick={() => setPhotoIdx((i) => (i + 1) % photos.length)}
+                      className="text-xs text-slate-400 hover:text-amber-400 px-2 py-1 rounded-lg bg-slate-800">▶</button>
+                  </div>
+                )}
+              </div>
+              {photos.length > 1 && (
+                <div className="flex gap-1.5 mt-1.5 overflow-x-auto pb-1">
+                  {photos.map((ph, i) => (
+                    <button key={ph.id} onClick={() => setPhotoIdx(i)}
+                      className={cx("shrink-0 w-14 h-10 rounded-lg overflow-hidden border-2 transition",
+                        i === photoIdx ? "border-amber-500" : "border-slate-800")}>
+                      <img src={ph.url} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Badges */}
+          <div className="flex flex-wrap gap-1.5">
+            {(setup.tags || []).map((t: string) => <Pill key={t} tone="sky">{t}</Pill>)}
+            {setup.marketBias && <Pill tone={setup.marketBias === "Bullish" ? "emerald" : setup.marketBias === "Bearish" ? "rose" : "slate"}>{setup.marketBias}</Pill>}
+            {setup.setupType && <Pill tone="amber">{setup.setupType}</Pill>}
+            {setup.exception && <Pill tone="rose">Exception</Pill>}
+          </div>
+
+          {/* Fields */}
+          {setup.trend && <div><span className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Market Context</span><p className="text-sm text-slate-300 mt-1">{setup.trend}</p></div>}
+          {setup.entry && <div><span className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Entry</span><p className="text-sm text-slate-300 mt-1">{setup.entry}</p></div>}
+          {setup.stop && <div><span className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Stop Loss</span><p className="text-sm text-slate-300 mt-1">{setup.stop}</p></div>}
+          {setup.target && <div><span className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Take Profit</span><p className="text-sm text-slate-300 mt-1">{setup.target}</p></div>}
+          {setup.midTrade && <div><span className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Mid-Trade Rule</span><p className="text-sm text-slate-300 mt-1">{setup.midTrade}</p></div>}
+
+          {/* Checklist */}
+          {(setup.checklist || []).length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1.5">Checklist</div>
+              <ul className="space-y-1">
+                {setup.checklist.map((c: any) => (
+                  <li key={c.id} className="flex gap-2 text-sm text-slate-400">
+                    <CheckCircle2 size={14} className="text-amber-500/70 mt-0.5 shrink-0" />{c.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {setup.notes && <div><span className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Notes</span><p className="text-sm text-slate-400 italic mt-1">{setup.notes}</p></div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlaybookAcademy({ data }: { data: any }) {
+  const [selected, setSelected] = useState<any>(null);
+  const setups: any[] = data.setups || [];
+
+  if (setups.length === 0) {
+    return (
+      <div className="flex flex-col items-center py-14 gap-3">
+        <BookMarked size={32} className="text-slate-700" />
+        <p className="text-slate-500 text-sm">No setups yet</p>
+        <p className="text-slate-600 text-xs text-center">Add setups in the Setup Library (Library tab) to see your playbook here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-500">Tap a setup to view full details and chart screenshots.</p>
+      <div className="grid grid-cols-2 gap-2.5">
+        {setups.map((s) => {
+          const thumb = (s.photos || [])[0]?.url || s.image || null;
+          return (
+            <button key={s.id} onClick={() => setSelected(s)}
+              className="text-left rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden hover:border-amber-500/40 transition group">
+              {thumb ? (
+                <img src={thumb} alt={s.name} className="w-full h-24 object-cover bg-slate-950 group-hover:opacity-90 transition" />
+              ) : (
+                <div className="w-full h-24 bg-slate-950 flex items-center justify-center">
+                  <ImageIcon size={20} className="text-slate-700" />
+                </div>
+              )}
+              <div className="p-2.5">
+                <div className="text-xs font-semibold text-slate-200 truncate mb-1">{s.name}</div>
+                <div className="flex flex-wrap gap-1">
+                  {s.setupType && <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">{s.setupType}</span>}
+                  {s.marketBias && <span className={cx("text-[10px] px-1.5 py-0.5 rounded-md border",
+                    s.marketBias === "Bullish" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                      : s.marketBias === "Bearish" ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                      : "bg-slate-800 text-slate-500 border-slate-700")}>{s.marketBias}</span>}
+                  {(s.photos || []).length > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-sky-500/10 text-sky-400 border border-sky-500/20 flex items-center gap-0.5">
+                      <ImageIcon size={9} />{s.photos.length}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      {selected && <SetupDetailModal setup={selected} onClose={() => setSelected(null)} />}
+    </div>
+  );
+}
+
 function AcademyTab({ data, setData, subTab, setSubTab }) {
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 bg-slate-900 border border-slate-800 rounded-xl p-1">
-        {["Price Action", "Smart Money"].map((s) => (
+      <div className="flex gap-1.5 bg-slate-900 border border-slate-800 rounded-xl p-1">
+        {["Price Action", "Smart Money", "Playbook"].map((s) => (
           <button key={s} onClick={() => setSubTab(s)}
-            className={cx("flex-1 py-2 rounded-lg text-sm font-medium transition", subTab === s ? "bg-amber-500 text-slate-950" : "text-slate-400")}>
+            className={cx("flex-1 py-2 rounded-lg text-xs font-medium transition", subTab === s ? "bg-amber-500 text-slate-950" : "text-slate-400")}>
             {s}
           </button>
         ))}
       </div>
-      <SectionTitle sub={subTab === "Price Action" ? "The full SRC reference guide" : "Order-flow terminology & your notes"}>
-        {subTab === "Price Action" ? "Price Action Academy" : "Smart Money Concepts"}
+      <SectionTitle sub={
+        subTab === "Price Action" ? "The full SRC reference guide"
+          : subTab === "Smart Money" ? "Order-flow terminology & your notes"
+          : "Your named setups with photos"
+      }>
+        {subTab === "Price Action" ? "Price Action Academy" : subTab === "Smart Money" ? "Smart Money Concepts" : "Playbook"}
       </SectionTitle>
-      {subTab === "Price Action" ? <PriceActionAcademy /> : <SmartMoneyAcademy data={data} setData={setData} />}
+      {subTab === "Price Action" ? <PriceActionAcademy />
+        : subTab === "Smart Money" ? <SmartMoneyAcademy data={data} setData={setData} />
+        : <PlaybookAcademy data={data} />}
     </div>
   );
 }
@@ -6685,11 +6923,13 @@ function emptySessionPlan() {
     analysis: "",
     mindset: "",
     checklist: SP_CHECKLIST_DEFAULTS.map((text) => ({ id: uid(), text, done: false })),
+    setupIds: [] as string[],
   };
 }
 
-function SessionPlanForm({ initial, onSave, onBack }) {
-  const [form, setForm] = useState<any>(() => initial ? { ...initial, keyLevels: initial.keyLevels || [], checklist: initial.checklist || SP_CHECKLIST_DEFAULTS.map((t) => ({ id: uid(), text: t, done: false })) } : emptySessionPlan());
+function SessionPlanForm({ initial, onSave, onBack, setups = [] }: { initial?: any; onSave: (p: any) => void; onBack: () => void; setups?: any[] }) {
+  const [form, setForm] = useState<any>(() => initial ? { ...initial, keyLevels: initial.keyLevels || [], checklist: initial.checklist || SP_CHECKLIST_DEFAULTS.map((t) => ({ id: uid(), text: t, done: false })), setupIds: initial.setupIds || [] } : emptySessionPlan());
+  const [setupModal, setSetupModal] = useState<any>(null);
   const [newNews, setNewNews] = useState("");
   const [newLevelPair, setNewLevelPair] = useState("XAUUSD");
   const [newLevelPrice, setNewLevelPrice] = useState("");
@@ -6772,6 +7012,56 @@ function SessionPlanForm({ initial, onSave, onBack }) {
           ))}
         </div>
       </div>
+
+      {/* Setups to Watch */}
+      {setups.length > 0 && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Setups to Watch Today</div>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            {setups.map((s: any) => {
+              const selected = (form.setupIds || []).includes(s.id);
+              const thumb = (s.photos || [])[0]?.url || s.image || null;
+              return (
+                <button key={s.id} onClick={() => {
+                  setForm((f: any) => ({
+                    ...f,
+                    setupIds: selected ? (f.setupIds || []).filter((id: string) => id !== s.id) : [...(f.setupIds || []), s.id],
+                  }));
+                }}
+                  className={cx("relative text-left rounded-2xl overflow-hidden border-2 transition",
+                    selected ? "border-amber-500" : "border-slate-800 hover:border-slate-700")}>
+                  {thumb ? (
+                    <img src={thumb} alt={s.name} className="w-full h-20 object-cover bg-slate-950" />
+                  ) : (
+                    <div className="w-full h-20 bg-slate-950 flex items-center justify-center">
+                      <ImageIcon size={16} className="text-slate-700" />
+                    </div>
+                  )}
+                  <div className={cx("px-2 py-1.5", selected ? "bg-amber-500/10" : "bg-slate-900")}>
+                    <div className="text-[11px] font-semibold text-slate-200 truncate">{s.name}</div>
+                    {s.setupType && <div className="text-[10px] text-slate-500">{s.setupType}</div>}
+                  </div>
+                  {selected && (
+                    <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center">
+                      <CheckCircle2 size={10} className="text-slate-950" />
+                    </div>
+                  )}
+                  <button onClick={(e) => { e.stopPropagation(); setSetupModal(s); }}
+                    className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-slate-950/70 text-[9px] text-slate-400 hover:text-amber-400">
+                    Details
+                  </button>
+                </button>
+              );
+            })}
+          </div>
+          {(form.setupIds || []).length > 0 && (
+            <p className="text-[11px] text-amber-400/80">
+              {(form.setupIds || []).length} setup{(form.setupIds || []).length !== 1 ? "s" : ""} selected for today
+            </p>
+          )}
+        </div>
+      )}
+      {setupModal && <SetupDetailModal setup={setupModal} onClose={() => setSetupModal(null)} />}
 
       {/* Key Levels */}
       <div>
@@ -7073,7 +7363,7 @@ function SessionPlanPanel({ data, setData }) {
   const liveSelected = selected ? ((plans.find((p) => p.id === selected.id)) || selected) : null;
 
   if (view === "form") {
-    return <SessionPlanForm initial={selected} onSave={save} onBack={() => setView(selected?.id ? "detail" : "list")} />;
+    return <SessionPlanForm initial={selected} onSave={save} onBack={() => setView(selected?.id ? "detail" : "list")} setups={data.setups || []} />;
   }
 
   if (view === "detail" && liveSelected) {
