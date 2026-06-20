@@ -5163,24 +5163,22 @@ export default function App() {
 
   return (
     <div className="w-full bg-slate-950" style={{ fontFamily: "'Inter', sans-serif", minHeight: "100dvh" }}>
-      {/* Fixed top header */}
-      <div className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3.5 border-b border-slate-800 bg-slate-950/95 backdrop-blur"
-        style={{ paddingTop: "max(0.875rem, env(safe-area-inset-top))" }}>
-        <div className="flex items-center gap-2">
-          <Crown size={18} className="text-amber-400" />
-          <span className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>SRC Trading OS</span>
-        </div>
-        <button onClick={() => setSearchOpen(true)} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400">
-          <Search size={17} />
-        </button>
-      </div>
-
-      {/* Scrollable content — padded to clear fixed header (≈57px) and fixed bottom nav (≈60px + safe area) */}
+      {/* Scrollable content — header scrolls with content, only bottom nav is fixed */}
       <div className="overflow-y-auto px-4 py-4"
         style={{
-          paddingTop: "calc(57px + max(0px, env(safe-area-inset-top)))",
+          paddingTop: "max(1rem, env(safe-area-inset-top))",
           paddingBottom: "calc(72px + env(safe-area-inset-bottom))",
         }}>
+        {/* Inline top header — scrolls away to give full screen to content */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Crown size={18} className="text-amber-400" />
+            <span className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>SRC Trading OS</span>
+          </div>
+          <button onClick={() => setSearchOpen(true)} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400">
+            <Search size={17} />
+          </button>
+        </div>
         {activeTab === "home" && <Dashboard data={data} setData={setData} goTo={goTo} />}
         {activeTab === "journal" && <JournalTab data={data} setData={setData} />}
         {activeTab === "library" && <LibraryTab data={data} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} />}
