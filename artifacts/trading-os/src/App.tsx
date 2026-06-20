@@ -5921,7 +5921,7 @@ function computePropChallenge(c: any) {
 function PropChallengeForm({ initial, onSave, onBack }) {
   const [form, setForm] = useState(() => initial ? { ...initial } : emptyChallenge());
   const [newRule, setNewRule] = useState("");
-  const set = (k: string) => (v: any) => setForm((f: any) => ({ ...f, [k]: v }));
+  const set = (k: string) => (v: any) => setForm((f: any) => ({ ...f, [k]: v && typeof v === "object" && "target" in v ? v.target.value : v }));
 
   const applyPreset = (firm: string) => {
     const preset = PROP_FIRM_PRESETS[firm] || {};
