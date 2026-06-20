@@ -796,8 +796,9 @@ const DEFAULT_SETTINGS = () => ({
     marketCalendar:  true,
     statistics:      true,
     reference:       true,
+    activeTrades:    true,
   },
-  dashSectionOrder: ["moolMantar","marketOverview","marketSessions","accountOverview","todaysFocus","propChallenges","thisWeek","riskTools","recentTrades","insightsEdge","setupLibrary","marketCalendar","statistics","reference"],
+  dashSectionOrder: ["moolMantar","activeTrades","marketOverview","marketSessions","accountOverview","todaysFocus","propChallenges","thisWeek","riskTools","recentTrades","insightsEdge","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -1369,6 +1370,7 @@ function renderBlocks(blocks) {
 const MARKET_TYPES = ["Forex", "Stocks", "Crypto", "Futures", "Indices", "Commodities", "Other"];
 const RESULT_TONE = { Win: "emerald", Loss: "rose", Breakeven: "slate", Open: "sky" };
 const SESSION_OPTIONS = ["Pre-London", "London", "New York", "Asian", "Pre-Asian", "NY-London Overlap", "Unspecified"];
+const TRADING_PLATFORMS = ["MT4", "MT5", "TradingView", "cTrader", "IBKR", "Pepperstone", "IC Markets", "XM", "FXCM", "Exness", "Bybit", "Binance", "Other"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 const SYMBOL_GROUPS = [
@@ -4480,6 +4482,248 @@ function MoolMantar() {
   );
 }
 
+/* ============================================================
+   ACTIVE TRADE MONITOR
+   ============================================================ */
+function ActiveTradeMonitor({ data, acc }: any) {
+  const cur = acc.currency || "€";
+  const startBal = parseFloat(acc.startingBalance) || 0;
+  const settings = data.settings || DEFAULT_SETTINGS();
+  const accent = settings.accentColor || "#f59e0b";
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  const allTrades: any[] = data.trades || [];
+  const today = todayISO();
+  const openTrades = allTrades.filter((t) => computeTrade(t).result === null);
+  const todayTrades = allTrades.filter((t) => t.date === today);
+  const todayClosedPnl = todayTrades
+    .filter((t) => computeTrade(t).result !== null)
+    .reduce((s, t) => s + (computeTrade(t).pnl || 0), 0);
+
+  const maxDailyLossPct = parseFloat(settings.maxDailyLossPct || "") || parseFloat(data.plans?.master?.maxDailyLoss || "") || 0;
+  const maxRiskPerTrade = parseFloat(settings.maxRiskPerTrade || "") || 0;
+  const maxTradesPerDay = parseInt(settings.maxTradesPerDay || "") || 0;
+  const maxOpenTradesNum = parseInt(settings.maxOpenTrades || "") || 0;
+
+  const todayLossPct = startBal > 0 ? (Math.max(0, -todayClosedPnl) / startBal) * 100 : 0;
+  const todayOpenTrades = openTrades.filter((t) => t.date === today);
+  const openRiskPct = todayOpenTrades.reduce((s, t) => s + (parseFloat(t.riskPct) || 0), 0);
+  const totalRiskPct = todayLossPct + openRiskPct;
+  const remainingPct = maxDailyLossPct > 0 ? Math.max(0, maxDailyLossPct - totalRiskPct) : null;
+  const limitBreached = maxDailyLossPct > 0 && totalRiskPct >= maxDailyLossPct;
+  const limitApproaching = maxDailyLossPct > 0 && totalRiskPct >= maxDailyLossPct * 0.8 && !limitBreached;
+  const maxTradesHit = maxTradesPerDay > 0 && todayTrades.length >= maxTradesPerDay;
+  const maxOpenHit = maxOpenTradesNum > 0 && openTrades.length >= maxOpenTradesNum;
+  const canTrade = !limitBreached && !maxTradesHit && !maxOpenHit;
+
+  function elapsedStr(t: any): string {
+    if (!t.date || !t.entryTime) return "—";
+    const entryDt = toDateTime(t.date, t.entryTime) as unknown as number;
+    if (!entryDt) return "—";
+    const mins = Math.floor((now - entryDt) / 60000);
+    if (mins < 0) return "—";
+    if (mins < 60) return `${mins}m`;
+    const h = Math.floor(mins / 60);
+    if (h < 24) return `${h}h ${mins % 60}m`;
+    return `${Math.floor(h / 24)}d ${h % 24}h`;
+  }
+
+  const PLAT_CLR: Record<string, string> = {
+    MT4: "#4fc3f7", MT5: "#29b6f6", TradingView: "#2196f3",
+    cTrader: "#00bcd4", IBKR: "#ff7043", Binance: "#ffd600", Bybit: "#f7a600",
+  };
+
+  return (
+    <div className="space-y-2">
+      {/* ── Daily Risk Bar ── */}
+      {maxDailyLossPct > 0 && (
+        <div className={cx("rounded-2xl border p-4",
+          limitBreached ? "bg-rose-500/10 border-rose-500/40" :
+          limitApproaching ? "bg-amber-500/10 border-amber-500/30" :
+          "bg-slate-900 border-slate-800")}>
+          {limitBreached && (
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle size={14} className="text-rose-400 shrink-0" />
+              <span className="text-sm font-bold text-rose-400">🚨 DAILY LIMIT REACHED — STOP TRADING</span>
+            </div>
+          )}
+          {limitApproaching && (
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+              <span className="text-sm font-semibold text-amber-400">⚠️ Approaching daily risk limit</span>
+            </div>
+          )}
+          <div className="flex justify-between items-center mb-1.5">
+            <span className="text-xs font-semibold text-slate-400">Daily Risk Budget</span>
+            <span className={cx("text-xs font-bold", limitBreached ? "text-rose-400" : "text-slate-200")}>
+              {fmt2(totalRiskPct)}% / {fmt2(maxDailyLossPct)}%
+            </span>
+          </div>
+          <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all"
+              style={{
+                width: `${Math.min(100, (totalRiskPct / maxDailyLossPct) * 100)}%`,
+                background: limitBreached ? "#ef4444" : limitApproaching ? "#f59e0b" : accent,
+              }} />
+          </div>
+          <div className="flex justify-between mt-1.5">
+            <span className="text-[10px] text-slate-500">
+              {fmt2(todayLossPct)}% realized · {fmt2(openRiskPct)}% open
+            </span>
+            {remainingPct !== null && (
+              <span className="text-[10px] font-semibold" style={{ color: remainingPct > 0 ? "#34d399" : "#f87171" }}>
+                {fmt2(remainingPct)}% left
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Status row ── */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
+          <div className="text-lg font-bold" style={{ color: openTrades.length > 0 ? accent : "#64748b" }}>
+            {openTrades.length}
+          </div>
+          <div className="text-[10px] text-slate-500 leading-tight">Open</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
+          <div className="text-base font-bold text-slate-200">
+            {todayTrades.length}{maxTradesPerDay > 0 ? `/${maxTradesPerDay}` : ""}
+          </div>
+          <div className="text-[10px] text-slate-500 leading-tight">Today's trades</div>
+        </div>
+        <div className={cx("rounded-xl p-3 text-center border",
+          canTrade ? "bg-emerald-500/10 border-emerald-500/30" : "bg-rose-500/10 border-rose-500/30")}>
+          <div className={cx("text-sm font-bold", canTrade ? "text-emerald-400" : "text-rose-400")}>
+            {canTrade ? "✓ Yes" : "✗ No"}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Can trade?</div>
+        </div>
+      </div>
+
+      {/* ── Why can't trade ── */}
+      {!canTrade && (
+        <div className="bg-rose-500/8 border border-rose-500/25 rounded-xl px-3 py-2 space-y-0.5">
+          {limitBreached && <div className="text-[11px] text-rose-400">• Daily loss limit of {fmt2(maxDailyLossPct)}% reached</div>}
+          {maxTradesHit && <div className="text-[11px] text-rose-400">• Max {maxTradesPerDay} trades/day reached</div>}
+          {maxOpenHit && <div className="text-[11px] text-rose-400">• Max {maxOpenTradesNum} open trades reached</div>}
+        </div>
+      )}
+
+      {/* ── Open trade cards ── */}
+      {openTrades.length === 0 ? (
+        <Card>
+          <div className="flex items-center gap-3 py-3">
+            <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center shrink-0">
+              <Activity size={16} className="text-slate-500" />
+            </div>
+            <div>
+              <div className="text-sm text-slate-400 font-medium">No open positions</div>
+              <div className="text-[11px] text-slate-600 mt-0.5">Log a trade without an exit price to track it here</div>
+            </div>
+          </div>
+        </Card>
+      ) : openTrades.map((t: any) => {
+        const entry = parseFloat(t.entry);
+        const sl = parseFloat(t.sl);
+        const tp = parseFloat(t.tp);
+        const hasEntry = !isNaN(entry);
+        const hasSL = !isNaN(sl);
+        const hasTP = !isNaN(tp);
+        const rr = hasEntry && hasSL && hasTP ? Math.abs(tp - entry) / Math.abs(sl - entry) : null;
+        const riskPctNum = parseFloat(t.riskPct) || 0;
+        const riskAmt = startBal > 0 && riskPctNum > 0 ? (riskPctNum / 100) * startBal : null;
+        const overLimit = maxRiskPerTrade > 0 && riskPctNum > maxRiskPerTrade;
+        const platClr = PLAT_CLR[t.platform] || "#64748b";
+        const isJpy = (t.symbol || "").toUpperCase().includes("JPY");
+        const dec = t.market === "Indices" || t.market === "Crypto" ? 2 : isJpy ? 3 : 5;
+        const elapsed = elapsedStr(t);
+
+        return (
+          <div key={t.id} className={cx("rounded-2xl border p-4",
+            overLimit ? "border-rose-500/40 bg-rose-500/5" : limitBreached ? "border-amber-500/30 bg-amber-500/5" : "border-slate-700 bg-slate-900/80")}>
+
+            {/* Header */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <span className="font-bold text-slate-100 text-base tracking-wide">{t.symbol || "—"}</span>
+                <span className={cx("px-2 py-0.5 rounded-lg text-xs font-bold shrink-0",
+                  t.side === "Buy" ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400")}>
+                  {t.side === "Buy" ? "▲ BUY" : "▼ SELL"}
+                </span>
+                {t.platform && (
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border shrink-0"
+                    style={{ color: platClr, borderColor: platClr + "40", background: platClr + "18" }}>
+                    {t.platform}
+                  </span>
+                )}
+                {t.market && t.market !== "Forex" && (
+                  <span className="text-[10px] text-slate-500 bg-slate-800 rounded-md px-1.5 py-0.5 shrink-0">{t.market}</span>
+                )}
+              </div>
+              {elapsed !== "—" && (
+                <div className="flex items-center gap-1 text-[11px] text-slate-500 shrink-0 ml-2">
+                  <Clock size={10} />
+                  <span>{elapsed}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Price levels */}
+            <div className="grid grid-cols-3 gap-1.5 mb-3">
+              <div className="bg-slate-800 rounded-xl p-2.5 text-center">
+                <div className="text-[11px] font-mono font-bold text-slate-200">{hasEntry ? entry.toFixed(dec) : "—"}</div>
+                <div className="text-[9px] text-slate-500 mt-0.5 uppercase tracking-wide">Entry</div>
+              </div>
+              <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-2.5 text-center">
+                <div className="text-[11px] font-mono font-bold text-rose-400">{hasSL ? sl.toFixed(dec) : "—"}</div>
+                <div className="text-[9px] text-slate-500 mt-0.5 uppercase tracking-wide">SL</div>
+              </div>
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-2.5 text-center">
+                <div className="text-[11px] font-mono font-bold text-emerald-400">{hasTP ? tp.toFixed(dec) : "—"}</div>
+                <div className="text-[9px] text-slate-500 mt-0.5 uppercase tracking-wide">TP</div>
+              </div>
+            </div>
+
+            {/* Risk + meta row */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <div className="flex items-center gap-1">
+                <ShieldAlert size={12} className={overLimit ? "text-rose-400" : "text-slate-500"} />
+                <span className={cx("text-xs font-semibold", overLimit ? "text-rose-400" : "text-slate-300")}>
+                  {riskPctNum > 0 ? `${riskPctNum}% risk` : "No risk logged"}
+                </span>
+                {riskAmt !== null && <span className="text-xs text-slate-500">· {fmtBal(riskAmt, cur)}</span>}
+              </div>
+              {rr !== null && (
+                <div className="flex items-center gap-1 text-xs">
+                  <span className="text-slate-500">R:R</span>
+                  <span className="font-bold text-amber-400">{fmt2(rr)}R</span>
+                </div>
+              )}
+              {t.positionSize && <span className="text-[11px] text-slate-500">{t.positionSize} lots</span>}
+              {t.session && <span className="text-[10px] text-slate-600 bg-slate-800 rounded-md px-1.5 py-0.5">{t.session}</span>}
+            </div>
+
+            {/* Over-limit warning */}
+            {overLimit && (
+              <div className="mt-2 px-2.5 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                <div className="text-[11px] text-rose-400 font-medium">
+                  ⚠️ Risk ({riskPctNum}%) exceeds your {maxRiskPerTrade}% per-trade limit — consider reducing size
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Dashboard({ data, setData, goTo, onQuickLog }) {
   const a = useMemo(() => computeAnalytics(data), [data.trades, data.strategies, data.setups]);
   const acc = data.account || { startingBalance: 1000, currency: "€" };
@@ -4535,6 +4779,7 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
 
   const sectionContent: Record<string, React.ReactNode> = {
     moolMantar: <MoolMantar />,
+    activeTrades: <ActiveTradeMonitor data={data} acc={acc} />,
     marketOverview: (
       <div className="relative rounded-2xl overflow-hidden border border-slate-800/60 shadow-2xl shadow-black/60"
         style={{ background: "linear-gradient(160deg,#070d1c 0%,#0b1525 60%,#070d1c 100%)", minHeight: 300 }}>
@@ -4755,6 +5000,7 @@ function emptyTrade(settings?: any) {
     tradeType: s.defaultTradeType || "Normal",
     grade: "", mistakes: [], reviewNotes: "", rulesViolated: false,
     manualPnl: "",
+    platform: "",
   };
 }
 
@@ -5150,6 +5396,18 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                 </Select>
               </Field>
             </div>
+            <Field label="Platform / Broker" hint="MT4, MT5, TradingView, or your broker name">
+              <TextInput
+                list="otx-platforms"
+                type="text"
+                placeholder="e.g. MT4, TradingView, Pepperstone..."
+                value={form.platform || ""}
+                onChange={set("platform")}
+              />
+              <datalist id="otx-platforms">
+                {TRADING_PLATFORMS.map((p) => <option key={p} value={p} />)}
+              </datalist>
+            </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Setup used">
                 <Select value={form.setupId} onChange={set("setupId")}>
@@ -9580,6 +9838,7 @@ const CARD_BG_OPTIONS = [
 
 const DASH_SECTION_META = [
   { key: "moolMantar",      label: "Mool Mantar",           icon: "🙏" },
+  { key: "activeTrades",    label: "Active Trades Monitor",  icon: "📡" },
   { key: "marketOverview",  label: "Market Overview Chart",  icon: "📈" },
   { key: "marketSessions",  label: "Forex Market Sessions",  icon: "🌍" },
   { key: "accountOverview", label: "Account Overview",       icon: "💰" },
