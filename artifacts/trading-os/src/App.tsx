@@ -8434,6 +8434,222 @@ function SetupForm({ onClose, onSave, onBack, initial, mode, goTo }) {
   );
 }
 
+/* ── Setup Slide Modal (carousel popup) ──────────────── */
+function SetupSlideModal({ setup, onClose }: { setup: any; onClose: () => void }) {
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [onClose]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0 0 0 0" }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 480, background: "#0c1526", borderRadius: "24px 24px 0 0", border: "1px solid rgba(255,255,255,0.08)", borderBottom: "none", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden" }}
+      >
+        {/* Drag handle */}
+        <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 4px" }}>
+          <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.12)" }} />
+        </div>
+
+        {/* Header */}
+        <div style={{ padding: "8px 18px 14px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: "#f1f5f9", fontSize: 17, fontWeight: 800, marginBottom: 6, lineHeight: 1.2 }}>{setup.name}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {(setup.tags || []).map((t: string) => (
+                <span key={t} style={{ padding: "2px 8px", borderRadius: 6, background: "rgba(56,189,248,0.12)", color: "#38bdf8", fontSize: 10, fontWeight: 700 }}>{t}</span>
+              ))}
+              {setup.exception && <span style={{ padding: "2px 8px", borderRadius: 6, background: "rgba(239,68,68,0.12)", color: "#f87171", fontSize: 10, fontWeight: 700 }}>Exception</span>}
+              {setup.setupType && <span style={{ padding: "2px 8px", borderRadius: 6, background: "rgba(245,158,11,0.12)", color: "#f59e0b", fontSize: 10, fontWeight: 700 }}>{setup.setupType}</span>}
+              {setup.marketBias && <span style={{ padding: "2px 8px", borderRadius: 6, background: setup.marketBias === "Bullish" ? "rgba(16,185,129,0.12)" : "rgba(239,68,68,0.12)", color: setup.marketBias === "Bullish" ? "#34d399" : "#f87171", fontSize: 10, fontWeight: 700 }}>{setup.marketBias}</span>}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748b", fontSize: 16, flexShrink: 0 }}>✕</button>
+        </div>
+
+        {/* Scrollable body */}
+        <div style={{ overflowY: "auto", padding: "16px 18px 32px", flex: 1 }}>
+          {/* Photo */}
+          {setup.image && <img src={setup.image} alt={setup.name} style={{ width: "100%", maxHeight: 180, objectFit: "contain", background: "#050912", borderRadius: 14, border: "1px solid rgba(255,255,255,0.06)", marginBottom: 14 }} />}
+          {(setup.photos || []).length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
+              {(setup.photos || []).slice(0, 4).map((ph: any) => (
+                <div key={ph.id} style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,0.06)" }}>
+                  <img src={ph.url} alt={ph.caption || ""} style={{ width: "100%", height: 90, objectFit: "cover", display: "block", background: "#050912" }} />
+                  {ph.caption && <div style={{ padding: "4px 8px", background: "#0c1526", color: "#64748b", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ph.caption}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Detail rows */}
+          {[
+            { label: "Context", value: setup.trend },
+            { label: "Entry", value: setup.entry },
+            { label: "Stop", value: setup.stop },
+            { label: "Target", value: setup.target },
+            { label: "Mid-trade", value: setup.midTrade },
+          ].filter(r => r.value).map(r => (
+            <div key={r.label} style={{ marginBottom: 12 }}>
+              <div style={{ color: "#f59e0b", fontSize: 11, fontWeight: 700, marginBottom: 3 }}>{r.label}</div>
+              <div style={{ color: "#cbd5e1", fontSize: 13, lineHeight: 1.55 }}>{r.value}</div>
+            </div>
+          ))}
+
+          {/* Checklist */}
+          {(setup.checklist || []).length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ color: "#475569", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Checklist</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {(setup.checklist || []).map((c: any) => (
+                  <div key={c.id} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                    <div style={{ width: 16, height: 16, borderRadius: 5, border: "2px solid rgba(245,158,11,0.4)", flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <div style={{ width: 6, height: 6, borderRadius: 2, background: "rgba(245,158,11,0.5)" }} />
+                    </div>
+                    <span style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.5 }}>{c.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Notes */}
+          {setup.notes && (
+            <div style={{ marginTop: 14, padding: "10px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ color: "#475569", fontSize: 10, fontWeight: 700, marginBottom: 4 }}>NOTES</div>
+              <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", lineHeight: 1.55 }}>{setup.notes}</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Setup Carousel Banner ───────────────────────────── */
+function SetupCarouselBanner({ setups }: { setups: any[] }) {
+  const [idx, setIdx] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [modal, setModal] = useState<any>(null);
+  const [animDir, setAnimDir] = useState<"left" | "right">("right");
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const total = setups.length;
+
+  const goTo = (next: number, dir: "left" | "right" = "right") => {
+    setAnimDir(dir);
+    setIdx((next + total) % total);
+  };
+
+  useEffect(() => {
+    if (total < 2) return;
+    if (paused || modal) { if (timerRef.current) clearInterval(timerRef.current); return; }
+    timerRef.current = setInterval(() => goTo(idx + 1, "right"), 3000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [idx, paused, modal, total]);
+
+  if (total === 0) return null;
+
+  const s = setups[idx];
+  const COLORS = ["#f59e0b", "#38bdf8", "#a78bfa", "#34d399", "#f87171", "#fb923c", "#e879f9"];
+  const accent = COLORS[idx % COLORS.length];
+
+  return (
+    <>
+      <div
+        onPointerDown={() => setPaused(true)}
+        onPointerUp={() => setPaused(false)}
+        onPointerLeave={() => setPaused(false)}
+        style={{ userSelect: "none", marginBottom: 4 }}
+      >
+        {/* Card */}
+        <div
+          onClick={() => setModal(s)}
+          style={{
+            position: "relative", overflow: "hidden", borderRadius: 18,
+            background: `linear-gradient(135deg, #0c1526 0%, #060d1f 100%)`,
+            border: `1px solid ${accent}30`,
+            boxShadow: `0 0 0 1px ${accent}18, inset 0 1px 0 rgba(255,255,255,0.04)`,
+            cursor: "pointer", padding: "16px 16px 12px", minHeight: 130,
+          }}
+        >
+          {/* Glow blob */}
+          <div style={{ position: "absolute", top: -30, right: -30, width: 120, height: 120, borderRadius: "50%", background: accent, opacity: 0.08, filter: "blur(30px)", pointerEvents: "none" }} />
+
+          {/* Index + total */}
+          <div style={{ position: "absolute", top: 12, right: 14, display: "flex", gap: 5, alignItems: "center" }}>
+            <span style={{ color: accent, fontSize: 10, fontWeight: 700 }}>{idx + 1}</span>
+            <span style={{ color: "rgba(255,255,255,0.15)", fontSize: 10 }}>/</span>
+            <span style={{ color: "rgba(255,255,255,0.25)", fontSize: 10 }}>{total}</span>
+          </div>
+
+          {/* Tags */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+            {(s.tags || []).map((t: string) => (
+              <span key={t} style={{ padding: "1px 7px", borderRadius: 5, background: `${accent}18`, color: accent, fontSize: 9, fontWeight: 700 }}>{t}</span>
+            ))}
+            {s.exception && <span style={{ padding: "1px 7px", borderRadius: 5, background: "rgba(239,68,68,0.12)", color: "#f87171", fontSize: 9, fontWeight: 700 }}>Exception</span>}
+          </div>
+
+          {/* Name */}
+          <div style={{ color: "#f1f5f9", fontSize: 15, fontWeight: 900, marginBottom: 6, lineHeight: 1.2, paddingRight: 36 }}>{s.name}</div>
+
+          {/* Context snippet */}
+          <div style={{ color: "#64748b", fontSize: 11, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+            <span style={{ color: accent, fontWeight: 700 }}>Context — </span>{s.trend}
+          </div>
+
+          {/* Tap hint */}
+          <div style={{ position: "absolute", bottom: 10, right: 13, color: "rgba(255,255,255,0.18)", fontSize: 9, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}>
+            <span>Tap to view</span>
+          </div>
+
+          {/* Pause indicator */}
+          {paused && (
+            <div style={{ position: "absolute", top: 10, left: 14, background: "rgba(0,0,0,0.5)", borderRadius: 6, padding: "2px 7px" }}>
+              <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 9, fontWeight: 700 }}>⏸ Held</span>
+            </div>
+          )}
+        </div>
+
+        {/* Dots + arrows */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10 }}>
+          <button
+            onClick={e => { e.stopPropagation(); goTo(idx - 1, "left"); }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.25)", fontSize: 14, padding: "2px 6px", lineHeight: 1 }}
+          >‹</button>
+          <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+            {setups.map((_, i) => (
+              <button
+                key={i}
+                onClick={e => { e.stopPropagation(); goTo(i, i > idx ? "right" : "left"); }}
+                style={{
+                  border: "none", cursor: "pointer", padding: 0, borderRadius: "50%",
+                  width: i === idx ? 18 : 6, height: 6,
+                  borderRadius: i === idx ? 3 : "50%",
+                  background: i === idx ? accent : "rgba(255,255,255,0.12)",
+                  transition: "all 0.25s",
+                }}
+              />
+            ))}
+          </div>
+          <button
+            onClick={e => { e.stopPropagation(); goTo(idx + 1, "right"); }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.25)", fontSize: 14, padding: "2px 6px", lineHeight: 1 }}
+          >›</button>
+        </div>
+      </div>
+
+      {modal && <SetupSlideModal setup={modal} onClose={() => setModal(null)} />}
+    </>
+  );
+}
+
 function SetupsPanel({ data, setData, goTo }) {
   const [open, setOpen] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -8492,6 +8708,8 @@ function SetupsPanel({ data, setData, goTo }) {
         Setup Library
       </SectionTitle>
       <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { startFromImage(e.target.files[0]); e.target.value = ""; }} />
+
+      {data.setups.length > 0 && <SetupCarouselBanner setups={data.setups} />}
 
       <Accordion id="std-template" open={showTemplate ? "std-template" : null} onToggle={(v) => setShowTemplate(!!v)} title="Standard Management Template" icon={Sparkles}
         badge={<Pill tone="amber">Reference</Pill>}>
