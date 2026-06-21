@@ -4764,6 +4764,7 @@ function AnimatedCandlestickChart() {
 /* ── Best Setups Dashboard Card ── */
 function BestSetupsCard({ data, goTo }: { data: any; goTo: (tab: string, sub?: string) => void }) {
   const setups: any[] = data.setups || [];
+  const [activeSetup, setActiveSetup] = useState<any>(null);
 
   if (setups.length === 0) {
     return (
@@ -4779,47 +4780,54 @@ function BestSetupsCard({ data, goTo }: { data: any; goTo: (tab: string, sub?: s
   }
 
   const featured = setups.slice(0, 6);
+  const COLORS = ["#f59e0b", "#38bdf8", "#a78bfa", "#34d399", "#f87171", "#fb923c"];
 
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
-      <button onClick={() => goTo("library", "Setups")}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-900/40 transition">
-        <div className="flex items-center gap-2">
-          <Layers size={15} className="text-amber-400" />
-          <span className="text-sm font-semibold text-slate-200" style={{ fontFamily: "'Sora', sans-serif" }}>Setup Library</span>
-          <span className="px-1.5 py-0.5 rounded-lg bg-slate-800 text-slate-500 text-[9px] font-bold">{setups.length}</span>
-        </div>
-        <ChevronRight size={14} className="text-slate-600" />
-      </button>
-      <div className="flex gap-2 px-3 pb-3 overflow-x-auto no-scrollbar">
-        {featured.map((s: any) => (
-          <button key={s.id} onClick={() => goTo("library", "Setups")}
-            className="flex-shrink-0 w-28 rounded-xl overflow-hidden border border-slate-800/80 bg-slate-900 text-left hover:border-amber-500/30 transition active:scale-95">
-            <div className="w-full h-14 overflow-hidden bg-slate-800 flex items-center justify-center">
-              {s.image ? (
-                <img src={s.image} alt={s.name} className="w-full h-full object-cover" />
-              ) : (s.photos && s.photos.length > 0) ? (
-                <img src={s.photos[0]} alt={s.name} className="w-full h-full object-cover" />
-              ) : (
-                <Layers size={16} className="text-slate-600" />
-              )}
-            </div>
-            <div className="px-2 py-1.5">
-              <div className="text-[10px] font-semibold text-slate-200 truncate leading-tight">{s.name}</div>
-              {s.setupType && (
-                <div className="text-[9px] text-amber-400/70 truncate">{s.setupType}</div>
-              )}
-              {s.marketBias && (
-                <div className={cx("text-[9px] font-semibold mt-0.5",
-                  s.marketBias === "Bullish" ? "text-emerald-500/70" : s.marketBias === "Bearish" ? "text-rose-500/70" : "text-slate-500")}>
-                  {s.marketBias}
+    <>
+      <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
+        <button onClick={() => goTo("library", "Setups")}
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-900/40 transition">
+          <div className="flex items-center gap-2">
+            <Layers size={15} className="text-amber-400" />
+            <span className="text-sm font-semibold text-slate-200" style={{ fontFamily: "'Sora', sans-serif" }}>Setup Library</span>
+            <span className="px-1.5 py-0.5 rounded-lg bg-slate-800 text-slate-500 text-[9px] font-bold">{setups.length}</span>
+          </div>
+          <ChevronRight size={14} className="text-slate-600" />
+        </button>
+        <div className="flex gap-2 px-3 pb-3 overflow-x-auto no-scrollbar">
+          {featured.map((s: any, i: number) => {
+            const accent = COLORS[i % COLORS.length];
+            const hasImg = s.image || (s.photos && s.photos.length > 0);
+            return (
+              <button key={s.id} onClick={() => setActiveSetup(s)}
+                className="flex-shrink-0 w-28 rounded-xl overflow-hidden border bg-slate-900 text-left transition active:scale-95"
+                style={{ borderColor: `${accent}30` }}>
+                <div className="w-full h-14 overflow-hidden flex items-center justify-center relative"
+                  style={{ background: hasImg ? "#0a0f1e" : `${accent}12` }}>
+                  {s.image ? (
+                    <img src={s.image} alt={s.name} className="w-full h-full object-cover" />
+                  ) : (s.photos && s.photos.length > 0) ? (
+                    <img src={s.photos[0]?.url ?? s.photos[0]} alt={s.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <Layers size={18} style={{ color: accent, opacity: 0.7 }} />
+                  )}
+                  {/* subtle gradient overlay */}
+                  <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.4) 0%, transparent 60%)" }} />
                 </div>
-              )}
-            </div>
-          </button>
-        ))}
+                <div className="px-2 py-1.5">
+                  <div className="text-[10px] font-semibold truncate leading-tight" style={{ color: "#e2e8f0" }}>{s.name}</div>
+                  <div className="text-[9px] mt-0.5 font-semibold" style={{ color: accent, opacity: 0.8 }}>
+                    {s.setupType || s.tags?.[0] || "Tap to view"}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
-    </div>
+
+      {activeSetup && <SetupSlideModal setup={activeSetup} onClose={() => setActiveSetup(null)} />}
+    </>
   );
 }
 
