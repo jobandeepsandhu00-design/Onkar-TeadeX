@@ -8964,7 +8964,7 @@ function SetupCarouselBanner({ setups }: { setups: any[] }) {
                 key={i}
                 onClick={e => { e.stopPropagation(); goTo(i, i > idx ? "right" : "left"); }}
                 style={{
-                  border: "none", cursor: "pointer", padding: 0, borderRadius: "50%",
+                  border: "none", cursor: "pointer", padding: 0,
                   width: i === idx ? 18 : 6, height: 6,
                   borderRadius: i === idx ? 3 : "50%",
                   background: i === idx ? accent : "rgba(255,255,255,0.12)",
