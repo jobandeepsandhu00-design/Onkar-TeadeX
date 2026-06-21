@@ -5674,6 +5674,16 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
 
   const [editLayout, setEditLayout] = useState(false);
 
+  /* ── Account Switcher state ── */
+  const [acctSwitcherOpen, setAcctSwitcherOpen] = useState(false);
+  const accounts: any[] = (data as any).tradingAccounts || [];
+  const activeAcctId: string | null = (data as any).activeAccountId || null;
+  const activeAcct = accounts.find((a: any) => a.id === activeAcctId) || null;
+  const switchAccount = (id: string) => {
+    setData((d: any) => ({ ...d, activeAccountId: d.activeAccountId === id ? null : id }));
+    setAcctSwitcherOpen(false);
+  };
+
   /* ── AI Chat state ── */
   const [aiOpen, setAiOpen] = useState(false);
   const [aiMessages, setAiMessages] = useState<{ role: "user" | "ai"; text: string }[]>([]);
@@ -5953,9 +5963,17 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
               {editLayout ? <Check size={12} /> : <GripVertical size={12} />}
               {editLayout ? "Done" : "Reorder"}
             </button>
-            <button onClick={() => goTo("more", "Account")}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-semibold text-slate-400 hover:text-amber-400 hover:border-amber-500/30 transition">
-              <Pencil size={12} /> Account
+            <button
+              onClick={() => setAcctSwitcherOpen((o) => !o)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition active:scale-95"
+              style={activeAcct
+                ? { background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.35)", color: "#34d399" }
+                : { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#94a3b8" }}>
+              <div className={cx("w-2 h-2 rounded-full shrink-0", activeAcct ? "bg-emerald-400 animate-pulse" : "bg-slate-600")} />
+              <span className="max-w-[90px] truncate">
+                {activeAcct ? (activeAcct.alias || activeAcct.accountNumber) : "Account"}
+              </span>
+              <ChevronDown size={11} />
             </button>
           </div>
         </div>
@@ -5984,6 +6002,112 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
       })}
 
     </div>
+
+    {/* ── Account Switcher bottom sheet ── */}
+    {acctSwitcherOpen && (
+      <>
+        {/* Backdrop */}
+        <div className="fixed inset-0 z-[60] bg-black/50" onClick={() => setAcctSwitcherOpen(false)} />
+        {/* Sheet */}
+        <div className="fixed inset-x-0 bottom-0 z-[61] rounded-t-2xl overflow-hidden"
+          style={{ background: "#0d1526", boxShadow: "0 -4px 40px rgba(0,0,0,0.7)", maxHeight: "75vh" }}>
+          {/* Handle */}
+          <div className="flex justify-center pt-3 pb-1">
+            <div className="w-10 h-1 rounded-full bg-slate-700" />
+          </div>
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800">
+            <div>
+              <div className="text-sm font-bold text-slate-100">Switch Account</div>
+              <div className="text-[11px] text-slate-500">{accounts.length} account{accounts.length !== 1 ? "s" : ""} · tap to activate</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setAcctSwitcherOpen(false); goTo("more", "Account"); }}
+                className="text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-amber-400 transition flex items-center gap-1">
+                <Pencil size={11} /> Manage
+              </button>
+              <button onClick={() => setAcctSwitcherOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-500">
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+          {/* Account list */}
+          <div className="overflow-y-auto px-4 py-3 space-y-2" style={{ maxHeight: "calc(75vh - 90px)", paddingBottom: "calc(1rem + env(safe-area-inset-bottom,0px))" }}>
+            {accounts.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-10">
+                <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center">
+                  <Wallet size={22} className="text-slate-600" />
+                </div>
+                <p className="text-sm text-slate-500 text-center">No trading accounts yet.</p>
+                <button
+                  onClick={() => { setAcctSwitcherOpen(false); goTo("more", "Account"); }}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-white transition active:scale-95"
+                  style={{ background: "var(--otx-accent,#f59e0b)" }}>
+                  Add Account
+                </button>
+              </div>
+            ) : (
+              accounts.map((acct: any) => {
+                const isActive = acct.id === activeAcctId;
+                const typeColor: Record<string, string> = {
+                  Live: "#10b981", Demo: "#60a5fa", Prop: "#a78bfa", Challenge: "#f59e0b", Funded: "#34d399",
+                };
+                const tc = typeColor[acct.accountType] || "#94a3b8";
+                return (
+                  <button
+                    key={acct.id}
+                    onClick={() => switchAccount(acct.id)}
+                    className="w-full flex items-center gap-3 p-3.5 rounded-2xl border text-left transition active:scale-[0.98]"
+                    style={isActive
+                      ? { background: "rgba(16,185,129,0.1)", border: "1.5px solid rgba(16,185,129,0.4)" }
+                      : { background: "#111827", border: "1px solid #1e293b" }}>
+                    {/* Avatar */}
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-black text-sm"
+                      style={{ background: tc + "20", color: tc }}>
+                      {(acct.alias || acct.accountNumber || "?").slice(0, 2).toUpperCase()}
+                    </div>
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-bold text-slate-100 truncate">
+                          {acct.alias || acct.accountNumber}
+                        </span>
+                        {isActive && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+                            ACTIVE
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0"
+                          style={{ background: tc + "20", color: tc }}>
+                          {acct.accountType}
+                        </span>
+                        {acct.platform && <span className="text-[10px] text-slate-500">{acct.platform}</span>}
+                        {acct.accountNumber && acct.alias && (
+                          <span className="text-[10px] text-slate-600 truncate">{acct.accountNumber}</span>
+                        )}
+                        {acct.balance && (
+                          <span className="text-[10px] text-slate-400 font-medium ml-auto shrink-0">
+                            {acct.currency || ""} {parseFloat(acct.balance).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Checkmark */}
+                    <div className={cx("w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition",
+                      isActive ? "bg-emerald-500" : "bg-slate-800 border border-slate-700")}>
+                      {isActive && <Check size={11} className="text-white" />}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </>
+    )}
 
     {/* ── Floating AI Coach button ── */}
     <button
