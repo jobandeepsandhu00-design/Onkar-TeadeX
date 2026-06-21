@@ -7050,6 +7050,64 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
               </Field>
             </div>
 
+            {/* Quick Exit strip — R:R + pip presets */}
+            {(() => {
+              const entry = parseFloat(form.entry);
+              const sl = parseFloat(form.sl);
+              if (!entry || !sl || isNaN(entry) || isNaN(sl) || Math.abs(entry - sl) < 1e-10) return null;
+              const { pip, dec } = getPipInfo(form.symbol);
+              const isLong = form.side === "Buy";
+              const slDist = Math.abs(entry - sl);
+              const RR = [1, 2, 3, 4];
+              const PIPS = [10, 20, 30, 50, 75, 100];
+              return (
+                <div className="rounded-xl bg-rose-500/5 border border-rose-500/20 p-3 -mt-1 mb-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ArrowRightLeft size={11} className="text-rose-400" />
+                    <span className="text-[10px] uppercase tracking-wide text-rose-400 font-semibold">Quick Exit</span>
+                  </div>
+                  {/* R:R row */}
+                  <div className="text-[9px] text-slate-600 font-semibold mb-1.5 uppercase tracking-wide">By R:R ratio</div>
+                  <div className="flex gap-1.5 flex-wrap mb-2.5">
+                    {RR.map((rr) => {
+                      const exitPrice = isLong ? entry + rr * slDist : entry - rr * slDist;
+                      const exitStr = exitPrice.toFixed(dec);
+                      const active = form.exit === exitStr;
+                      return (
+                        <button key={rr} type="button"
+                          onClick={() => setForm((f) => ({ ...f, exit: exitStr }))}
+                          className={cx("flex flex-col items-center px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition",
+                            active ? "bg-rose-500/25 border-rose-500/50 text-rose-300"
+                              : "bg-slate-900 border-slate-800 text-slate-400 hover:border-rose-500/40 hover:text-rose-300")}>
+                          <span>1:{rr}</span>
+                          <span className="text-[9px] opacity-60 font-normal">{exitStr}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Pips row */}
+                  <div className="text-[9px] text-slate-600 font-semibold mb-1.5 uppercase tracking-wide">By pips from entry</div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {PIPS.map((p) => {
+                      const exitPrice = isLong ? entry + p * pip : entry - p * pip;
+                      const exitStr = exitPrice.toFixed(dec);
+                      const active = form.exit === exitStr;
+                      return (
+                        <button key={p} type="button"
+                          onClick={() => setForm((f) => ({ ...f, exit: exitStr }))}
+                          className={cx("flex flex-col items-center px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition",
+                            active ? "bg-rose-500/25 border-rose-500/50 text-rose-300"
+                              : "bg-slate-900 border-slate-800 text-slate-400 hover:border-rose-500/40 hover:text-rose-300")}>
+                          <span>{p}p</span>
+                          <span className="text-[9px] opacity-60 font-normal">{exitStr}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Quick TP strip — R:R presets */}
             {(() => {
               const entry = parseFloat(form.entry);
@@ -7103,7 +7161,41 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                 onChange={(e) => setForm((f) => ({ ...f, manualPnl: e.target.value }))}
                 onKeyDown={nf("tf-entryTime")}
               />
-              <p className="text-[10px] text-slate-600 mt-1.5">Enter the exact profit/loss shown on your broker. Negative = loss. This drives all stats and balance.</p>
+              {/* Quick P/L amount chips */}
+              <div className="mt-2.5">
+                <div className="text-[9px] text-slate-600 font-semibold mb-1.5 uppercase tracking-wide">Quick amounts</div>
+                <div className="flex gap-1.5 flex-wrap mb-1.5">
+                  {[25,50,75,100,150,200,300,500].map(v => {
+                    const cur2 = cur === "$" ? "" : cur;
+                    const active = form.manualPnl === String(v);
+                    return (
+                      <button key={v} type="button"
+                        onClick={() => setForm(f => ({ ...f, manualPnl: String(v) }))}
+                        className={cx("px-2.5 py-1 rounded-lg border text-xs font-semibold transition",
+                          active ? "bg-emerald-500/25 border-emerald-500/50 text-emerald-300"
+                            : "bg-slate-900 border-slate-800 text-emerald-500/70 hover:border-emerald-500/40")}>
+                        +{cur2}{v}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[25,50,75,100,150,200,300,500].map(v => {
+                    const cur2 = cur === "$" ? "" : cur;
+                    const active = form.manualPnl === String(-v);
+                    return (
+                      <button key={-v} type="button"
+                        onClick={() => setForm(f => ({ ...f, manualPnl: String(-v) }))}
+                        className={cx("px-2.5 py-1 rounded-lg border text-xs font-semibold transition",
+                          active ? "bg-rose-500/25 border-rose-500/50 text-rose-300"
+                            : "bg-slate-900 border-slate-800 text-rose-500/70 hover:border-rose-500/40")}>
+                        -{cur2}{v}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-600 mt-2">Enter the exact profit/loss shown on your broker. Negative = loss. This drives all stats and balance.</p>
             </div>
 
             {/* Inline Position Size Auto-Calculator */}
@@ -7259,9 +7351,79 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
         {/* Step 3: Notes */}
         {step === 3 && (
           <div className="space-y-0">
+            {/* Quick note suggestion chips */}
+            {(() => {
+              const NOTE_GROUPS = [
+                {
+                  label: "✅ Setup quality", color: "#34d399",
+                  chips: ["A+ setup — textbook execution","B setup — acceptable entry","C setup — should have skipped","Followed the plan perfectly","Best entry of the week","Waited patiently for confirmation"],
+                },
+                {
+                  label: "📍 Entry reason", color: "#38bdf8",
+                  chips: ["Bullish OB retest","Bearish OB retest","FVG filled before entry","CHoCH confirmed","BOS confirmed","Liquidity sweep + reversal","Equal highs swept","Equal lows swept","OTE zone entry (61–79%)","Balanced price range (BPR)","Support/resistance level","Breakout retest","Inducement taken before entry","HTF bias aligned","Session open momentum"],
+                },
+                {
+                  label: "❌ Why I lost", color: "#f87171",
+                  chips: ["FOMO — chased the move","Overtrading — too many trades","No clear setup","Forced the trade","Moved stop loss wider","Ignored higher timeframe","Counter-trend trade","Entered at resistance","News spike stopped me out","Spread widened on entry","Early entry — no confirmation","Wrong session — low volume","Overleveraged position","Didn't wait for close"],
+                },
+                {
+                  label: "🧠 Psychology", color: "#a78bfa",
+                  chips: ["Revenge trade after loss","Cut profit too early (fear)","Held loss too long (hope)","Overconfident after win streak","Hesitated — missed perfect entry","Emotional after previous loss","Impatient — no patience","Undisciplined — broke rules","Second-guessed the analysis","Scared of pullback","Tilted — not in right mindset","Greed — didn't take TP","Anxiety clouded judgement"],
+                },
+                {
+                  label: "⚙️ Execution", color: "#fbbf24",
+                  chips: ["Perfect entry and exit","Late entry — missed best price","Scaled in well","Partial closed at 1:1","Moved to breakeven too soon","Trailed stop correctly","Didn't partial — took full TP","Wrong lot size entered","Closed manually before TP","Let it run to full target"],
+                },
+                {
+                  label: "📊 Market conditions", color: "#fb923c",
+                  chips: ["Trending market — strong momentum","Ranging / choppy market","High volatility session","Low volume — Asian session","London open momentum","New York open reversal","Pre-news consolidation","Post-news spike","Fundamental shift in trend","Consolidation breakout","Market correlation working"],
+                },
+                {
+                  label: "📝 Post-trade reflection", color: "#64748b",
+                  chips: ["Good trade, bad result (fine)","Bad trade, good result (lucky)","Would take this again","Would skip this next time","Risk was too high","Should have sized up","Respected daily loss limit","Stopped after 3 losses","Best session in weeks","Consistent with strategy"],
+                },
+              ];
+
+              const append = (chip: string) => {
+                setForm((f) => {
+                  const prev = f.notes.trim();
+                  return { ...f, notes: prev ? prev + ". " + chip : chip };
+                });
+              };
+
+              return (
+                <div className="rounded-xl bg-slate-900 border border-slate-800 p-3 mb-2">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Zap size={12} className="text-amber-400" />
+                    <span className="text-[10px] uppercase tracking-wide text-amber-400 font-semibold">Quick note suggestions</span>
+                    <span className="text-[9px] text-slate-600">— tap to append</span>
+                  </div>
+                  <div className="space-y-3">
+                    {NOTE_GROUPS.map(g => (
+                      <div key={g.label}>
+                        <div className="text-[9px] font-semibold mb-1.5 uppercase tracking-wide" style={{ color: g.color }}>{g.label}</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {g.chips.map(chip => (
+                            <button key={chip} type="button" onClick={() => append(chip)}
+                              className="px-2 py-1 rounded-lg border border-slate-700 bg-slate-800/60 text-slate-400 text-[10px] font-medium hover:border-amber-500/40 hover:text-slate-200 transition active:scale-95"
+                              style={{ lineHeight: 1.3 }}>
+                              {chip}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             <Field label="Trade Notes">
-              <TextArea placeholder="What did you see? How did you execute? What would you do differently? Paste in your pre-trade analysis here..." value={form.notes} onChange={set("notes")} className="min-h-[140px]" />
+              <TextArea placeholder="What did you see? How did you execute? What would you do differently?" value={form.notes} onChange={set("notes")} className="min-h-[120px]" />
             </Field>
+            {form.notes && (
+              <button type="button" onClick={() => setForm(f => ({ ...f, notes: "" }))}
+                className="text-[10px] text-slate-600 hover:text-rose-400 transition mb-1">✕ Clear notes</button>
+            )}
             <Field label="Screenshots / Attachments">
               <Attachments items={form.attachments} onChange={(items) => setForm((f) => ({ ...f, attachments: items }))} />
             </Field>
