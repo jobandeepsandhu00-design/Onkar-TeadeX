@@ -65,6 +65,15 @@ export async function me() {
   return req("/auth/me");
 }
 
+export async function ownerLogin(code: string) {
+  const body = await req("/auth/owner", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+  setToken(body.token);
+  return body;
+}
+
 export function logout() {
   clearToken();
 }

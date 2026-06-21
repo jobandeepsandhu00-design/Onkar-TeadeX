@@ -76,6 +76,43 @@ router.post("/auth/login", async (req: Request, res: Response) => {
   res.json({ token: sign(user), user: { id: user.id, email: user.email } });
 });
 
+/* ── Owner access — code-gated, no password needed ── */
+router.post("/auth/owner", async (req: Request, res: Response) => {
+  const { code } = (req.body as Record<string, unknown>) || {};
+  if (code !== "1996")
+    return void res.status(401).json({ error: "Invalid owner code." });
+
+  const ownerEmail = "owner@onkartradex.internal";
+
+  // Find or auto-create the owner account
+  const existing = await pool.query(
+    "SELECT id, email FROM users WHERE lower(email) = $1",
+    [ownerEmail]
+  );
+
+  let owner: { id: number; email: string };
+  if (existing.rowCount && existing.rowCount > 0) {
+    owner = existing.rows[0] as { id: number; email: string };
+  } else {
+    const hash = await bcrypt.hash("__owner_internal_" + ownerEmail, 10);
+    const { rows } = await pool.query(
+      "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email",
+      [ownerEmail, hash]
+    );
+    owner = rows[0] as { id: number; email: string };
+    await pool.query(
+      "INSERT INTO app_state (user_id, data) VALUES ($1, NULL) ON CONFLICT (user_id) DO NOTHING",
+      [owner.id]
+    );
+  }
+
+  res.json({
+    token: sign(owner),
+    user: { id: owner.id, email: owner.email },
+    isOwner: true,
+  });
+});
+
 router.get("/auth/me", requireAuth, (req: Request, res: Response) => {
   const r = req as Request & { userId: number; userEmail: string };
   res.json({ user: { id: r.userId, email: r.userEmail } });

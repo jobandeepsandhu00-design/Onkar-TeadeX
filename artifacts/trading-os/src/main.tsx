@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import { getToken, login, register, logout, me } from "./api";
+import { getToken, login, register, logout, me, ownerLogin } from "./api";
 import "./index.css";
 
 // Suppress the harmless "ResizeObserver loop limit exceeded" browser error.
@@ -310,6 +310,168 @@ function CandlestickBackground() {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   Owner Login Panel (code: 1996)
+───────────────────────────────────────────────────────────── */
+function OwnerLoginPanel({ onAuthed, onClose }: { onAuthed: () => void; onClose: () => void }) {
+  const [digits, setDigits] = useState(["", "", "", ""]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const inputRefs = [
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+  ];
+
+  useEffect(() => {
+    inputRefs[0].current?.focus();
+  }, []);
+
+  const handleDigit = (i: number, val: string) => {
+    const d = val.replace(/\D/g, "").slice(-1);
+    const next = [...digits];
+    next[i] = d;
+    setDigits(next);
+    setErr(null);
+    if (d && i < 3) inputRefs[i + 1].current?.focus();
+    if (next.every((x) => x !== "") && d) {
+      attemptOwnerLogin(next.join(""));
+    }
+  };
+
+  const handleKeyDown = (i: number, e: React.KeyboardEvent) => {
+    if (e.key === "Backspace" && !digits[i] && i > 0) {
+      inputRefs[i - 1].current?.focus();
+    }
+  };
+
+  const attemptOwnerLogin = async (code: string) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await ownerLogin(code);
+      setSuccess(true);
+      setTimeout(() => onAuthed(), 900);
+    } catch {
+      setErr("Incorrect code. Try again.");
+      setDigits(["", "", "", ""]);
+      setTimeout(() => inputRefs[0].current?.focus(), 50);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 100,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: "24px 16px",
+      background: "rgba(0,0,0,0.75)",
+      backdropFilter: "blur(8px)",
+      WebkitBackdropFilter: "blur(8px)",
+    }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{
+        width: "100%", maxWidth: 340,
+        background: "rgba(10,14,26,0.97)",
+        border: "1px solid rgba(245,158,11,0.25)",
+        borderRadius: 24,
+        boxShadow: "0 30px 80px rgba(0,0,0,0.7), 0 0 40px rgba(245,158,11,0.08)",
+        padding: "32px 28px",
+        textAlign: "center",
+      }}>
+        {/* Crown icon */}
+        <div style={{
+          width: 64, height: 64, borderRadius: "50%", margin: "0 auto 16px",
+          background: "linear-gradient(135deg,rgba(245,158,11,0.2),rgba(251,191,36,0.1))",
+          border: "2px solid rgba(245,158,11,0.35)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 28,
+          boxShadow: "0 0 24px rgba(245,158,11,0.2)",
+        }}>👑</div>
+
+        <div style={{
+          fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 900,
+          background: "linear-gradient(90deg,#fbbf24,#f59e0b,#fbbf24)",
+          WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+          marginBottom: 4,
+        }}>Owner Access</div>
+        <div style={{ color: "#475569", fontSize: 12, marginBottom: 28 }}>
+          Enter your 4-digit owner code
+        </div>
+
+        {/* 4-digit boxes */}
+        <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 20 }}>
+          {digits.map((d, i) => (
+            <input
+              key={i}
+              ref={inputRefs[i]}
+              type="password"
+              inputMode="numeric"
+              maxLength={1}
+              value={d}
+              onChange={(e) => handleDigit(i, e.target.value)}
+              onKeyDown={(e) => handleKeyDown(i, e)}
+              disabled={busy || success}
+              style={{
+                width: 52, height: 60, borderRadius: 14,
+                background: d
+                  ? "rgba(245,158,11,0.12)"
+                  : "rgba(255,255,255,0.04)",
+                border: err
+                  ? "2px solid rgba(239,68,68,0.6)"
+                  : d
+                    ? "2px solid rgba(245,158,11,0.55)"
+                    : "2px solid rgba(255,255,255,0.1)",
+                color: "#fbbf24",
+                fontSize: 24, fontWeight: 900, textAlign: "center",
+                outline: "none", cursor: "pointer",
+                transition: "all 0.15s",
+                boxShadow: d ? "0 0 16px rgba(245,158,11,0.2)" : "none",
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Status */}
+        {success && (
+          <div style={{
+            padding: "10px 16px", borderRadius: 12, marginBottom: 16,
+            background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)",
+            color: "#34d399", fontSize: 13, fontWeight: 600,
+          }}>
+            ✓ Welcome back, Owner!
+          </div>
+        )}
+        {err && (
+          <div style={{
+            padding: "10px 16px", borderRadius: 12, marginBottom: 16,
+            background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)",
+            color: "#f87171", fontSize: 12,
+          }}>{err}</div>
+        )}
+
+        {busy && !success && (
+          <div style={{ color: "#64748b", fontSize: 12, marginBottom: 16 }}>Verifying…</div>
+        )}
+
+        <button
+          onClick={onClose}
+          style={{
+            background: "none", border: "none", cursor: "pointer",
+            color: "#334155", fontSize: 12, marginTop: 4,
+          }}
+        >
+          ← Back to login
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
    Auth Screen
 ───────────────────────────────────────────────────────────── */
 function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
@@ -318,6 +480,7 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showOwner, setShowOwner] = useState(false);
 
   const submit = async () => {
     setErr(null);
@@ -349,6 +512,11 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
         position: "fixed", inset: 0, zIndex: 1,
         background: "radial-gradient(ellipse at 50% 50%, rgba(5,11,23,0.45) 0%, rgba(5,11,23,0.75) 100%)",
       }} />
+
+      {/* Owner panel overlay */}
+      {showOwner && (
+        <OwnerLoginPanel onAuthed={onAuthed} onClose={() => setShowOwner(false)} />
+      )}
 
       {/* Content */}
       <div style={{
@@ -480,6 +648,39 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
             }}
           >
             {busy ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
+          </button>
+
+          {/* Owner access divider */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "20px 0 0" }}>
+            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.06)" }} />
+            <span style={{ color: "#1e293b", fontSize: 11 }}>or</span>
+            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.06)" }} />
+          </div>
+
+          {/* Owner button */}
+          <button
+            onClick={() => setShowOwner(true)}
+            style={{
+              width: "100%", marginTop: 12, padding: "10px 0", borderRadius: 14,
+              background: "rgba(245,158,11,0.07)",
+              border: "1px solid rgba(245,158,11,0.2)",
+              cursor: "pointer", color: "#92400e",
+              fontWeight: 600, fontSize: 13, letterSpacing: "0.02em",
+              transition: "all 0.2s",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = "rgba(245,158,11,0.14)";
+              (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(245,158,11,0.4)";
+              (e.currentTarget as HTMLButtonElement).style.color = "#f59e0b";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = "rgba(245,158,11,0.07)";
+              (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(245,158,11,0.2)";
+              (e.currentTarget as HTMLButtonElement).style.color = "#92400e";
+            }}
+          >
+            👑 Owner Login
           </button>
         </div>
 
