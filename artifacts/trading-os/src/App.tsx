@@ -7063,7 +7063,7 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
               return (
                 <div className="rounded-xl bg-rose-500/5 border border-rose-500/20 p-3 -mt-1 mb-1">
                   <div className="flex items-center gap-2 mb-2">
-                    <ArrowRightLeft size={11} className="text-rose-400" />
+                    <Repeat2 size={11} className="text-rose-400" />
                     <span className="text-[10px] uppercase tracking-wide text-rose-400 font-semibold">Quick Exit</span>
                   </div>
                   {/* R:R row */}
