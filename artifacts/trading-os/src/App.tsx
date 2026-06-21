@@ -14648,7 +14648,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               {activeTab === "more" && <MoreTab data={d} setData={setData} subTab={moreSubTab} setSubTab={setMoreSubTab} goTo={goTo} />}
               {activeTab === "backtest" && (
                 <div style={{ position: "fixed", inset: 0, zIndex: 30, overflow: "hidden" }}>
-                  <BacktestTab />
+                  <BacktestTab data={effectiveData} setData={setData} />
                 </div>
               )}
             </>
