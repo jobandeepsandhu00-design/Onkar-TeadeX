@@ -4764,9 +4764,24 @@ function AnimatedCandlestickChart() {
 /* ── Best Setups Dashboard Card ── */
 function BestSetupsCard({ data, goTo }: { data: any; goTo: (tab: string, sub?: string) => void }) {
   const setups: any[] = data.setups || [];
-  const [activeSetup, setActiveSetup] = useState<any>(null);
+  const [idx, setIdx] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [modal, setModal] = useState<any>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const total = setups.length;
 
-  if (setups.length === 0) {
+  const advance = (next: number) => setIdx((next + total) % total);
+
+  useEffect(() => {
+    if (total < 2 || paused || modal) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      return;
+    }
+    timerRef.current = setInterval(() => setIdx(i => (i + 1) % total), 3000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [total, paused, modal, idx]);
+
+  if (total === 0) {
     return (
       <button onClick={() => goTo("library", "Setups")}
         className="w-full flex items-center gap-3 px-4 py-3 bg-slate-950 border border-slate-800 border-dashed rounded-2xl text-left hover:border-amber-500/30 transition">
@@ -4779,54 +4794,111 @@ function BestSetupsCard({ data, goTo }: { data: any; goTo: (tab: string, sub?: s
     );
   }
 
-  const featured = setups.slice(0, 6);
-  const COLORS = ["#f59e0b", "#38bdf8", "#a78bfa", "#34d399", "#f87171", "#fb923c"];
+  const COLORS = ["#f59e0b", "#38bdf8", "#a78bfa", "#34d399", "#f87171", "#fb923c", "#e879f9", "#22d3ee"];
+  const s = setups[idx];
+  const accent = COLORS[idx % COLORS.length];
+  const hasImg = s.image || (s.photos && s.photos.length > 0);
 
   return (
     <>
       <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
+        {/* Header — still links to library */}
         <button onClick={() => goTo("library", "Setups")}
-          className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-900/40 transition">
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-900/40 transition border-b border-slate-800/60">
           <div className="flex items-center gap-2">
             <Layers size={15} className="text-amber-400" />
             <span className="text-sm font-semibold text-slate-200" style={{ fontFamily: "'Sora', sans-serif" }}>Setup Library</span>
-            <span className="px-1.5 py-0.5 rounded-lg bg-slate-800 text-slate-500 text-[9px] font-bold">{setups.length}</span>
+            <span className="px-1.5 py-0.5 rounded-lg bg-slate-800 text-slate-500 text-[9px] font-bold">{total}</span>
           </div>
           <ChevronRight size={14} className="text-slate-600" />
         </button>
-        <div className="flex gap-2 px-3 pb-3 overflow-x-auto no-scrollbar">
-          {featured.map((s: any, i: number) => {
-            const accent = COLORS[i % COLORS.length];
-            const hasImg = s.image || (s.photos && s.photos.length > 0);
-            return (
-              <button key={s.id} onClick={() => setActiveSetup(s)}
-                className="flex-shrink-0 w-28 rounded-xl overflow-hidden border bg-slate-900 text-left transition active:scale-95"
-                style={{ borderColor: `${accent}30` }}>
-                <div className="w-full h-14 overflow-hidden flex items-center justify-center relative"
-                  style={{ background: hasImg ? "#0a0f1e" : `${accent}12` }}>
-                  {s.image ? (
-                    <img src={s.image} alt={s.name} className="w-full h-full object-cover" />
-                  ) : (s.photos && s.photos.length > 0) ? (
-                    <img src={s.photos[0]?.url ?? s.photos[0]} alt={s.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <Layers size={18} style={{ color: accent, opacity: 0.7 }} />
-                  )}
-                  {/* subtle gradient overlay */}
-                  <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.4) 0%, transparent 60%)" }} />
-                </div>
-                <div className="px-2 py-1.5">
-                  <div className="text-[10px] font-semibold truncate leading-tight" style={{ color: "#e2e8f0" }}>{s.name}</div>
-                  <div className="text-[9px] mt-0.5 font-semibold" style={{ color: accent, opacity: 0.8 }}>
-                    {s.setupType || s.tags?.[0] || "Tap to view"}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+
+        {/* Auto-swipe carousel card */}
+        <div
+          onPointerDown={() => setPaused(true)}
+          onPointerUp={() => setPaused(false)}
+          onPointerLeave={() => setPaused(false)}
+          onClick={() => setModal(s)}
+          style={{ cursor: "pointer", userSelect: "none", position: "relative", overflow: "hidden" }}
+        >
+          {/* Background image or colour swatch */}
+          <div style={{ position: "relative", height: 112, overflow: "hidden", background: hasImg ? "#050912" : `${accent}10` }}>
+            {hasImg ? (
+              <img
+                src={s.image || s.photos?.[0]?.url || s.photos?.[0]}
+                alt={s.name}
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: 0.55 }}
+              />
+            ) : (
+              /* decorative blob when no image */
+              <div style={{ position: "absolute", top: -40, right: -40, width: 160, height: 160, borderRadius: "50%", background: accent, opacity: 0.12, filter: "blur(40px)" }} />
+            )}
+            {/* gradient overlay */}
+            <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(5,9,18,0.95) 0%, rgba(5,9,18,0.3) 100%)" }} />
+
+            {/* card content */}
+            <div style={{ position: "absolute", inset: 0, padding: "12px 14px", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+              {/* tags */}
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 5 }}>
+                {(s.tags || []).slice(0, 2).map((t: string) => (
+                  <span key={t} style={{ padding: "1px 7px", borderRadius: 5, background: `${accent}22`, color: accent, fontSize: 9, fontWeight: 700, border: `1px solid ${accent}33` }}>{t}</span>
+                ))}
+                {s.exception && <span style={{ padding: "1px 7px", borderRadius: 5, background: "rgba(239,68,68,0.15)", color: "#f87171", fontSize: 9, fontWeight: 700 }}>Exception</span>}
+              </div>
+              {/* name */}
+              <div style={{ color: "#f1f5f9", fontSize: 14, fontWeight: 900, lineHeight: 1.25, marginBottom: 4 }}>{s.name}</div>
+              {/* context snippet */}
+              <div style={{ color: "#64748b", fontSize: 10, lineHeight: 1.45, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                <span style={{ color: accent, fontWeight: 700 }}>Context — </span>{s.trend}
+              </div>
+            </div>
+
+            {/* top-right: paused indicator + counter */}
+            <div style={{ position: "absolute", top: 10, right: 12, display: "flex", alignItems: "center", gap: 6 }}>
+              {paused && (
+                <span style={{ background: "rgba(0,0,0,0.55)", borderRadius: 6, padding: "2px 7px", color: "rgba(255,255,255,0.4)", fontSize: 9, fontWeight: 700 }}>⏸</span>
+              )}
+              <span style={{ background: "rgba(0,0,0,0.45)", borderRadius: 7, padding: "2px 8px", color: "rgba(255,255,255,0.5)", fontSize: 9, fontWeight: 700 }}>{idx + 1} / {total}</span>
+            </div>
+
+            {/* bottom-right: tap hint */}
+            <div style={{ position: "absolute", bottom: 10, right: 12, color: "rgba(255,255,255,0.22)", fontSize: 9, fontWeight: 600 }}>Tap to view →</div>
+          </div>
+
+          {/* Dot indicators + arrows */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "8px 12px 10px", background: "#060d1f" }}>
+            <button
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => { e.stopPropagation(); advance(idx - 1); }}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.25)", fontSize: 16, lineHeight: 1, padding: "0 4px" }}>‹</button>
+
+            <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+              {setups.map((_: any, i: number) => (
+                <button
+                  key={i}
+                  onPointerDown={e => e.stopPropagation()}
+                  onClick={e => { e.stopPropagation(); setIdx(i); }}
+                  style={{
+                    border: "none", cursor: "pointer", padding: 0,
+                    height: 6,
+                    width: i === idx ? 20 : 6,
+                    borderRadius: i === idx ? 3 : "50%",
+                    background: i === idx ? accent : "rgba(255,255,255,0.12)",
+                    transition: "all 0.25s",
+                  }}
+                />
+              ))}
+            </div>
+
+            <button
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => { e.stopPropagation(); advance(idx + 1); }}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.25)", fontSize: 16, lineHeight: 1, padding: "0 4px" }}>›</button>
+          </div>
         </div>
       </div>
 
-      {activeSetup && <SetupSlideModal setup={activeSetup} onClose={() => setActiveSetup(null)} />}
+      {modal && <SetupSlideModal setup={modal} onClose={() => setModal(null)} />}
     </>
   );
 }
