@@ -1977,8 +1977,16 @@ function computeNotifications(data: any, enabled: Record<string, boolean>): OTXN
       `No mindset entry in the last 7 days. Log how you're feeling about your trading — mental edge matters.`, "violet", "🧠");
   }
 
-  const lastVault = (data.vault || []).slice().sort((a: any, b: any) => (b.updatedAt || b.id || "").localeCompare(a.updatedAt || a.id || ""))[0];
-  if (!lastVault || (new Date(today).getTime() - new Date(lastVault.updatedAt || lastVault.id?.slice(0, 10) || today).getTime()) / 86400000 >= 14) {
+  // Only use updatedAt for vault date — random uid() ids are NOT parseable as dates
+  const lastVaultUpdatedAt = (data.vault || [])
+    .map((v: any) => v.updatedAt || "")
+    .filter(Boolean)
+    .sort()
+    .reverse()[0] || null;
+  const daysSinceVault = lastVaultUpdatedAt
+    ? (new Date(today).getTime() - new Date(lastVaultUpdatedAt).getTime()) / 86400000
+    : 999; // No updatedAt at all (seeded data) → treat as never reviewed
+  if (daysSinceVault >= 14) {
     push("vaultReminder", "vault_reminder", "📒 Vault Review",
       `Your vault hasn't been updated in 14+ days. Review your notes and knowledge base to stay sharp.`, "slate", "📒");
   }
@@ -14308,8 +14316,14 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   /* ── Notification engine — re-runs whenever data changes ── */
   useEffect(() => {
     if (!data || !loaded) return;
-    const enabled = { ...DEFAULT_SETTINGS().notifications, ...((data as any).settings?.notifications || {}) };
-    const fresh = computeNotifications(data as any, enabled);
+    let fresh: OTXNotif[] = [];
+    try {
+      const enabled = { ...DEFAULT_SETTINGS().notifications, ...((data as any).settings?.notifications || {}) };
+      fresh = computeNotifications(data as any, enabled);
+    } catch (err) {
+      console.error("[notifications] computeNotifications threw:", err);
+      return;
+    }
 
     // Compute new notifications HERE (effect scope) — never inside a state updater.
     // React 18 Strict Mode runs updater functions twice, so any ref mutation or
