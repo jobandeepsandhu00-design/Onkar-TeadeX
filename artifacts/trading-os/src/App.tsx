@@ -11732,6 +11732,18 @@ function PropChallengesPanel({ data, setData }) {
    ============================================================ */
 const SP_PAIRS = ["XAUUSD","EURUSD","GBPUSD","GBPJPY","USDJPY","AUDUSD","NZDUSD","USDCAD","USDCHF","EURJPY","EURCAD","EURGBP"];
 const SP_SESSIONS = ["Pre-London","London","New York","Asia"];
+
+const SP_BIAS_TYPES: Record<string, string[]> = {
+  Bullish: ["Trend Continuation", "Pullback Long", "Breakout Up", "Liquidity Sweep Up", "FVG Fill Long", "Support Bounce", "BOS Higher High", "Order Block Long", "CHOCH Up"],
+  Bearish: ["Trend Continuation", "Pullback Short", "Breakdown Down", "Liquidity Sweep Down", "FVG Fill Short", "Resistance Rejection", "BOS Lower Low", "Order Block Short", "CHOCH Down"],
+  Neutral: ["Range Bound", "Consolidation", "Awaiting Break", "Both Sides Valid", "HTF Undecided"],
+};
+
+const SP_QUICK_NEWS = [
+  "NFP","CPI","FOMC Rate Decision","GDP","PPI","Core PCE","ADP Employment","JOLTS",
+  "ISM PMI","Retail Sales","Fed Chair Speech","ECB Decision","BOE Decision","BOJ Decision",
+  "RBA Decision","RBNZ Decision","SNB Decision","US Inflation","Interest Rates","Unemployment",
+];
 const SP_CHECKLIST_DEFAULTS = [
   "Checked economic calendar for today",
   "Identified key S/R levels on H4 chart",
@@ -11747,6 +11759,7 @@ function emptySessionPlan() {
     id: null,
     date: todayISO(),
     overallBias: "",
+    biasType: "",
     biasNotes: "",
     pairsWatch: [] as string[],
     keyLevels: [] as any[],
@@ -11761,8 +11774,8 @@ function emptySessionPlan() {
   };
 }
 
-function SessionPlanForm({ initial, onSave, onBack, setups = [] }: { initial?: any; onSave: (p: any) => void; onBack: () => void; setups?: any[] }) {
-  const [form, setForm] = useState<any>(() => initial ? { ...initial, keyLevels: initial.keyLevels || [], checklist: initial.checklist || SP_CHECKLIST_DEFAULTS.map((t) => ({ id: uid(), text: t, done: false })), setupIds: initial.setupIds || [] } : emptySessionPlan());
+function SessionPlanForm({ initial, onSave, onBack, setups = [], plans = null }: { initial?: any; onSave: (p: any) => void; onBack: () => void; setups?: any[]; plans?: any }) {
+  const [form, setForm] = useState<any>(() => initial ? { ...initial, biasType: initial.biasType || "", keyLevels: initial.keyLevels || [], checklist: initial.checklist || SP_CHECKLIST_DEFAULTS.map((t) => ({ id: uid(), text: t, done: false })), setupIds: initial.setupIds || [] } : emptySessionPlan());
   const [setupModal, setSetupModal] = useState<any>(null);
   const [newNews, setNewNews] = useState("");
   const [newLevelPair, setNewLevelPair] = useState("XAUUSD");
@@ -11804,7 +11817,7 @@ function SessionPlanForm({ initial, onSave, onBack, setups = [] }: { initial?: a
         <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Overall Market Bias</div>
         <div className="grid grid-cols-3 gap-2 mb-3">
           {["Bullish","Bearish","Neutral"].map((b) => (
-            <button key={b} onClick={() => setForm((f: any) => ({ ...f, overallBias: f.overallBias === b ? "" : b }))}
+            <button key={b} onClick={() => setForm((f: any) => ({ ...f, overallBias: f.overallBias === b ? "" : b, biasType: f.overallBias === b ? "" : f.biasType }))}
               className={cx("py-2.5 rounded-xl text-xs font-semibold border transition",
                 form.overallBias === b
                   ? b === "Bullish" ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
@@ -11815,8 +11828,35 @@ function SessionPlanForm({ initial, onSave, onBack, setups = [] }: { initial?: a
             </button>
           ))}
         </div>
+
+        {/* Bias sub-type — library-powered chips */}
+        {form.overallBias && SP_BIAS_TYPES[form.overallBias] && (
+          <div className="mb-3">
+            <div className="text-[10px] uppercase tracking-wide text-slate-600 font-semibold mb-1.5">
+              Bias Type <span className="text-slate-700 normal-case font-normal">— what kind of move are you expecting?</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {SP_BIAS_TYPES[form.overallBias].map((bt) => {
+                const active = form.biasType === bt;
+                const color = form.overallBias === "Bullish"
+                  ? active ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300" : "bg-slate-900 border-slate-800 text-slate-500 hover:border-emerald-500/30 hover:text-emerald-400"
+                  : form.overallBias === "Bearish"
+                  ? active ? "bg-rose-500/20 border-rose-500/40 text-rose-300" : "bg-slate-900 border-slate-800 text-slate-500 hover:border-rose-500/30 hover:text-rose-400"
+                  : active ? "bg-slate-700 border-slate-600 text-slate-200" : "bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600";
+                return (
+                  <button key={bt} onClick={() => setForm((f: any) => ({ ...f, biasType: f.biasType === bt ? "" : bt }))}
+                    className={cx("px-2.5 py-1 rounded-lg border text-[11px] font-medium transition", color)}>
+                    {bt}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <TextArea value={form.biasNotes} onChange={(e: any) => setForm((f: any) => ({ ...f, biasNotes: e.target.value }))}
-          placeholder="Why this bias? Key confluences, trend direction, HTF structure..." className="min-h-[80px]" />
+          placeholder={form.overallBias ? `Why ${form.biasType || form.overallBias}? Key confluences, trend direction, HTF structure...` : "Why this bias? Key confluences, trend direction, HTF structure..."}
+          className="min-h-[80px]" />
       </div>
 
       {/* Pairs to Watch */}
@@ -11938,7 +11978,7 @@ function SessionPlanForm({ initial, onSave, onBack, setups = [] }: { initial?: a
       {/* Risk Rules */}
       <div>
         <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Risk Rules for Today</div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 mb-3">
           <div>
             <div className="text-[10px] text-slate-600 mb-1">Max trades today</div>
             <TextInput type="number" min="1" placeholder="3" value={form.maxTrades} onChange={(e: any) => setForm((f: any) => ({ ...f, maxTrades: e.target.value }))} />
@@ -11948,6 +11988,35 @@ function SessionPlanForm({ initial, onSave, onBack, setups = [] }: { initial?: a
             <TextInput type="number" placeholder="e.g. 150" value={form.maxDailyLossAmt} onChange={(e: any) => setForm((f: any) => ({ ...f, maxDailyLossAmt: e.target.value }))} />
           </div>
         </div>
+
+        {/* Suggest from Trading Plans library */}
+        {plans && (() => {
+          const allRules: { label: string; rule: string }[] = [];
+          if (plans.master?.maxRiskPerTrade) allRules.push({ label: "Max risk/trade", rule: plans.master.maxRiskPerTrade });
+          if (plans.master?.maxDailyLoss) allRules.push({ label: "Max daily loss", rule: plans.master.maxDailyLoss });
+          if (plans.master?.focusPairs) allRules.push({ label: "Focus pairs", rule: plans.master.focusPairs });
+          if (plans.master?.sessions) allRules.push({ label: "Sessions", rule: plans.master.sessions });
+          const customRules = (plans.custom || []).slice(0, 3).map((p: any) => ({ label: p.name, rule: p.riskRules })).filter((r: any) => r.rule);
+          const all = [...allRules, ...customRules];
+          if (all.length === 0) return null;
+          return (
+            <div className="rounded-xl bg-slate-900/50 border border-slate-800 p-3">
+              <div className="text-[10px] text-amber-400/80 font-semibold mb-2 flex items-center gap-1.5">
+                <BookOpen size={11} /> From your Trading Plans
+              </div>
+              <div className="space-y-1.5">
+                {all.map(({ label, rule }, i) => (
+                  <button key={i} onClick={() => setForm((f: any) => ({ ...f, analysis: f.analysis ? f.analysis + "\n\n" + label + ": " + rule : label + ": " + rule }))}
+                    className="w-full text-left flex gap-2 items-start group hover:bg-slate-800/50 p-1.5 rounded-lg transition">
+                    <span className="text-[10px] font-semibold text-amber-400/70 shrink-0 mt-0.5 min-w-[80px]">{label}</span>
+                    <span className="text-[10px] text-slate-400 leading-relaxed group-hover:text-slate-300 line-clamp-2">{rule}</span>
+                    <span className="text-[9px] text-slate-600 shrink-0 mt-0.5 group-hover:text-amber-400/60">↓ copy</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* News to Avoid */}
@@ -11963,11 +12032,22 @@ function SessionPlanForm({ initial, onSave, onBack, setups = [] }: { initial?: a
             ))}
           </div>
         )}
-        <div className="flex gap-2">
+        <div className="flex gap-2 mb-2">
           <TextInput placeholder="e.g. NFP 8:30am, FOMC 2pm..." value={newNews}
             onChange={(e: any) => setNewNews(e.target.value)}
             onKeyDown={(e: any) => { if (e.key === "Enter") addNews(); }} className="flex-1" />
           <button onClick={addNews} className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-amber-400 text-xs">Add</button>
+        </div>
+        {/* Quick-add common high-impact events */}
+        <div className="text-[10px] text-slate-600 mb-1.5">Quick add:</div>
+        <div className="flex flex-wrap gap-1">
+          {SP_QUICK_NEWS.filter((n) => !form.newsToAvoid.includes(n)).map((n) => (
+            <button key={n}
+              onClick={() => setForm((f: any) => ({ ...f, newsToAvoid: [...f.newsToAvoid, n] }))}
+              className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] text-slate-500 hover:bg-rose-500/10 hover:border-rose-500/20 hover:text-rose-400 transition">
+              + {n}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -12043,8 +12123,20 @@ function SessionPlanDetail({ plan, onBack, onEdit, onDelete, onUpdate }) {
       {plan.overallBias && (
         <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
           <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-2">Market Bias</div>
-          <div className={cx("text-lg font-bold mb-1", BIAS_COLOR[plan.overallBias] || "text-slate-400")}>
-            {plan.overallBias === "Bullish" ? "📈" : plan.overallBias === "Bearish" ? "📉" : "➡️"} {plan.overallBias}
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className={cx("text-lg font-bold", BIAS_COLOR[plan.overallBias] || "text-slate-400")}>
+              {plan.overallBias === "Bullish" ? "📈" : plan.overallBias === "Bearish" ? "📉" : "➡️"} {plan.overallBias}
+            </span>
+            {plan.biasType && (
+              <span className={cx(
+                "text-xs font-semibold px-2.5 py-0.5 rounded-full border",
+                plan.overallBias === "Bullish" ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
+                  : plan.overallBias === "Bearish" ? "bg-rose-500/15 border-rose-500/30 text-rose-300"
+                  : "bg-slate-700 border-slate-600 text-slate-300"
+              )}>
+                {plan.biasType}
+              </span>
+            )}
           </div>
           {plan.biasNotes && <p className="text-xs text-slate-400 leading-relaxed">{plan.biasNotes}</p>}
         </div>
@@ -12197,7 +12289,7 @@ function SessionPlanPanel({ data, setData }) {
   const liveSelected = selected ? ((plans.find((p) => p.id === selected.id)) || selected) : null;
 
   if (view === "form") {
-    return <SessionPlanForm initial={selected} onSave={save} onBack={() => setView(selected?.id ? "detail" : "list")} setups={data.setups || []} />;
+    return <SessionPlanForm initial={selected} onSave={save} onBack={() => setView(selected?.id ? "detail" : "list")} setups={data.setups || []} plans={data.plans || null} />;
   }
 
   if (view === "detail" && liveSelected) {
