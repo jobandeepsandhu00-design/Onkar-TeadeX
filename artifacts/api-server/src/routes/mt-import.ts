@@ -1,8 +1,14 @@
 import { Router, type IRouter } from "express";
-import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+
+function getAI() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY not configured on server");
+  return new GoogleGenAI({ apiKey });
+}
 
 const SYSTEM_PROMPT = `You are a MetaTrader 4/5 trade data extractor. The user will upload a screenshot of their MetaTrader terminal — this may be the "Trade" tab (open positions), the "History" tab (closed trades), or the "Account History" report.
 
@@ -41,44 +47,41 @@ router.post("/mt-import/ocr", async (req, res): Promise<void> => {
     return;
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    res.status(500).json({ error: "OpenAI API key not configured on server" });
+  let ai: GoogleGenAI;
+  try {
+    ai = getAI();
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
     return;
   }
 
-  const openai = new OpenAI({ apiKey });
-
-  const imageType = (mimeType || "image/png") as "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+  const imageType = (mimeType || "image/png");
 
   try {
     req.log.info("MT import OCR request received");
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      max_tokens: 4096,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
         {
           role: "user",
-          content: [
+          parts: [
             {
-              type: "image_url",
-              image_url: {
-                url: `data:${imageType};base64,${image}`,
-                detail: "high",
+              inlineData: {
+                mimeType: imageType,
+                data: image,
               },
             },
             {
-              type: "text",
-              text: "Extract all trades visible in this MetaTrader screenshot and return as a JSON array.",
+              text: SYSTEM_PROMPT + "\n\nExtract all trades visible in this MetaTrader screenshot and return as a JSON array.",
             },
           ],
         },
       ],
+      config: { maxOutputTokens: 8192 },
     });
 
-    const raw = response.choices[0]?.message?.content ?? "[]";
+    const raw = response.text ?? "[]";
 
     let trades: unknown[];
     try {
@@ -106,26 +109,31 @@ router.post("/mt-import/ai-chat", async (req, res): Promise<void> => {
     return;
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    res.status(500).json({ error: "OpenAI API key not configured on server" });
+  let ai: GoogleGenAI;
+  try {
+    ai = getAI();
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
     return;
   }
 
-  const openai = new OpenAI({ apiKey });
-
   try {
     req.log.info("AI chat request received");
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      max_tokens: 1024,
-      messages: [
-        { role: "system", content: systemPrompt || "You are a professional forex trading coach. Be concise and specific." },
-        { role: "user", content: prompt },
+
+    const sysInstruction = systemPrompt || "You are a professional forex trading coach. Be concise and specific.";
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        { role: "user", parts: [{ text: prompt }] },
       ],
+      config: {
+        maxOutputTokens: 8192,
+        systemInstruction: sysInstruction,
+      },
     });
 
-    const text = response.choices[0]?.message?.content ?? "";
+    const text = response.text ?? "";
     req.log.info("AI chat response generated");
     res.json({ response: text });
   } catch (err: any) {
