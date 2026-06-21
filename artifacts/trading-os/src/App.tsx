@@ -6707,6 +6707,34 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
 
   const nf = (id: string) => (e: React.KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); (document.getElementById(id) as HTMLElement | null)?.focus(); } };
 
+  // Auto-calculate P/L when exit price is entered (uses spec pipValue × lots)
+  const autoCalcPnlRef = useRef<string>("");
+  useEffect(() => {
+    const entryN = parseFloat(form.entry);
+    const exitN = parseFloat(form.exit);
+    if (!form.exit || isNaN(exitN) || !form.entry || isNaN(entryN) || entryN === exitN) return;
+    const spec = getSpec(form.symbol);
+    if (!spec) return;
+    const dir = form.side === "Buy" ? 1 : -1;
+    let lots: number | null = null;
+    const manualLots = parseFloat(form.positionSize);
+    if (form.positionSize && !isNaN(manualLots) && manualLots > 0) {
+      lots = manualLots;
+    } else {
+      const ps = calcPositionSize({ symbol: form.symbol, accountBalance: String(acc.startingBalance), riskPct: form.riskPct || "1", entry: form.entry, sl: form.sl });
+      if (ps) lots = ps.roundedLots;
+    }
+    if (lots !== null && lots > 0) {
+      const profitPips = ((exitN - entryN) * dir) / spec.pipSize;
+      const pnl = profitPips * lots * spec.pipValuePerLot;
+      const rounded = pnl.toFixed(2);
+      if (form.manualPnl === "" || form.manualPnl === autoCalcPnlRef.current) {
+        autoCalcPnlRef.current = rounded;
+        setForm(f => ({ ...f, manualPnl: rounded }));
+      }
+    }
+  }, [form.exit, form.entry, form.side, form.symbol, form.positionSize, form.sl, form.riskPct]);
+
   const STEPS = ["Setup", "Entry", "Risk", "Notes", "Preview"];
 
   if (!open) return null;
