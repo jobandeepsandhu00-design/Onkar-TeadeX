@@ -928,7 +928,9 @@ function getEffectiveAccount(data: any): { startingBalance: number; currency: st
 function getFilteredTrades(data: any): any[] {
   const activeId = data.activeAccountId;
   if (!activeId) return data.trades || [];
-  return (data.trades || []).filter((t: any) => t.accountId === activeId);
+  // Include trades that belong to the active account OR have no accountId at all
+  // (so trades logged without account selection are never hidden)
+  return (data.trades || []).filter((t: any) => t.accountId === activeId || !t.accountId);
 }
 
 const STORAGE_KEY = "src_trading_os_v1";
@@ -8223,8 +8225,16 @@ function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {}
 
   const save = (trade) => {
     setData((d) => {
-      const exists = d.trades.some((t) => t.id === trade.id);
-      const trades = exists ? d.trades.map((t) => (t.id === trade.id ? trade : t)) : [...d.trades, trade];
+      // Always ensure the trade has the correct accountId — if it somehow missed
+      // account selection in the form, fall back to the currently active account
+      const finalTrade = {
+        ...trade,
+        accountId: trade.accountId || (d as any).activeAccountId || "",
+      };
+      const exists = d.trades.some((t) => t.id === finalTrade.id);
+      const trades = exists
+        ? d.trades.map((t) => (t.id === finalTrade.id ? finalTrade : t))
+        : [...d.trades, finalTrade];
       const nd = { ...d, trades };
       return { ...nd, propChallenges: syncChallengeBalances(nd) };
     });
