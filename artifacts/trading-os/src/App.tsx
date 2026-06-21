@@ -5767,7 +5767,7 @@ function EquityCurveCard({ data }: { data: any }) {
   );
 }
 
-function Dashboard({ data, setData, goTo, onQuickLog }) {
+function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog }) {
   const a = useMemo(() => computeAnalytics(data), [data.trades, data.strategies, data.setups]);
   const acc = data.account || { startingBalance: 1000, currency: "€" };
   const cur = acc.currency || "€";
@@ -6196,11 +6196,21 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
                         {acct.accountNumber && acct.alias && (
                           <span className="text-[10px] text-slate-600 truncate">{acct.accountNumber}</span>
                         )}
-                        {acct.balance && (
-                          <span className="text-[10px] text-slate-400 font-medium ml-auto shrink-0">
-                            {acct.currency || ""} {parseFloat(acct.balance).toLocaleString()}
-                          </span>
-                        )}
+                        {acct.balance && (() => {
+                          const startBal = parseFloat(acct.balance);
+                          const runBal = getAccountRunningBalance(acct.id, startBal, allTrades as any[]);
+                          const delta = runBal - startBal;
+                          return (
+                            <span className="text-[10px] font-semibold ml-auto shrink-0 text-right">
+                              <span className="text-slate-200">{acct.currency || ""} {runBal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              {Math.abs(delta) > 0.005 && (
+                                <span className={cx("block text-[9px]", delta > 0 ? "text-emerald-400" : "text-rose-400")}>
+                                  {delta > 0 ? "+" : ""}{delta.toFixed(2)}
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })()}
                       </div>
                     </div>
                     {/* Checkmark */}
@@ -15184,7 +15194,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           };
           return (
             <>
-              {activeTab === "home" && <Dashboard data={effectiveData} setData={setData} goTo={goTo} onQuickLog={() => { setActiveTab("journal"); setQuickLogOpen(true); }} />}
+              {activeTab === "home" && <Dashboard data={effectiveData} allTrades={d.trades || []} setData={setData} goTo={goTo} onQuickLog={() => { setActiveTab("journal"); setQuickLogOpen(true); }} />}
               {activeTab === "journal" && <JournalTab data={effectiveData} allTrades={d.trades || []} setData={setData} autoOpen={quickLogOpen} onAutoOpenDone={() => setQuickLogOpen(false)} />}
               {activeTab === "library" && <LibraryTab data={effectiveData} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} />}
               {activeTab === "academy" && <AcademyTab data={effectiveData} setData={setData} subTab={academySubTab} setSubTab={setAcademySubTab} goTo={goTo} />}
