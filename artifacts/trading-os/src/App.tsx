@@ -124,6 +124,17 @@ function computeTrade(t) {
   return { pnl, rMultiple, plannedRR, result, pctMove, fees, netPnl, holdMinutes };
 }
 
+/** Computes the running balance for an account: starting balance + sum of all closed trade P&Ls */
+function getAccountRunningBalance(accountId: string, startingBalance: number, trades: any[]): number {
+  const pnlSum = (trades || [])
+    .filter((t: any) => t.accountId === accountId)
+    .reduce((sum: number, t: any) => {
+      const { netPnl } = computeTrade(t);
+      return sum + (netPnl !== null && !isNaN(netPnl) ? netPnl : 0);
+    }, 0);
+  return startingBalance + pnlSum;
+}
+
 function syncChallengeBalances(d: any) {
   const today = todayISO();
   return (d.propChallenges || []).map((c: any) => {
@@ -919,8 +930,10 @@ function getEffectiveAccount(data: any): { startingBalance: number; currency: st
   const accounts: any[] = data.tradingAccounts || [];
   const active = activeId ? accounts.find((a: any) => a.id === activeId) : null;
   if (active) {
-    const bal = parseFloat(active.balance);
-    return { startingBalance: isNaN(bal) ? 0 : bal, currency: active.currency || "USD" };
+    const startBal = parseFloat(active.balance) || 0;
+    // Use the live running balance (starting + all trade P&Ls) for risk calculations
+    const runningBal = getAccountRunningBalance(active.id, startBal, data.trades || []);
+    return { startingBalance: runningBal, currency: active.currency || "USD" };
   }
   return data.account || { startingBalance: 1000, currency: "€" };
 }
@@ -2721,9 +2734,22 @@ function TradingAccountsManager({ data, setData }: any) {
                       <span className={cx("text-[10px] px-1.5 py-0.5 rounded-md font-medium", TYPE_CLS[a.accountType] || "bg-slate-800 text-slate-400")}>
                         {a.accountType}
                       </span>
-                      {!isNaN(bal) && bal > 0 && (
-                        <span className="text-[10px] font-semibold text-slate-300">{a.currency} {bal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      )}
+                      {!isNaN(bal) && bal > 0 && (() => {
+                        const runBal = getAccountRunningBalance(a.id, bal, data.trades || []);
+                        const pnl = runBal - bal;
+                        const pnlPositive = pnl > 0.005;
+                        const pnlNegative = pnl < -0.005;
+                        return (
+                          <span className="text-[10px] font-semibold text-slate-300">
+                            {a.currency} {runBal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {(pnlPositive || pnlNegative) && (
+                              <span className={cx("ml-1", pnlPositive ? "text-emerald-400" : "text-rose-400")}>
+                                ({pnlPositive ? "+" : ""}{pnl.toFixed(2)})
+                              </span>
+                            )}
+                          </span>
+                        );
+                      })()}
                       {/* Linked challenge status badge */}
                       {(a.accountType === "Prop" || a.accountType === "Challenge") && (() => {
                         const linked = (data.propChallenges || []).find((c: any) => c.accountId === a.id);
@@ -6663,7 +6689,7 @@ function MistakeCostPanel({ trades }) {
   );
 }
 
-function TradeForm({ open, onClose, onSave, initial, setups, strategies, account, settings, tradingAccounts = [], defaultAccountId = "" }) {
+function TradeForm({ open, onClose, onSave, initial, setups, strategies, account, settings, tradingAccounts = [], defaultAccountId = "", allTrades = [] }) {
   const [form, setForm] = useState(emptyTrade(settings));
   const [step, setStep] = useState(0);
   useEffect(() => {
@@ -6697,7 +6723,15 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
     fetchLivePrice(form.symbol);
   }, [form.symbol, step]);
 
-  const acc = account || { startingBalance: 1000, currency: "€" };
+  // Use the account the user picked in step 0 for risk/balance calculations (not just the fallback)
+  const selectedTradingAccount = (tradingAccounts as any[]).find((a: any) => a.id === form.accountId);
+  const acc = selectedTradingAccount
+    ? (() => {
+        const startBal = parseFloat(selectedTradingAccount.balance) || 0;
+        const runBal = getAccountRunningBalance(selectedTradingAccount.id, startBal, allTrades as any[]);
+        return { startingBalance: runBal, currency: selectedTradingAccount.currency || "USD" };
+      })()
+    : (account || { startingBalance: 1000, currency: "€" });
   const cur = acc.currency || "€";
   const riskPctNum = parseFloat(form.riskPct);
   const riskAmt = !isNaN(riskPctNum) && acc.startingBalance ? (riskPctNum / 100) * parseFloat(acc.startingBalance) : null;
@@ -6811,7 +6845,11 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                     {(tradingAccounts as any[]).map((a: any) => {
                       const cfg = TYPE_CONFIG[a.accountType] || { bg: "bg-slate-800", border: "border-slate-700", text: "text-slate-400", dot: "bg-slate-500" };
                       const isSelected = form.accountId === a.id;
-                      const bal = parseFloat(a.balance);
+                      const startBal = parseFloat(a.balance);
+                      const runBal = !isNaN(startBal) && startBal > 0
+                        ? getAccountRunningBalance(a.id, startBal, allTrades as any[])
+                        : NaN;
+                      const pnlDelta = !isNaN(runBal) && !isNaN(startBal) ? runBal - startBal : 0;
                       return (
                         <button key={a.id} type="button"
                           onClick={() => setForm((f: any) => ({ ...f, accountId: a.id }))}
@@ -6841,9 +6879,14 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                                 {a.accountType}
                               </span>
                               {a.platform && <span className="text-[10px] text-slate-600">{a.platform}</span>}
-                              {!isNaN(bal) && bal > 0 && (
-                                <span className="text-[10px] text-slate-400 font-semibold">
-                                  {a.currency} {bal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {!isNaN(runBal) && runBal > 0 && (
+                                <span className="text-[10px] font-semibold text-slate-300">
+                                  {a.currency} {runBal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  {Math.abs(pnlDelta) > 0.005 && (
+                                    <span className={cx("ml-1", pnlDelta > 0 ? "text-emerald-400" : "text-rose-400")}>
+                                      ({pnlDelta > 0 ? "+" : ""}{pnlDelta.toFixed(2)})
+                                    </span>
+                                  )}
                                 </span>
                               )}
                             </div>
@@ -8201,7 +8244,7 @@ function MTImportModal({ onClose, onImport }: { onClose: () => void; onImport: (
   );
 }
 
-function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {} }) {
+function JournalTab({ data, allTrades = [], setData, autoOpen = false, onAutoOpenDone = () => {} }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
 
@@ -8236,7 +8279,9 @@ function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {}
         ? d.trades.map((t) => (t.id === finalTrade.id ? finalTrade : t))
         : [...d.trades, finalTrade];
       const nd = { ...d, trades };
-      return { ...nd, propChallenges: syncChallengeBalances(nd) };
+      // Auto-switch active account so the saved trade is immediately visible in the journal
+      const newActiveId = finalTrade.accountId || (nd as any).activeAccountId;
+      return { ...nd, activeAccountId: newActiveId, propChallenges: syncChallengeBalances(nd) };
     });
     setFormOpen(false);
     setEditing(null);
@@ -8253,7 +8298,7 @@ function JournalTab({ data, setData, autoOpen = false, onAutoOpenDone = () => {}
 
   /* TradeForm is now full-page — render it as an overlay on top of journal */
   if (formOpen) {
-    return <TradeForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} onSave={save} initial={editing} setups={data.setups} strategies={data.strategies} account={data.account} settings={data.settings} tradingAccounts={data.tradingAccounts || []} defaultAccountId={data.activeAccountId || ""} />;
+    return <TradeForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} onSave={save} initial={editing} setups={data.setups} strategies={data.strategies} account={data.account} settings={data.settings} tradingAccounts={data.tradingAccounts || []} defaultAccountId={data.activeAccountId || ""} allTrades={allTrades} />;
   }
 
   if (csvImportOpen) {
@@ -15140,7 +15185,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           return (
             <>
               {activeTab === "home" && <Dashboard data={effectiveData} setData={setData} goTo={goTo} onQuickLog={() => { setActiveTab("journal"); setQuickLogOpen(true); }} />}
-              {activeTab === "journal" && <JournalTab data={effectiveData} setData={setData} autoOpen={quickLogOpen} onAutoOpenDone={() => setQuickLogOpen(false)} />}
+              {activeTab === "journal" && <JournalTab data={effectiveData} allTrades={d.trades || []} setData={setData} autoOpen={quickLogOpen} onAutoOpenDone={() => setQuickLogOpen(false)} />}
               {activeTab === "library" && <LibraryTab data={effectiveData} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} />}
               {activeTab === "academy" && <AcademyTab data={effectiveData} setData={setData} subTab={academySubTab} setSubTab={setAcademySubTab} goTo={goTo} />}
               {activeTab === "more" && <MoreTab data={d} setData={setData} subTab={moreSubTab} setSubTab={setMoreSubTab} goTo={goTo} />}
