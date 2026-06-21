@@ -6027,7 +6027,7 @@ function Dashboard({ data, setData, goTo, onQuickLog }) {
             </div>
             <div>
               <div className="text-sm font-bold text-slate-100">AI Trading Coach</div>
-              <div className="text-[10px] text-violet-400">Powered by GPT-4o · knows your stats</div>
+              <div className="text-[10px] text-violet-400">Powered by Gemini 2.5 Flash · Free · knows your stats</div>
             </div>
           </div>
           <button onClick={() => setAiOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-500">
@@ -12229,56 +12229,29 @@ function SettingsPanel({ data, setData }) {
               <div className="px-4 pb-4 border-t border-slate-800">
                 {(() => {
                   const ef: Record<string,boolean> = settings.enabledFeatures || {};
-                  const freeF = FEATURES_CATALOG.filter((f) => f.tier === "free");
-                  const paidF = FEATURES_CATALOG.filter((f) => f.tier === "paid");
-                  const enabledFree = freeF.filter((f) => ef[f.id] === true).length;
-                  const enabledPaid = paidF.filter((f) => ef[f.id] === true).length;
-                  const setAll = (features: typeof FEATURES_CATALOG, val: boolean) => {
-                    const patch: Record<string,boolean> = {};
-                    features.forEach((f) => { patch[f.id] = val; });
-                    upd({ enabledFeatures: { ...ef, ...patch } });
-                  };
+                  const allF = FEATURES_CATALOG;
+                  const enabledCount = allF.filter((f) => ef[f.id] === true).length;
                   return (
                     <>
-                      <div className="grid grid-cols-2 gap-2 pt-3 pb-4">
-                        <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-center">
-                          <div className="text-xl font-bold text-emerald-400">{enabledFree}<span className="text-slate-500 text-sm font-normal">/{freeF.length}</span></div>
-                          <div className="text-[10px] text-slate-500 mt-0.5">🆓 Free Active</div>
-                        </div>
-                        <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-center">
-                          <div className="text-xl font-bold text-amber-400">{enabledPaid}<span className="text-slate-500 text-sm font-normal">/{paidF.length}</span></div>
-                          <div className="text-[10px] text-slate-500 mt-0.5">💳 Paid Active</div>
-                        </div>
+                      <div className="rounded-xl bg-violet-500/10 border border-violet-500/20 p-3 text-center mt-3 mb-4">
+                        <div className="text-xl font-bold text-violet-400">{enabledCount}<span className="text-slate-500 text-sm font-normal">/{allF.length}</span></div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">✨ Features Active · Powered by Gemini (Free)</div>
                       </div>
                       <div className="flex gap-2 mb-4">
-                        <button onClick={() => setAll(freeF, true)}
-                          className="flex-1 py-2 rounded-xl text-xs font-semibold bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20 transition">
-                          Enable All Free
+                        <button onClick={() => { const p: Record<string,boolean> = {}; allF.forEach((f) => { p[f.id] = true; }); upd({ enabledFeatures: p }); }}
+                          className="flex-1 py-2 rounded-xl text-xs font-semibold bg-violet-500/10 border border-violet-500/25 text-violet-400 hover:bg-violet-500/20 transition">
+                          Enable All
                         </button>
                         <button onClick={() => upd({ enabledFeatures: {} })}
                           className="flex-1 py-2 rounded-xl text-xs font-semibold bg-slate-800 border border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-500/30 transition">
                           Disable All
                         </button>
                       </div>
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 mb-1">🆓 Free Features</div>
-                      {freeF.map((f) => {
-                        const on = ef[f.id] === true;
-                        return (
-                          <div key={f.id} className="flex items-center gap-3 py-2.5 border-b border-slate-800/50 last:border-0">
-                            <span className="text-base shrink-0 w-6 text-center">{f.icon}</span>
-                            <div className="flex-1 min-w-0">
-                              <div className={cx("text-sm font-medium leading-tight", on ? "text-slate-200" : "text-slate-500")}>{f.label}</div>
-                              <div className="text-[10px] text-slate-600 truncate">{f.desc}</div>
-                            </div>
-                            <ToggleSwitch on={on} accent="#10b981" onChange={() => updNested("enabledFeatures", f.id, !on)} />
-                          </div>
-                        );
-                      })}
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-1 mt-4">💳 Paid AI Features</div>
-                      <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2 mb-3 text-[11px] text-amber-400/70">
-                        Paid features require AI to be configured by owner. Toggle here to show/hide in the AI Lab.
+                      <div className="bg-violet-500/5 border border-violet-500/15 rounded-xl px-3 py-2 mb-3 text-[11px] text-violet-400/80 flex items-center gap-2">
+                        <span>🤖</span>
+                        <span>All AI features now run on <strong>Gemini 2.5 Flash</strong> — completely free with your API key.</span>
                       </div>
-                      {paidF.map((f) => {
+                      {allF.map((f) => {
                         const on = ef[f.id] === true;
                         return (
                           <div key={f.id} className="flex items-center gap-3 py-2.5 border-b border-slate-800/50 last:border-0">
@@ -12286,9 +12259,8 @@ function SettingsPanel({ data, setData }) {
                             <div className="flex-1 min-w-0">
                               <div className={cx("text-sm font-medium leading-tight", on ? "text-slate-200" : "text-slate-500")}>{f.label}</div>
                               <div className="text-[10px] text-slate-600 truncate">{f.desc}</div>
-                              {f.cost && <div className="text-[9px] text-amber-500/60">{f.cost}</div>}
                             </div>
-                            <ToggleSwitch on={on} accent={accent} onChange={() => updNested("enabledFeatures", f.id, !on)} />
+                            <ToggleSwitch on={on} accent="#8b5cf6" onChange={() => updNested("enabledFeatures", f.id, !on)} />
                           </div>
                         );
                       })}
@@ -12621,11 +12593,9 @@ function OwnerPanel({ data, setData }: any) {
             settings: { ...(d.settings || {}), enabledFeatures: { ...(d.settings?.enabledFeatures || {}), ...patch } }
           }));
         };
-        const freeF = FEATURES_CATALOG.filter((f) => f.tier === "free");
-        const paidF = FEATURES_CATALOG.filter((f) => f.tier === "paid");
-        const enabledPaidCount = paidF.filter((f) => ef[f.id] === true).length;
-        const enabledFreeCount = freeF.filter((f) => ef[f.id] === true).length;
-        const allPaidEnabled = enabledPaidCount === paidF.length;
+        const allF = FEATURES_CATALOG;
+        const enabledCount = allF.filter((f) => ef[f.id] === true).length;
+        const allEnabled = enabledCount === allF.length;
 
         return (
           <div className="space-y-3">
@@ -12633,15 +12603,15 @@ function OwnerPanel({ data, setData }: any) {
             <Card>
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-                  style={{ background: allPaidEnabled ? accent + "25" : "#1e293b" }}>
-                  <Crown size={22} style={{ color: allPaidEnabled ? accent : "#64748b" }} />
+                  style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)", opacity: allEnabled ? 1 : 0.6 }}>
+                  <span className="text-2xl">🤖</span>
                 </div>
                 <div className="flex-1">
-                  <div className="text-base font-black" style={{ color: allPaidEnabled ? accent : "#94a3b8" }}>
-                    {allPaidEnabled ? "👑 All-Access Mode" : "🆓 Free Mode"}
+                  <div className="text-base font-black text-violet-300">
+                    {allEnabled ? "✨ All Features Active" : `${enabledCount} / ${allF.length} Features Active`}
                   </div>
                   <div className="text-[11px] text-slate-500">
-                    {enabledFreeCount}/{freeF.length} free · {enabledPaidCount}/{paidF.length} paid features active
+                    Powered by Gemini 2.5 Flash · Completely Free
                   </div>
                 </div>
               </div>
@@ -12649,45 +12619,21 @@ function OwnerPanel({ data, setData }: any) {
                 <button
                   onClick={() => {
                     const patch: Record<string,boolean> = {};
-                    FEATURES_CATALOG.forEach((f) => { patch[f.id] = true; });
+                    allF.forEach((f) => { patch[f.id] = true; });
                     setFeaturesMap(patch);
-                    showToast("👑 All 50 features unlocked — Full Access granted");
+                    showToast("✨ All " + allF.length + " features enabled — Gemini AI is free!");
                   }}
-                  className="py-3.5 rounded-xl font-black text-sm transition active:scale-95 text-slate-950"
-                  style={{ background: accent }}>
-                  👑 Unlock All 50
+                  className="py-3.5 rounded-xl font-black text-sm transition active:scale-95 text-white"
+                  style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)" }}>
+                  ✨ Enable All
                 </button>
                 <button
                   onClick={() => {
-                    const patch: Record<string,boolean> = {};
-                    paidF.forEach((f) => { patch[f.id] = false; });
-                    setFeaturesMap(patch);
-                    showToast("🔒 Paid features locked — Free tier only");
+                    setFeaturesMap({});
+                    showToast("🔒 All features disabled");
                   }}
                   className="py-3.5 rounded-xl font-semibold text-sm bg-slate-800 border border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-500/30 transition">
-                  Lock to Free
-                </button>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => {
-                    const patch: Record<string,boolean> = {};
-                    freeF.forEach((f) => { patch[f.id] = true; });
-                    setFeaturesMap(patch);
-                    showToast("✅ All 25 free features enabled");
-                  }}
-                  className="py-2.5 rounded-xl text-xs font-semibold bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20 transition">
-                  Enable All Free (25)
-                </button>
-                <button
-                  onClick={() => {
-                    const patch: Record<string,boolean> = {};
-                    paidF.forEach((f) => { patch[f.id] = true; });
-                    setFeaturesMap(patch);
-                    showToast("✅ All 25 paid AI features unlocked");
-                  }}
-                  className="py-2.5 rounded-xl text-xs font-semibold bg-amber-500/10 border border-amber-500/25 text-amber-400 hover:bg-amber-500/20 transition">
-                  Unlock All Paid (25)
+                  Disable All
                 </button>
               </div>
             </Card>
@@ -12696,17 +12642,17 @@ function OwnerPanel({ data, setData }: any) {
             <Card>
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <div className="text-sm font-bold text-slate-200">🆓 Free Features</div>
-                  <div className="text-[10px] text-slate-500">{enabledFreeCount} of {freeF.length} active</div>
+                  <div className="text-sm font-bold text-slate-200">✨ All Features</div>
+                  <div className="text-[10px] text-slate-500">{enabledCount} of {allF.length} active · Gemini AI (Free)</div>
                 </div>
                 <div className="flex gap-1.5">
-                  <button onClick={() => { const p: Record<string,boolean> = {}; freeF.forEach((f) => { p[f.id] = true; }); setFeaturesMap(p); showToast("✅ All free features on"); }}
-                    className="text-[10px] px-2.5 py-1 rounded-lg font-semibold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition">All On</button>
-                  <button onClick={() => { const p: Record<string,boolean> = {}; freeF.forEach((f) => { p[f.id] = false; }); setFeaturesMap(p); showToast("🔒 All free features off"); }}
+                  <button onClick={() => { const p: Record<string,boolean> = {}; allF.forEach((f) => { p[f.id] = true; }); setFeaturesMap(p); showToast("✨ All features enabled"); }}
+                    className="text-[10px] px-2.5 py-1 rounded-lg font-semibold text-violet-400 bg-violet-500/10 hover:bg-violet-500/20 transition">All On</button>
+                  <button onClick={() => { setFeaturesMap({}); showToast("🔒 All features off"); }}
                     className="text-[10px] px-2.5 py-1 rounded-lg font-semibold text-slate-400 bg-slate-800 hover:text-rose-400 transition">All Off</button>
                 </div>
               </div>
-              {freeF.map((f) => {
+              {allF.map((f) => {
                 const on = ef[f.id] === true;
                 return (
                   <div key={f.id} className="flex items-center gap-3 py-2.5 border-b border-slate-800/50 last:border-0">
@@ -12715,39 +12661,8 @@ function OwnerPanel({ data, setData }: any) {
                       <div className={cx("text-sm font-medium leading-tight", on ? "text-slate-200" : "text-slate-500")}>{f.label}</div>
                       <div className="text-[10px] text-slate-600 truncate">{f.desc}</div>
                     </div>
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 bg-emerald-500/15 text-emerald-500">FREE</span>
-                    <ToggleSwitch on={on} accent="#10b981" onChange={() => setFeaturesMap({ ...ef, [f.id]: !on })} />
-                  </div>
-                );
-              })}
-            </Card>
-
-            {/* PAID features */}
-            <Card>
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <div className="text-sm font-bold text-slate-200">💳 Paid AI Features</div>
-                  <div className="text-[10px] text-slate-500">{enabledPaidCount} of {paidF.length} active</div>
-                </div>
-                <div className="flex gap-1.5">
-                  <button onClick={() => { const p: Record<string,boolean> = {}; paidF.forEach((f) => { p[f.id] = true; }); setFeaturesMap(p); showToast("👑 All paid AI features unlocked"); }}
-                    className="text-[10px] px-2.5 py-1 rounded-lg font-semibold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition">All On</button>
-                  <button onClick={() => { const p: Record<string,boolean> = {}; paidF.forEach((f) => { p[f.id] = false; }); setFeaturesMap(p); showToast("🔒 All paid features off"); }}
-                    className="text-[10px] px-2.5 py-1 rounded-lg font-semibold text-slate-400 bg-slate-800 hover:text-rose-400 transition">All Off</button>
-                </div>
-              </div>
-              {paidF.map((f) => {
-                const on = ef[f.id] === true;
-                return (
-                  <div key={f.id} className="flex items-center gap-3 py-2.5 border-b border-slate-800/50 last:border-0">
-                    <span className="text-base shrink-0 w-6 text-center">{f.icon}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className={cx("text-sm font-medium leading-tight", on ? "text-slate-200" : "text-slate-500")}>{f.label}</div>
-                      <div className="text-[10px] text-slate-600 truncate">{f.desc}</div>
-                      {f.cost && <div className="text-[9px] text-amber-500/60">{f.cost}</div>}
-                    </div>
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 bg-amber-500/15 text-amber-500">PAID</span>
-                    <ToggleSwitch on={on} accent={accent} onChange={() => setFeaturesMap({ ...ef, [f.id]: !on })} />
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 bg-violet-500/15 text-violet-400">FREE</span>
+                    <ToggleSwitch on={on} accent="#8b5cf6" onChange={() => setFeaturesMap({ ...ef, [f.id]: !on })} />
                   </div>
                 );
               })}
@@ -13337,32 +13252,32 @@ const FEATURES_CATALOG: FeatureDef[] = [
   { id:"pdfExport",        label:"Export PDF Report",          desc:"Professional monthly report you can print or share",          tier:"free", category:"Reporting",  icon:"📄", alreadyActive:false },
   { id:"drawdownRecovery", label:"Drawdown Recovery Tracker",  desc:"Shows exactly how long each past drawdown lasted",            tier:"free", category:"Risk",       icon:"📉", alreadyActive:true  },
   { id:"propProgress",     label:"Prop Challenge Progress",    desc:"Live tracker vs prop firm daily and total rules",             tier:"free", category:"Prop",       icon:"🏅", alreadyActive:true  },
-  /* ── PAID (25) ── */
-  { id:"aiTradeCoach",     label:"AI Trade Coach",             desc:"Reviews each trade and gives you personal feedback",          tier:"paid", category:"Coaching",       icon:"🧠", cost:"~$0.002/trade"  },
-  { id:"weeklyAIReview",   label:"Weekly AI Review",           desc:"Full written performance report generated every Sunday",       tier:"paid", category:"Coaching",       icon:"📋", cost:"~$0.005/week"   },
-  { id:"mistakeClassifier",label:"Mistake Classifier",         desc:"Auto-tags trades as FOMO, Revenge, Early Exit, Oversize",     tier:"paid", category:"Coaching",       icon:"🏷️", cost:"~$0.002/trade"  },
-  { id:"voiceDebrief",     label:"Post-Trade Voice Debrief",   desc:"Speak with an AI coach after closing each trade",             tier:"paid", category:"Coaching",       icon:"🎙️", cost:"~$0.003/session" },
-  { id:"ruleExplainer",    label:"Rule Breach Explainer",      desc:"AI explains exactly why a rule violation hurt you",           tier:"paid", category:"Coaching",       icon:"📖", cost:"~$0.002/trade"  },
-  { id:"strategyDNA",      label:"Strategy DNA",               desc:"AI reverse-engineers the exact conditions of your wins",      tier:"paid", category:"Intelligence",   icon:"🧬", cost:"~$0.005/run"    },
-  { id:"strikePredictor",  label:"AI Strike Rate Predictor",   desc:"Before entering, AI predicts your historical win rate",       tier:"paid", category:"Intelligence",   icon:"🎯", cost:"~$0.002/check"  },
-  { id:"propReadiness",    label:"Prop Firm Readiness Score",  desc:"AI verdict and roadmap for your next prop challenge",         tier:"paid", category:"Intelligence",   icon:"🏅", cost:"~$0.005/run"    },
-  { id:"ddAnalysis",       label:"Drawdown Cause Analysis",    desc:"AI diagnoses the root cause of your current losing streak",   tier:"paid", category:"Intelligence",   icon:"🔍", cost:"~$0.005/run"    },
-  { id:"correlationAlert", label:"Pair Correlation Alert",     desc:"AI warns when your open trades are over-correlated",          tier:"paid", category:"Risk",           icon:"🔗", cost:"~$0.001/check"  },
-  { id:"autoFill",         label:"Smart Trade Auto-Fill",      desc:"AI fills notes and grade from just entry and exit numbers",   tier:"paid", category:"Automation",     icon:"✨", cost:"~$0.002/trade"  },
-  { id:"mtImport",         label:"MT4/MT5 Screenshot Import",  desc:"AI reads your MetaTrader screen and imports trades",          tier:"paid", category:"Automation",     icon:"📸", cost:"~$0.01/scan", alreadyActive:true },
-  { id:"chartAnalysis",    label:"Chart → Trade Idea",         desc:"Upload a chart image, AI identifies levels and entry zones",  tier:"paid", category:"Intelligence",   icon:"📈", cost:"~$0.015/scan"   },
-  { id:"voiceLog",         label:"Voice Trade Logging",        desc:"Speak your trade aloud, AI creates the full journal entry",   tier:"paid", category:"Automation",     icon:"🎤", cost:"~$0.003/trade"  },
-  { id:"emotionTracker",   label:"Emotion Tracker",            desc:"AI reads your notes and maps your psychology over time",      tier:"paid", category:"Coaching",       icon:"💭", cost:"~$0.003/week"   },
-  { id:"premarketBrief",   label:"AI Pre-Market Brief",        desc:"AI writes your morning trading plan per pair each day",       tier:"paid", category:"Planning",       icon:"🌅", cost:"~$0.003/day"    },
-  { id:"sessionBias",      label:"Session Bias Generator",     desc:"Daily bullish/bearish bias based on your strategy and HTF",  tier:"paid", category:"Planning",       icon:"📊", cost:"~$0.003/day"    },
-  { id:"newsImpact",       label:"News Impact Summary",        desc:"Plain-English impact briefing before each high-impact event", tier:"paid", category:"Planning",       icon:"📰", cost:"~$0.002/event"  },
-  { id:"confluenceScorer", label:"Confluence Scorer",          desc:"Describe your trade idea, AI scores the confluence 1-10",    tier:"paid", category:"Intelligence",   icon:"⭐", cost:"~$0.002/check"  },
-  { id:"journalPrompt",    label:"AI Journaling Prompt",       desc:"AI asks you the right questions after each trade",            tier:"paid", category:"Coaching",       icon:"❓", cost:"~$0.001/trade"  },
-  { id:"aiChat",           label:"AI Trading Assistant",       desc:"Chat with your journal — ask anything about your trading",    tier:"paid", category:"Intelligence",   icon:"💬", cost:"~$0.002/msg"    },
-  { id:"tiltWarning",      label:"Tilt Early Warning",         desc:"AI detects revenge trading patterns before you blow up",      tier:"paid", category:"Risk",           icon:"🚨", cost:"~$0.002/check"  },
-  { id:"rrSuggester",      label:"Optimal RR Suggester",       desc:"AI suggests the best RR ratio per setup from your stats",    tier:"paid", category:"Intelligence",   icon:"📐", cost:"~$0.002/check"  },
-  { id:"tradeNarrative",   label:"Trade Narrative Generator",  desc:"AI writes a story of each trade for deeper self-review",     tier:"paid", category:"Coaching",       icon:"📝", cost:"~$0.003/trade"  },
-  { id:"monthlyTherapy",   label:"Monthly AI Therapy Session", desc:"Deep-dive AI chat reviewing your entire month of trading",   tier:"paid", category:"Coaching",       icon:"🧘", cost:"~$0.01/session" },
+  /* ── AI Features — all free via Gemini ── */
+  { id:"aiTradeCoach",     label:"AI Trade Coach",             desc:"Reviews each trade and gives you personal feedback",          tier:"free", category:"Coaching",       icon:"🧠", alreadyActive:false },
+  { id:"weeklyAIReview",   label:"Weekly AI Review",           desc:"Full written performance report generated every Sunday",       tier:"free", category:"Coaching",       icon:"📋", alreadyActive:false },
+  { id:"mistakeClassifier",label:"Mistake Classifier",         desc:"Auto-tags trades as FOMO, Revenge, Early Exit, Oversize",     tier:"free", category:"Coaching",       icon:"🏷️", alreadyActive:false },
+  { id:"voiceDebrief",     label:"Post-Trade Voice Debrief",   desc:"Speak with an AI coach after closing each trade",             tier:"free", category:"Coaching",       icon:"🎙️", alreadyActive:false },
+  { id:"ruleExplainer",    label:"Rule Breach Explainer",      desc:"AI explains exactly why a rule violation hurt you",           tier:"free", category:"Coaching",       icon:"📖", alreadyActive:false },
+  { id:"strategyDNA",      label:"Strategy DNA",               desc:"AI reverse-engineers the exact conditions of your wins",      tier:"free", category:"Intelligence",   icon:"🧬", alreadyActive:false },
+  { id:"strikePredictor",  label:"AI Strike Rate Predictor",   desc:"Before entering, AI predicts your historical win rate",       tier:"free", category:"Intelligence",   icon:"🎯", alreadyActive:false },
+  { id:"propReadiness",    label:"Prop Firm Readiness Score",  desc:"AI verdict and roadmap for your next prop challenge",         tier:"free", category:"Intelligence",   icon:"🏅", alreadyActive:false },
+  { id:"ddAnalysis",       label:"Drawdown Cause Analysis",    desc:"AI diagnoses the root cause of your current losing streak",   tier:"free", category:"Intelligence",   icon:"🔍", alreadyActive:false },
+  { id:"correlationAlert", label:"Pair Correlation Alert",     desc:"AI warns when your open trades are over-correlated",          tier:"free", category:"Risk",           icon:"🔗", alreadyActive:false },
+  { id:"autoFill",         label:"Smart Trade Auto-Fill",      desc:"AI fills notes and grade from just entry and exit numbers",   tier:"free", category:"Automation",     icon:"✨", alreadyActive:false },
+  { id:"mtImport",         label:"MT4/MT5 Screenshot Import",  desc:"AI reads your MetaTrader screen and imports trades",          tier:"free", category:"Automation",     icon:"📸", alreadyActive:true  },
+  { id:"chartAnalysis",    label:"Chart → Trade Idea",         desc:"Upload a chart image, AI identifies levels and entry zones",  tier:"free", category:"Intelligence",   icon:"📈", alreadyActive:false },
+  { id:"voiceLog",         label:"Voice Trade Logging",        desc:"Speak your trade aloud, AI creates the full journal entry",   tier:"free", category:"Automation",     icon:"🎤", alreadyActive:false },
+  { id:"emotionTracker",   label:"Emotion Tracker",            desc:"AI reads your notes and maps your psychology over time",      tier:"free", category:"Coaching",       icon:"💭", alreadyActive:false },
+  { id:"premarketBrief",   label:"AI Pre-Market Brief",        desc:"AI writes your morning trading plan per pair each day",       tier:"free", category:"Planning",       icon:"🌅", alreadyActive:false },
+  { id:"sessionBias",      label:"Session Bias Generator",     desc:"Daily bullish/bearish bias based on your strategy and HTF",  tier:"free", category:"Planning",       icon:"📊", alreadyActive:false },
+  { id:"newsImpact",       label:"News Impact Summary",        desc:"Plain-English impact briefing before each high-impact event", tier:"free", category:"Planning",       icon:"📰", alreadyActive:false },
+  { id:"confluenceScorer", label:"Confluence Scorer",          desc:"Describe your trade idea, AI scores the confluence 1-10",    tier:"free", category:"Intelligence",   icon:"⭐", alreadyActive:false },
+  { id:"journalPrompt",    label:"AI Journaling Prompt",       desc:"AI asks you the right questions after each trade",            tier:"free", category:"Coaching",       icon:"❓", alreadyActive:false },
+  { id:"aiChat",           label:"AI Trading Assistant",       desc:"Chat with your journal — ask anything about your trading",    tier:"free", category:"Intelligence",   icon:"💬", alreadyActive:true  },
+  { id:"tiltWarning",      label:"Tilt Early Warning",         desc:"AI detects revenge trading patterns before you blow up",      tier:"free", category:"Risk",           icon:"🚨", alreadyActive:false },
+  { id:"rrSuggester",      label:"Optimal RR Suggester",       desc:"AI suggests the best RR ratio per setup from your stats",    tier:"free", category:"Intelligence",   icon:"📐", alreadyActive:false },
+  { id:"tradeNarrative",   label:"Trade Narrative Generator",  desc:"AI writes a story of each trade for deeper self-review",     tier:"free", category:"Coaching",       icon:"📝", alreadyActive:false },
+  { id:"monthlyTherapy",   label:"Monthly AI Therapy Session", desc:"Deep-dive AI chat reviewing your entire month of trading",   tier:"free", category:"Coaching",       icon:"🧘", alreadyActive:false },
 ];
 
 /* ── Analytics helpers for free features ── */
@@ -13513,7 +13428,7 @@ function FeatureHubPanel({ data, setData }: { data: any; setData: any }) {
   const cur = data.account?.currency || "€";
   const accent = settings.accentColor || "#f59e0b";
 
-  const [filterTier, setFilterTier] = useState<"all"|"free"|"paid">("all");
+  const [filterTier, setFilterTier] = useState<"all"|"free">("all");
   const [filterCat, setFilterCat] = useState("All");
   const [search, setSearch] = useState("");
   const [activeFeature, setActiveFeature] = useState<string|null>(null);
@@ -13543,7 +13458,7 @@ function FeatureHubPanel({ data, setData }: { data: any; setData: any }) {
   const closedTrades = (data.trades || []).filter((t: any) => computeTrade(t).result !== null);
   const activeCount = FEATURES_CATALOG.filter((f) => isEnabled(f.id, f)).length;
   const freeEnabled = FEATURES_CATALOG.filter((f) => f.tier === "free" && isEnabled(f.id, f)).length;
-  const paidEnabled = FEATURES_CATALOG.filter((f) => f.tier === "paid" && isEnabled(f.id, f)).length;
+  const paidEnabled = 0; // All features are now free via Gemini
 
   const runAI = async (id: string, prompt: string, system: string) => {
     setAiLoading(true);
@@ -13900,8 +13815,8 @@ function FeatureHubPanel({ data, setData }: { data: any; setData: any }) {
         <div className="grid grid-cols-3 gap-2">
           {[
             { label:"Active Features", value:activeCount, color:"text-blue-400" },
-            { label:"Free Enabled",    value:`${freeEnabled}/25`, color:"text-emerald-400" },
-            { label:"AI Enabled",      value:`${paidEnabled}/25`, color:"text-purple-400" },
+            { label:"Enabled",         value:`${freeEnabled}/${FEATURES_CATALOG.length}`, color:"text-emerald-400" },
+            { label:"AI Engine",       value:"Gemini", color:"text-violet-400" },
           ].map(({label,value,color})=>(
             <div key={label} className="bg-slate-900/60 rounded-xl p-2 text-center">
               <div className={cx("text-sm font-black", color)}>{value}</div>
@@ -13914,11 +13829,11 @@ function FeatureHubPanel({ data, setData }: { data: any; setData: any }) {
       {/* Filters */}
       <div className="flex gap-2 flex-wrap items-center">
         <div className="flex rounded-xl overflow-hidden border border-slate-700 shrink-0">
-          {(["all","free","paid"] as const).map((t)=>(
+          {(["all","free"] as const).map((t)=>(
             <button key={t} onClick={()=>setFilterTier(t)}
               className={cx("px-3 py-1.5 text-xs font-semibold transition capitalize",
-                filterTier===t ? "bg-blue-500 text-white" : "bg-slate-900 text-slate-400 hover:text-slate-200")}>
-              {t==="all"?"All":t==="free"?"🆓 Free":"💳 Paid"}
+                filterTier===t ? "bg-violet-500 text-white" : "bg-slate-900 text-slate-400 hover:text-slate-200")}>
+              {t==="all"?"All":"✨ Free"}
             </button>
           ))}
         </div>
@@ -13945,18 +13860,15 @@ function FeatureHubPanel({ data, setData }: { data: any; setData: any }) {
           return (
             <div key={f.id}
               className={cx("border rounded-2xl overflow-hidden transition",
-                on ? (f.tier==="paid" ? "border-purple-500/30 bg-purple-500/5" : "border-emerald-500/30 bg-emerald-500/5") : "border-slate-700 bg-slate-900/60")}>
+                on ? "border-violet-500/30 bg-violet-500/5" : "border-slate-700 bg-slate-900/60")}>
               {/* Feature row */}
               <div className="flex items-center gap-3 p-3">
                 <span className="text-xl shrink-0 w-7 text-center">{f.icon}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-xs font-bold text-slate-100">{f.label}</span>
-                    {f.tier==="free"
-                      ? <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">🆓 FREE</span>
-                      : <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">💳 PAID</span>}
+                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-violet-500/20 text-violet-400 border border-violet-500/30">✨ FREE</span>
                     {f.alreadyActive && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">✓ Active</span>}
-                    {f.cost && on && <span className="text-[9px] text-slate-500">{f.cost}</span>}
                   </div>
                   <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">{f.desc}</p>
                 </div>
