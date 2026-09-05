@@ -3,9 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import {
   getAuthPersistence,
-  getOAuthProviderAvailability,
   login,
-  loginWithOAuth,
   logout,
   me,
   register,
@@ -15,8 +13,6 @@ import {
   updatePassword,
 } from "./api";
 import { Mail, Lock, Eye, EyeOff, ShieldCheck, ArrowRight, Check } from "lucide-react";
-import { FaApple } from "react-icons/fa";
-import { FcGoogle } from "react-icons/fc";
 import "./index.css";
 
 // Suppress the harmless "ResizeObserver loop limit exceeded" browser error.
@@ -499,16 +495,12 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [oauthAvailability, setOauthAvailability] = useState<{ google: boolean; apple: boolean } | null>(null);
 
   useEffect(() => {
     const remembered = localStorage.getItem("tradex_remembered_email");
     if (remembered) {
       setEmail(remembered);
     }
-    getOAuthProviderAvailability()
-      .then(setOauthAvailability)
-      .catch(() => setOauthAvailability(null));
   }, []);
 
   const submit = async () => {
@@ -533,24 +525,6 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
       const msg = e instanceof Error ? e.message : "Something went wrong.";
       setErr(msg === "unauthorized" ? "Invalid email or password." : msg);
     } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleOAuth = async (provider: "google" | "apple") => {
-    if (oauthAvailability && !oauthAvailability[provider]) {
-      const providerName = provider === "google" ? "Google" : "Apple";
-      setErr(`${providerName} sign-in is not enabled yet. Please use email and password for now.`);
-      return;
-    }
-    try {
-      setErr(null);
-      setBusy(true);
-      setAuthPersistence(rememberMe);
-      await loginWithOAuth(provider);
-      // Let the OAuth redirect happen
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : `Could not log in with ${provider}.`);
       setBusy(false);
     }
   };
@@ -864,53 +838,9 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
             </button>
           )}
 
-          {/* Divider */}
-          <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "32px 0 24px" }}>
-            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
-            <span style={{ color: "#64748b", fontSize: 12, fontWeight: 500 }}>Or continue with</span>
-            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
-          </div>
-
-          {/* Social OAuth */}
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={() => handleOAuth("apple")}
-              disabled={busy}
-              title={oauthAvailability?.apple === false ? "Apple sign-in requires provider setup" : undefined}
-              style={{
-                flex: "1 1 160px", padding: "12px 10px", borderRadius: 12,
-                background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
-                cursor: busy ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                color: "#f8fafc", fontSize: 13, fontWeight: 500, transition: "background 0.2s"
-              }}
-              onMouseEnter={(e) => !busy && (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
-              onMouseLeave={(e) => !busy && (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
-            >
-              <FaApple size={18} />
-              Continue with Apple
-            </button>
-            <button
-              type="button"
-              onClick={() => handleOAuth("google")}
-              disabled={busy}
-              title={oauthAvailability?.google === false ? "Google sign-in requires provider setup" : undefined}
-              style={{
-                flex: "1 1 160px", padding: "12px 10px", borderRadius: 12,
-                background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
-                cursor: busy ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                color: "#f8fafc", fontSize: 13, fontWeight: 500, transition: "background 0.2s"
-              }}
-              onMouseEnter={(e) => !busy && (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
-              onMouseLeave={(e) => !busy && (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
-            >
-              <FcGoogle size={18} />
-              Continue with Google
-            </button>
-          </div>
           </form>
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 32 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 28 }}>
             <ShieldCheck size={16} color="#fbbf24" strokeWidth={2} />
             <div style={{ color: "#64748b", fontSize: 12, letterSpacing: "0.05em", fontWeight: 500 }}>
               Secure <span style={{ margin: "0 6px", color: "#475569" }}>•</span> Fast <span style={{ margin: "0 6px", color: "#475569" }}>•</span> Reliable

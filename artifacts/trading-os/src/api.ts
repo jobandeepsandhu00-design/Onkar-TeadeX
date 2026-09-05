@@ -79,28 +79,6 @@ export async function register(email: string, password: string) {
   return data.user;
 }
 
-export async function loginWithOAuth(provider: "google" | "apple") {
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider,
-    options: {
-      redirectTo: window.location.origin + window.location.pathname,
-    },
-  });
-  if (error) throw error;
-}
-
-export async function getOAuthProviderAvailability() {
-  const response = await fetch(`${url}/auth/v1/settings`, {
-    headers: { apikey: publishableKey },
-  });
-  if (!response.ok) throw new Error("Could not check social sign-in availability.");
-  const settings = await response.json() as { external?: Record<string, boolean> };
-  return {
-    google: Boolean(settings.external?.google),
-    apple: Boolean(settings.external?.apple),
-  };
-}
-
 export async function logout() {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
