@@ -1,7 +1,22 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import { login, register, logout, me, requestPasswordReset, updatePassword, supabase } from "./api";
+import {
+  getAuthPersistence,
+  getOAuthProviderAvailability,
+  login,
+  loginWithOAuth,
+  logout,
+  me,
+  register,
+  requestPasswordReset,
+  setAuthPersistence,
+  supabase,
+  updatePassword,
+} from "./api";
+import { Mail, Lock, Eye, EyeOff, ShieldCheck, ArrowRight, Check } from "lucide-react";
+import { FaApple } from "react-icons/fa";
+import { FcGoogle } from "react-icons/fc";
 import "./index.css";
 
 // Suppress the harmless "ResizeObserver loop limit exceeded" browser error.
@@ -387,9 +402,11 @@ function OwnerLoginPanel({ onAuthed, onClose }: { onAuthed: () => void; onClose:
           background: "linear-gradient(135deg,rgba(245,158,11,0.2),rgba(251,191,36,0.1))",
           border: "2px solid rgba(245,158,11,0.35)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 28,
+          color: "#fbbf24",
           boxShadow: "0 0 24px rgba(245,158,11,0.2)",
-        }}>👑</div>
+        }}>
+          <ShieldCheck size={32} strokeWidth={1.5} />
+        </div>
 
         <div style={{
           fontFamily: "'Sora', sans-serif", fontSize: 18, fontWeight: 900,
@@ -477,10 +494,22 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(() => getAuthPersistence());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [showOwner, setShowOwner] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [oauthAvailability, setOauthAvailability] = useState<{ google: boolean; apple: boolean } | null>(null);
+
+  useEffect(() => {
+    const remembered = localStorage.getItem("tradex_remembered_email");
+    if (remembered) {
+      setEmail(remembered);
+    }
+    getOAuthProviderAvailability()
+      .then(setOauthAvailability)
+      .catch(() => setOauthAvailability(null));
+  }, []);
 
   const submit = async () => {
     setErr(null);
@@ -488,13 +517,40 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
     if (password.length < 6) { setErr("Password must be at least 6 characters."); return; }
     setBusy(true);
     try {
-      if (mode === "login") await login(email.trim().toLowerCase(), password);
-      else await register(email.trim().toLowerCase(), password);
+      setAuthPersistence(rememberMe);
+      if (mode === "login") {
+        await login(email.trim().toLowerCase(), password);
+        if (rememberMe) {
+          localStorage.setItem("tradex_remembered_email", email.trim().toLowerCase());
+        } else {
+          localStorage.removeItem("tradex_remembered_email");
+        }
+      } else {
+        await register(email.trim().toLowerCase(), password);
+      }
       onAuthed();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Something went wrong.";
       setErr(msg === "unauthorized" ? "Invalid email or password." : msg);
     } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleOAuth = async (provider: "google" | "apple") => {
+    if (oauthAvailability && !oauthAvailability[provider]) {
+      const providerName = provider === "google" ? "Google" : "Apple";
+      setErr(`${providerName} sign-in is not enabled yet. Please use email and password for now.`);
+      return;
+    }
+    try {
+      setErr(null);
+      setBusy(true);
+      setAuthPersistence(rememberMe);
+      await loginWithOAuth(provider);
+      // Let the OAuth redirect happen
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : `Could not log in with ${provider}.`);
       setBusy(false);
     }
   };
@@ -514,9 +570,6 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
     }
   };
 
-  const inp =
-    "w-full bg-slate-900/80 border border-slate-700/80 rounded-xl px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500/50 backdrop-blur-sm";
-
   return (
     <div style={{ position: "relative", minHeight: "100dvh", width: "100%", fontFamily: "'Inter', sans-serif" }}>
       {/* Live chart background */}
@@ -525,13 +578,57 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
       {/* Dark overlay so the form pops */}
       <div style={{
         position: "fixed", inset: 0, zIndex: 1,
-        background: "radial-gradient(ellipse at 50% 50%, rgba(5,11,23,0.45) 0%, rgba(5,11,23,0.75) 100%)",
+        background: "radial-gradient(ellipse at 50% 50%, rgba(5,11,23,0.65) 0%, rgba(5,11,23,0.9) 100%)",
       }} />
 
-      {/* Owner panel overlay */}
-      {false && showOwner && (
-        <OwnerLoginPanel onAuthed={onAuthed} onClose={() => setShowOwner(false)} />
-      )}
+      {/* Background Typography Deco */}
+      <div className="hidden md:flex flex-col gap-4 pointer-events-none" style={{
+        position: "fixed", top: 40, left: 32, zIndex: 1,
+        color: "rgba(251,191,36,0.2)", fontSize: 10, fontWeight: 700, letterSpacing: "0.2em",
+        lineHeight: 1.8
+      }}>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <span>TRADE</span>
+          <span>SMARTER</span>
+          <span>GROW</span>
+          <span>FURTHER</span>
+        </div>
+        <div style={{ width: 24, height: 2, background: "rgba(251,191,36,0.3)" }} />
+      </div>
+
+      <div className="hidden md:flex flex-col gap-4 pointer-events-none items-end text-right" style={{
+        position: "fixed", top: 40, right: 32, zIndex: 1,
+        color: "rgba(251,191,36,0.2)", fontSize: 10, fontWeight: 700, letterSpacing: "0.2em",
+        lineHeight: 1.8
+      }}>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <span>DISCIPLINE</span>
+          <span>BUILDS</span>
+          <span>WEALTH</span>
+        </div>
+        <div style={{ width: 24, height: 2, background: "rgba(251,191,36,0.3)" }} />
+      </div>
+
+      <div className="hidden md:flex flex-col pointer-events-none" style={{
+        position: "fixed", bottom: 40, left: 32, zIndex: 1,
+        color: "rgba(148,163,184,0.3)", fontSize: 9, fontWeight: 600, letterSpacing: "0.25em",
+        lineHeight: 1.8
+      }}>
+        <span>MARKETS</span>
+        <span>IDEAS</span>
+        <span>EXECUTION</span>
+        <span>RESULTS</span>
+      </div>
+
+      <div className="hidden md:flex flex-col pointer-events-none text-right" style={{
+        position: "fixed", bottom: 40, right: 32, zIndex: 1,
+        color: "rgba(148,163,184,0.3)", fontSize: 9, fontWeight: 600, letterSpacing: "0.25em",
+        lineHeight: 1.8
+      }}>
+        <span>A BETTER</span>
+        <span>TRADER</span>
+        <span>TOMORROW</span>
+      </div>
 
       {/* Content */}
       <div style={{
@@ -539,72 +636,67 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
         minHeight: "100dvh", display: "flex", flexDirection: "column",
         alignItems: "center", justifyContent: "center", padding: "24px 16px",
       }}>
-        {/* Legend pills */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 20, alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px",
-            background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)",
-            borderRadius: 20, fontSize: 10, color: "#fbbf24", fontWeight: 700 }}>
-            <div style={{ width: 20, height: 2, background: "#f59e0b", borderRadius: 1 }} />
-            SMA 20
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px",
-            background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.3)",
-            borderRadius: 20, fontSize: 10, color: "#818cf8", fontWeight: 700 }}>
-            <div style={{ width: 20, height: 2, background: "#6366f1", borderRadius: 1 }} />
-            EMA 9
-          </div>
-        </div>
 
         {/* Card */}
         <div style={{
-          width: "100%", maxWidth: 360,
-          background: "rgba(10,18,35,0.85)",
-          border: "1px solid rgba(255,255,255,0.08)",
+          width: "100%", maxWidth: 420,
+          background: "linear-gradient(180deg, rgba(10,18,35,0.7) 0%, rgba(5,11,23,0.85) 100%)",
+          borderTop: "1px solid rgba(251, 191, 36, 0.4)",
+          borderBottom: "1px solid rgba(251, 191, 36, 0.4)",
+          borderLeft: "1px solid rgba(255,255,255,0.05)",
+          borderRight: "1px solid rgba(255,255,255,0.05)",
           borderRadius: 24,
           backdropFilter: "blur(24px)",
           WebkitBackdropFilter: "blur(24px)",
-          boxShadow: "0 25px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.06)",
-          padding: "28px 24px 24px",
+          boxShadow: "0 25px 60px rgba(0,0,0,0.8), 0 0 30px rgba(251, 191, 36, 0.1) inset",
+          padding: "40px 32px 32px",
+          position: "relative",
+          overflow: "hidden"
         }}>
+
+          {/* Subtle top glow */}
+          <div style={{
+            position: "absolute", top: 0, left: "20%", right: "20%", height: 1,
+            background: "linear-gradient(90deg, transparent, #fbbf24, transparent)",
+            boxShadow: "0 0 20px 2px rgba(251,191,36,0.5)"
+          }} />
+
           {/* Logo + title */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, marginBottom: 24 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, marginBottom: 32 }}>
             <div style={{ position: "relative" }}>
               <div style={{
-                position: "absolute", inset: -8, borderRadius: "50%",
-                background: "rgba(245,158,11,0.2)", filter: "blur(12px)",
+                position: "absolute", inset: -12, borderRadius: "50%",
+                background: "rgba(245,158,11,0.15)", filter: "blur(16px)",
               }} />
-              <img src="/onkar-tradex-logo.png" alt="Onkar TradeX"
-                style={{ width: 56, height: 56, objectFit: "contain", position: "relative",
-                  filter: "drop-shadow(0 0 14px rgba(245,158,11,0.65))" }} />
+              <img src="/onkar-tradex-lockup.webp" alt="Onkar TradeX — Trade smarter, grow further"
+                style={{ width: 210, height: 145, objectFit: "contain", position: "relative",
+                  filter: "drop-shadow(0 0 20px rgba(245,158,11,0.5))" }} />
             </div>
             <div style={{ textAlign: "center" }}>
-              <div style={{
-                fontFamily: "'Sora', sans-serif", fontSize: 20, fontWeight: 900, letterSpacing: -0.5,
-                background: "linear-gradient(90deg, #fbbf24 0%, #f59e0b 40%, #ffffff 100%)",
-                WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-              }}>Onkar TradeX</div>
-              <div style={{ color: "#475569", fontSize: 11, marginTop: 2, letterSpacing: "0.06em" }}>
-                Your Personal Trading OS
+              <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 4, letterSpacing: "0.02em" }}>
+                {mode === "login" ? "Welcome back to your trading workspace" : "Create your private trading workspace"}
               </div>
             </div>
           </div>
 
+          <form onSubmit={(event) => { event.preventDefault(); submit(); }}>
           {/* Mode tabs */}
           <div style={{
-            display: "flex", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: 14, padding: 3, marginBottom: 20,
+            display: "flex", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 14, padding: 4, marginBottom: 28,
           }}>
             {(["login", "register"] as const).map((m) => (
               <button
+                type="button"
                 key={m}
                 onClick={() => { setMode(m); setErr(null); }}
                 style={{
-                  flex: 1, padding: "8px 0", borderRadius: 11,
-                  fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
-                  transition: "all 0.2s",
-                  background: mode === m ? "#f59e0b" : "transparent",
-                  color: mode === m ? "#0c0a00" : "#64748b",
-                  boxShadow: mode === m ? "0 2px 8px rgba(245,158,11,0.35)" : "none",
+                  flex: 1, padding: "10px 0", borderRadius: 10,
+                  fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer",
+                  transition: "all 0.2s ease-in-out",
+                  background: mode === m ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "transparent",
+                  color: mode === m ? "#020617" : "#64748b",
+                  boxShadow: mode === m ? "0 2px 12px rgba(245,158,11,0.3)" : "none",
                 }}
               >
                 {m === "login" ? "Log in" : "Sign up"}
@@ -613,106 +705,218 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
           </div>
 
           {/* Fields */}
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 6 }}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#cbd5e1", marginBottom: 8 }}>
               Email
             </label>
-            <input
-              className={inp}
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              autoComplete="email"
-            />
+            <div style={{ position: "relative" }}>
+              <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#64748b" }}>
+                <Mail size={18} strokeWidth={2} />
+              </div>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+                style={{
+                  width: "100%", background: "rgba(15, 23, 42, 0.6)",
+                  border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12,
+                  padding: "12px 16px 12px 42px", fontSize: 14, color: "#f1f5f9",
+                  outline: "none", transition: "all 0.2s"
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(251,191,36,0.5)";
+                  e.currentTarget.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.1)";
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
+              />
+            </div>
           </div>
 
-          <div style={{ marginBottom: 4 }}>
-            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 6 }}>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#cbd5e1", marginBottom: 8 }}>
               Password
             </label>
-            <input
-              className={inp}
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submit()}
-              placeholder="••••••••"
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
-            />
+            <div style={{ position: "relative" }}>
+              <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#64748b" }}>
+                <Lock size={18} strokeWidth={2} />
+              </div>
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submit()}
+                placeholder="Enter your password"
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                style={{
+                  width: "100%", background: "rgba(15, 23, 42, 0.6)",
+                  border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12,
+                  padding: "12px 42px 12px 42px", fontSize: 14, color: "#f1f5f9",
+                  outline: "none", transition: "all 0.2s"
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(251,191,36,0.5)";
+                  e.currentTarget.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.1)";
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
+              />
+              <button
+                onClick={() => setShowPassword(!showPassword)}
+                type="button"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                style={{
+                  position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)",
+                  color: "#64748b", background: "none", border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", padding: 4
+                }}
+              >
+                {showPassword ? <EyeOff size={18} strokeWidth={2} /> : <Eye size={18} strokeWidth={2} />}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+              <div style={{
+                width: 18, height: 18, borderRadius: 4,
+                border: rememberMe ? "none" : "1px solid rgba(255,255,255,0.2)",
+                background: rememberMe ? "#fbbf24" : "rgba(0,0,0,0.2)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                transition: "all 0.2s"
+              }}>
+                {rememberMe && <Check size={12} strokeWidth={3} color="#020617" />}
+              </div>
+              <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="sr-only" />
+              <span style={{ fontSize: 13, color: "#e2e8f0" }}>Remember me</span>
+            </label>
+
+            {mode === "login" && (
+              <button type="button" onClick={forgotPassword} disabled={busy}
+                style={{ background: "none", border: "none", color: "#fbbf24", fontSize: 13, cursor: "pointer", transition: "color 0.2s" }}
+                onMouseEnter={(e) => e.currentTarget.style.color = "#fcd34d"}
+                onMouseLeave={(e) => e.currentTarget.style.color = "#fbbf24"}
+              >
+                Forgot password?
+              </button>
+            )}
           </div>
 
           {err && (
             <div style={{
-              marginTop: 10, padding: "8px 12px", borderRadius: 10,
+              marginBottom: 20, padding: "12px 16px", borderRadius: 12,
               background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)",
-              color: "#f87171", fontSize: 12,
-            }}>{err}</div>
+              color: "#fca5a5", fontSize: 13, display: "flex", alignItems: "center", gap: 8
+            }}>
+              {err}
+            </div>
           )}
           {notice && (
-            <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 10, background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.25)", color: "#34d399", fontSize: 12 }}>
+            <div style={{
+              marginBottom: 20, padding: "12px 16px", borderRadius: 12,
+              background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.25)",
+              color: "#6ee7b7", fontSize: 13
+            }}>
               {notice}
             </div>
           )}
 
           <button
-            onClick={submit}
+            type="submit"
             disabled={busy}
             style={{
-              width: "100%", marginTop: 18, padding: "11px 0", borderRadius: 14,
-              background: busy ? "rgba(245,158,11,0.4)" : "linear-gradient(135deg,#f59e0b,#d97706)",
+              width: "100%", padding: "14px 0", borderRadius: 12,
+              background: busy ? "rgba(245,158,11,0.4)" : "linear-gradient(135deg, #fbbf24, #f59e0b)",
               border: "none", cursor: busy ? "not-allowed" : "pointer",
-              color: "#0c0a00", fontWeight: 700, fontSize: 14,
-              boxShadow: busy ? "none" : "0 4px 16px rgba(245,158,11,0.35)",
-              transition: "all 0.2s",
+              color: "#020617", fontWeight: 700, fontSize: 15,
+              boxShadow: busy ? "none" : "0 4px 20px rgba(245,158,11,0.4)",
+              transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", gap: 8
             }}
+            onMouseEnter={(e) => !busy && (e.currentTarget.style.transform = "translateY(-1px)")}
+            onMouseLeave={(e) => !busy && (e.currentTarget.style.transform = "translateY(0)")}
           >
-            {busy ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
+            {busy ? "Please wait…" : (mode === "login" ? "Log In" : "Sign Up")}
+            {!busy && <ArrowRight size={18} strokeWidth={2.5} />}
           </button>
+
           {mode === "login" && (
-            <button onClick={forgotPassword} disabled={busy}
-              style={{ width: "100%", marginTop: 10, background: "none", border: "none", color: "#64748b", fontSize: 12, cursor: "pointer" }}>
-              Forgot password or claiming a migrated account?
+            <button
+              type="button"
+              onClick={() => { setMode("register"); setErr(null); }}
+              disabled={busy}
+              style={{
+                width: "100%", marginTop: 16, padding: "14px 0", borderRadius: 12,
+                background: "transparent",
+                border: "1px solid rgba(251,191,36,0.3)", cursor: busy ? "not-allowed" : "pointer",
+                color: "#fbbf24", fontWeight: 600, fontSize: 15,
+                transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+              }}
+              onMouseEnter={(e) => !busy && (e.currentTarget.style.background = "rgba(251,191,36,0.05)")}
+              onMouseLeave={(e) => !busy && (e.currentTarget.style.background = "transparent")}
+            >
+              Create Account
             </button>
           )}
 
-          {/* Owner access divider */}
-          <div style={{ display: "none", alignItems: "center", gap: 10, margin: "20px 0 0" }}>
-            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.06)" }} />
-            <span style={{ color: "#1e293b", fontSize: 11 }}>or</span>
-            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.06)" }} />
+          {/* Divider */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "32px 0 24px" }}>
+            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
+            <span style={{ color: "#64748b", fontSize: 12, fontWeight: 500 }}>Or continue with</span>
+            <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
           </div>
 
-          {/* Owner button */}
-          <button
-            onClick={() => setShowOwner(true)}
-            style={{
-              width: "100%", marginTop: 12, padding: "10px 0", borderRadius: 14,
-              background: "rgba(245,158,11,0.07)",
-              border: "1px solid rgba(245,158,11,0.2)",
-              cursor: "pointer", color: "#92400e",
-              fontWeight: 600, fontSize: 13, letterSpacing: "0.02em",
-              transition: "all 0.2s",
-              display: "none", alignItems: "center", justifyContent: "center", gap: 8,
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "rgba(245,158,11,0.14)";
-              (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(245,158,11,0.4)";
-              (e.currentTarget as HTMLButtonElement).style.color = "#f59e0b";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "rgba(245,158,11,0.07)";
-              (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(245,158,11,0.2)";
-              (e.currentTarget as HTMLButtonElement).style.color = "#92400e";
-            }}
-          >
-            👑 Owner Login
-          </button>
-        </div>
+          {/* Social OAuth */}
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => handleOAuth("apple")}
+              disabled={busy}
+              title={oauthAvailability?.apple === false ? "Apple sign-in requires provider setup" : undefined}
+              style={{
+                flex: "1 1 160px", padding: "12px 10px", borderRadius: 12,
+                background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+                cursor: busy ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                color: "#f8fafc", fontSize: 13, fontWeight: 500, transition: "background 0.2s"
+              }}
+              onMouseEnter={(e) => !busy && (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+              onMouseLeave={(e) => !busy && (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
+            >
+              <FaApple size={18} />
+              Continue with Apple
+            </button>
+            <button
+              type="button"
+              onClick={() => handleOAuth("google")}
+              disabled={busy}
+              title={oauthAvailability?.google === false ? "Google sign-in requires provider setup" : undefined}
+              style={{
+                flex: "1 1 160px", padding: "12px 10px", borderRadius: 12,
+                background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+                cursor: busy ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                color: "#f8fafc", fontSize: 13, fontWeight: 500, transition: "background 0.2s"
+              }}
+              onMouseEnter={(e) => !busy && (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+              onMouseLeave={(e) => !busy && (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
+            >
+              <FcGoogle size={18} />
+              Continue with Google
+            </button>
+          </div>
+          </form>
 
-        <p style={{ color: "#1e293b", fontSize: 11, marginTop: 16, textAlign: "center" }}>
-          Your journal is private to your account.
-        </p>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 32 }}>
+            <ShieldCheck size={16} color="#fbbf24" strokeWidth={2} />
+            <div style={{ color: "#64748b", fontSize: 12, letterSpacing: "0.05em", fontWeight: 500 }}>
+              Secure <span style={{ margin: "0 6px", color: "#475569" }}>•</span> Fast <span style={{ margin: "0 6px", color: "#475569" }}>•</span> Reliable
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

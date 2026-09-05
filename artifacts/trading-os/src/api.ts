@@ -2,6 +2,34 @@ import { createClient } from "@supabase/supabase-js";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const AUTH_PERSISTENCE_KEY = "tradex_auth_persistence";
+
+function selectedAuthStorage() {
+  return localStorage.getItem(AUTH_PERSISTENCE_KEY) === "session" ? sessionStorage : localStorage;
+}
+
+const authStorage = {
+  getItem(key: string) {
+    const selected = selectedAuthStorage();
+    const alternate = selected === localStorage ? sessionStorage : localStorage;
+    const value = selected.getItem(key) ?? alternate.getItem(key);
+    if (value && !selected.getItem(key)) {
+      selected.setItem(key, value);
+      alternate.removeItem(key);
+    }
+    return value;
+  },
+  setItem(key: string, value: string) {
+    const selected = selectedAuthStorage();
+    const alternate = selected === localStorage ? sessionStorage : localStorage;
+    selected.setItem(key, value);
+    alternate.removeItem(key);
+  },
+  removeItem(key: string) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  },
+};
 
 if (!url || !publishableKey) {
   throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.");
@@ -12,8 +40,28 @@ export const supabase = createClient(url, publishableKey, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    storage: authStorage,
   },
 });
+
+export function setAuthPersistence(remember: boolean) {
+  localStorage.setItem(AUTH_PERSISTENCE_KEY, remember ? "local" : "session");
+
+  const selected = remember ? localStorage : sessionStorage;
+  const alternate = remember ? sessionStorage : localStorage;
+  const authKeys = Array.from({ length: alternate.length }, (_, index) => alternate.key(index))
+    .filter((key): key is string => Boolean(key?.includes("-auth-token")));
+
+  for (const key of authKeys) {
+    const value = alternate.getItem(key);
+    if (value) selected.setItem(key, value);
+    alternate.removeItem(key);
+  }
+}
+
+export function getAuthPersistence() {
+  return localStorage.getItem(AUTH_PERSISTENCE_KEY) !== "session";
+}
 
 export async function login(email: string, password: string) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -29,6 +77,28 @@ export async function register(email: string, password: string) {
   });
   if (error) throw error;
   return data.user;
+}
+
+export async function loginWithOAuth(provider: "google" | "apple") {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: {
+      redirectTo: window.location.origin + window.location.pathname,
+    },
+  });
+  if (error) throw error;
+}
+
+export async function getOAuthProviderAvailability() {
+  const response = await fetch(`${url}/auth/v1/settings`, {
+    headers: { apikey: publishableKey },
+  });
+  if (!response.ok) throw new Error("Could not check social sign-in availability.");
+  const settings = await response.json() as { external?: Record<string, boolean> };
+  return {
+    google: Boolean(settings.external?.google),
+    apple: Boolean(settings.external?.apple),
+  };
 }
 
 export async function logout() {
