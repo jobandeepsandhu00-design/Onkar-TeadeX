@@ -4,12 +4,16 @@
   "installCommand": "pnpm install",
   "framework": null,
   "functions": {
-    "api/[...path].mjs": {
+    "api/index.mjs": {
       "maxDuration": 60,
       "includeFiles": "lib/**"
     }
   },
   "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.mjs?__api_path=$1"
+    },
     {
       "src": "/assets/(.*)",
       "headers": {
