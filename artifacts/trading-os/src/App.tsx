@@ -17,6 +17,7 @@ import { storage, getToken } from "./api";
 import CsvImportModal from "./CsvImport";
 import PerformanceReport from "./PerformanceReport";
 import BacktestTab from "./Backtest";
+import JSZip from "jszip";
 
 /* ============================================================
    UTILITIES
@@ -13181,17 +13182,72 @@ function OwnerPanel({ data, setData }: any) {
     try { sessionStorage.removeItem(OWNER_SESSION_KEY); } catch {}
   };
 
-  const downloadFile = (content: string, filename: string, type = "application/json") => {
+  const downloadFile = (content: BlobPart, filename: string, type = "application/json") => {
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = filename; a.click();
-    URL.revokeObjectURL(url);
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const downloadFullBackup = () => {
     downloadFile(JSON.stringify(data, null, 2), `onkar-tradex-backup-${todayISO()}.json`);
     showToast("✅ Full backup downloaded");
+  };
+
+  const downloadZipBackup = async () => {
+    try {
+      const zip = new JSZip();
+      const addJson = (filename: string, value: unknown) => {
+        zip.file(filename, JSON.stringify(value ?? null, null, 2));
+      };
+
+      addJson("trades.json", (data as any).trades || []);
+      addJson("journal.json", (data as any).trades || []);
+      addJson("setups.json", (data as any).setups || []);
+      addJson("strategies.json", (data as any).strategies || []);
+      addJson("trading-plans.json", (data as any).plans || {});
+      addJson("session-plans.json", (data as any).sessionPlans || []);
+      addJson("psychology.json", (data as any).psychology || []);
+      addJson("vault.json", (data as any).vault || []);
+      addJson("check-ins.json", (data as any).checkins || []);
+      addJson("pre-session.json", (data as any).preSession || []);
+      addJson("accounts.json", {
+        account: (data as any).account || {},
+        tradingAccounts: (data as any).tradingAccounts || [],
+        activeAccountId: (data as any).activeAccountId || null,
+        propChallenges: (data as any).propChallenges || [],
+      });
+      addJson("performance-data.json", {
+        exportedAt: new Date().toISOString(),
+        trades: ((data as any).trades || []).map((trade: any) => ({
+          ...trade,
+          computed: computeTrade(trade),
+        })),
+      });
+      addJson("settings.json", (data as any).settings || {});
+      addJson("full-backup.json", data);
+      zip.file(
+        "README.txt",
+        [
+          "SRC Trading OS data export",
+          `Exported: ${new Date().toISOString()}`,
+          "",
+          "Each JSON file contains one data category.",
+          "full-backup.json contains the complete app snapshot.",
+        ].join("\n"),
+      );
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      downloadFile(blob, `trading-os-export-${todayISO()}.zip`, "application/zip");
+      showToast("ZIP backup downloaded");
+    } catch {
+      showToast("Could not create ZIP backup");
+    }
   };
 
   const downloadTradesCSV = () => {
@@ -13863,6 +13919,17 @@ function OwnerPanel({ data, setData }: any) {
           <Card>
             <SectionTitle sub={`Complete data snapshot · ${stats.dataKB} KB`}>Full Backup</SectionTitle>
             <div className="space-y-2 mt-3">
+              <button onClick={downloadZipBackup}
+                className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border transition text-left"
+                style={{ borderColor: accent + "60", background: accent + "12" }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: accent + "20" }}>
+                  <Download size={16} style={{ color: accent }} />
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-slate-100">Download All Files (ZIP)</div>
+                  <div className="text-[11px] text-slate-400">Trades, journal, setups, plans, performance &amp; settings</div>
+                </div>
+              </button>
               <button onClick={downloadFullBackup}
                 className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border border-slate-700 hover:border-slate-600 bg-slate-900 transition text-left">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: accent + "20" }}>
