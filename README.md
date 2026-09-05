@@ -10,9 +10,9 @@ A full-stack Forex trading journal and operating system. Log trades, track P&L, 
 |-------|-----------|
 | Frontend | React 18 + Vite + Tailwind v4 (PWA) |
 | Backend | Node.js 24 + Express 5 |
-| Database | PostgreSQL + Drizzle ORM |
+| Database | Supabase PostgreSQL |
 | Monorepo | pnpm workspaces |
-| Auth | JWT (bcrypt passwords) |
+| Auth | Supabase Auth |
 
 ---
 
@@ -20,13 +20,14 @@ A full-stack Forex trading journal and operating system. Log trades, track P&L, 
 
 ```
 ├── artifacts/
-│   ├── trading-os/       # React/Vite frontend  →  deploy to Vercel
-│   └── api-server/       # Express API          →  deploy to Railway
+│   ├── trading-os/       # React/Vite frontend
+│   └── api-server/       # Express API
+├── api/                  # Vercel serverless API entrypoint
 ├── lib/
 │   ├── db/               # Drizzle ORM schema + PostgreSQL pool
 │   └── api-spec/         # OpenAPI spec + generated types
 ├── vercel.json           # Vercel build config (frontend)
-├── railway.json          # Railway deploy config (API)
+├── railway.json          # Optional standalone Railway API config
 └── pnpm-workspace.yaml
 ```
 
@@ -56,7 +57,7 @@ Open http://localhost:3000
 
 ---
 
-## Deploy to GitHub + Vercel + Railway
+## Deploy to GitHub + Vercel
 
 ### Step 1 — Push to GitHub
 
@@ -68,27 +69,7 @@ gh repo create src-trading-os --public --push
 # or: git remote add origin https://github.com/you/src-trading-os.git && git push -u origin main
 ```
 
-### Step 2 — Deploy the API on Railway
-
-1. Go to [railway.app](https://railway.app) → New Project
-2. **Add PostgreSQL** plugin — copy the `DATABASE_URL` it provides
-3. **Deploy from GitHub repo** (select this repo)
-4. In Railway project settings → Variables, add:
-
-| Variable | Value |
-|----------|-------|
-| `DATABASE_URL` | *(from Railway Postgres plugin)* |
-| `SESSION_SECRET` | *(any long random string)* |
-| `NODE_ENV` | `production` |
-
-5. Railway uses `railway.json` automatically — the API will be live at `https://your-project.railway.app`
-
-6. **Run the DB migration** once from Railway's shell tab:
-```bash
-pnpm --filter @workspace/db run push
-```
-
-### Step 3 — Deploy the frontend on Vercel
+### Step 2 — Deploy the application on Vercel
 
 1. Go to [vercel.com](https://vercel.com) → New Project → Import your GitHub repo
 2. Vercel picks up `vercel.json` automatically — no root directory change needed
@@ -96,27 +77,47 @@ pnpm --filter @workspace/db run push
 
 | Variable | Value |
 |----------|-------|
-| `VITE_API_URL` | `https://your-project.railway.app` *(your Railway URL)* |
+| `VITE_SUPABASE_URL` | Supabase project URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key |
+| `SESSION_SECRET` | Long random value used only by the temporary legacy read service |
+| `DATABASE_URL` | Legacy PostgreSQL connection used only during the rollback window |
+| `GEMINI_API_KEY` | Gemini key for the AI import assistant |
+| `TWELVE_DATA_API_KEY` | Optional Twelve Data key for live backtest candles |
+| `NODE_ENV` | `production` |
 
-4. Click **Deploy** — frontend is live at `https://your-project.vercel.app`
+   Variables prefixed with `VITE_` are included in the browser bundle. Never
+   configure `SUPABASE_SERVICE_ROLE_KEY` with a `VITE_` prefix.
+
+4. Click **Deploy**. Vercel serves the SPA and the Express API from the same
+   origin; `/api/*` requests are handled by the Node.js serverless function.
+
+5. Confirm `GET https://your-project.vercel.app/api/healthz` returns
+   `{"status":"ok"}` and then add the production URL to Supabase Auth's allowed
+   redirect URLs.
 
 ---
 
 ## Environment variables reference
 
-### API server (`artifacts/api-server/.env`)
+### API server
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | ✅ | PostgreSQL connection string |
 | `SESSION_SECRET` | ✅ | JWT signing secret (long random string) |
 | `PORT` | — | Default 5000 (set automatically by Railway) |
+| `GEMINI_API_KEY` | For AI import | Server-only Gemini credential |
+| `TWELVE_DATA_API_KEY` | No | Server-only market data credential |
 
 ### Frontend (`artifacts/trading-os/.env`)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `VITE_API_URL` | ✅ prod | Base URL of deployed API server (no trailing slash) |
+| `VITE_SUPABASE_URL` | ✅ | Supabase project URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | ✅ | Supabase browser-safe publishable key |
+
+The frontend uses same-origin `/api` requests, so no separate API base URL is
+required on Vercel.
 
 ---
 
