@@ -1,90 +1,130 @@
-// Talks to the Express backend. Keeps the same shape the app already expects:
-//   storage.get(key)  -> { value: string } | null
-//   storage.set(key, value) -> Promise<void>
-//
-// In Replit dev, requests go to "/api/*" — the shared proxy routes them to the
-// Express server automatically.
-//
-// In production (Vercel), set VITE_API_URL to your deployed API base URL,
-// e.g. https://your-api.railway.app  — no trailing slash.
-// If VITE_API_URL is not set, requests fall back to relative "/api/*" which
-// works when the frontend and backend share the same domain.
+import { createClient } from "@supabase/supabase-js";
 
-const API_BASE: string = (import.meta.env.VITE_API_URL as string) ?? "";
+const url = import.meta.env.VITE_SUPABASE_URL;
+const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-const TOKEN_KEY = "src_auth_token";
-
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-function setToken(t: string) {
-  localStorage.setItem(TOKEN_KEY, t);
-}
-export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
+if (!url || !publishableKey) {
+  throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.");
 }
 
-async function req(path: string, opts: RequestInit = {}) {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(opts.headers as Record<string, string> | undefined),
-  };
-  const token = getToken();
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  const res = await fetch(`${API_BASE}/api${path}`, { ...opts, headers });
-  if (res.status === 401) {
-    clearToken();
-    throw new Error("unauthorized");
-  }
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
-  return body;
-}
-
-/* ---------- Auth ---------- */
-export async function register(email: string, password: string) {
-  const { token } = await req("/auth/register", {
-    method: "POST",
-    body: JSON.stringify({ email, password }),
-  });
-  setToken(token);
-  return token;
-}
+export const supabase = createClient(url, publishableKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+});
 
 export async function login(email: string, password: string) {
-  const { token } = await req("/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ email, password }),
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return data.user;
+}
+
+export async function register(email: string, password: string) {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo: window.location.origin + window.location.pathname },
   });
-  setToken(token);
-  return token;
+  if (error) throw error;
+  return data.user;
+}
+
+export async function logout() {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
 }
 
 export async function me() {
-  return req("/auth/me");
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) throw error || new Error("unauthorized");
+  return data.user;
 }
 
-export async function ownerLogin(code: string) {
-  const body = await req("/auth/owner", {
-    method: "POST",
-    body: JSON.stringify({ code }),
+export async function getAccessToken() {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token || null;
+}
+
+export async function requestPasswordReset(email: string) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + window.location.pathname,
   });
-  setToken(body.token);
-  return body;
+  if (error) throw error;
 }
 
-export function logout() {
-  clearToken();
+export async function updatePassword(password: string) {
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw error;
 }
 
-/* ---------- Per-user state (drop-in for window.storage) ---------- */
+export async function getProfile() {
+  const user = await me();
+  const { data, error } = await supabase.from("profiles").select("id,email,role").eq("id", user.id).single();
+  if (error) throw error;
+  return data as { id: string; email: string | null; role: "user" | "owner" };
+}
+
+export async function uploadAttachment(file: File) {
+  const user = await me();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `${user.id}/${crypto.randomUUID()}-${safeName}`;
+  const { error } = await supabase.storage.from("trading-attachments").upload(path, file, {
+    contentType: file.type || "application/octet-stream",
+    upsert: false,
+  });
+  if (error) throw error;
+  const { data, error: signedError } = await supabase.storage.from("trading-attachments").createSignedUrl(path, 60 * 60);
+  if (signedError) throw signedError;
+  return { path, signedUrl: data.signedUrl };
+}
+
+/** Download private attachment bytes for an offline backup. */
+export async function downloadAttachment(path: string) {
+  const { data, error } = await supabase.storage.from("trading-attachments").download(path);
+  if (error) throw error;
+  return data;
+}
+
+/** Re-home restored bytes under the authenticated user's private storage prefix. */
+export async function uploadRestoredAttachment(blob: Blob, name: string, mime?: string) {
+  const user = await me();
+  const safeName = (name || "attachment").replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `${user.id}/${crypto.randomUUID()}-${safeName}`;
+  const { error } = await supabase.storage.from("trading-attachments").upload(path, blob, {
+    contentType: mime || blob.type || "application/octet-stream",
+    upsert: false,
+  });
+  if (error) throw error;
+  const { data, error: signedError } = await supabase.storage.from("trading-attachments").createSignedUrl(path, 60 * 60);
+  if (signedError) throw signedError;
+  return { path, signedUrl: data.signedUrl };
+}
+
+export async function removeAttachment(path?: string) {
+  if (!path) return;
+  const { error } = await supabase.storage.from("trading-attachments").remove([path]);
+  if (error) throw error;
+}
+
+export async function refreshAttachmentUrl(path?: string) {
+  if (!path) return null;
+  const { data, error } = await supabase.storage.from("trading-attachments").createSignedUrl(path, 60 * 60);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
 export const storage = {
-  async get(_key: string): Promise<{ value: string } | null> {
-    const { value } = await req("/state");
-    return value ? { value } : null;
+  async get(_key: string) {
+    const user = await me();
+    const { data, error } = await supabase.from("app_state").select("data").eq("user_id", user.id).maybeSingle();
+    if (error) throw error;
+    return data ? { value: JSON.stringify(data.data) } : null;
   },
-  async set(_key: string, value: string): Promise<void> {
-    await req("/state", { method: "PUT", body: JSON.stringify({ value }) });
+  async set(_key: string, value: string) {
+    const parsed = JSON.parse(value);
+    const { error } = await supabase.rpc("save_trading_state", { state: parsed });
+    if (error) throw error;
   },
 };

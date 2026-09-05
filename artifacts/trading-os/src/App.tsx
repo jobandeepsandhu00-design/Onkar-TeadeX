@@ -13,7 +13,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line,
   AreaChart, Area, ReferenceLine
 } from "recharts";
-import { storage, getToken } from "./api";
+import { storage, getAccessToken, uploadAttachment, removeAttachment, refreshAttachmentUrl, getProfile, downloadAttachment, uploadRestoredAttachment } from "./api";
 import CsvImportModal from "./CsvImport";
 import PerformanceReport from "./PerformanceReport";
 import BacktestTab from "./Backtest";
@@ -925,6 +925,23 @@ const DEFAULT_DATA = () => ({
   settings: DEFAULT_SETTINGS(),
 });
 
+function hydrateAppData(parsed: any, current?: any) {
+  const defaults = DEFAULT_DATA();
+  const incoming = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  return {
+    ...defaults,
+    ...incoming,
+    plans: {
+      ...defaults.plans,
+      ...(incoming.plans || {}),
+      master: { ...defaults.plans.master, ...(incoming.plans?.master || {}) },
+      custom: Array.isArray(incoming.plans?.custom) ? incoming.plans.custom : defaults.plans.custom,
+    },
+    settings: { ...defaults.settings, ...(incoming.settings || {}), ...(current?.settings || {}) },
+    account: incoming.account || current?.account || defaults.account,
+  };
+}
+
 /* ── Multi-account helpers ─────────────────────────────────── */
 function getEffectiveAccount(data: any): { startingBalance: number; currency: string } {
   const activeId = data.activeAccountId;
@@ -1275,27 +1292,32 @@ function Attachments({ items = [], onChange }) {
   const addFiles = async (fileList) => {
     setBusy(true);
     const next = [...items];
-    for (const file of Array.from(fileList)) {
-      let dataUrl = null;
-      const tooBig = file.size > 3.5 * 1024 * 1024;
-      if (!tooBig) {
-        try { dataUrl = await fileToDataUrl(file); } catch (e) { dataUrl = null; }
+    for (const file of Array.from(fileList) as File[]) {
+      try {
+        const uploaded = await uploadAttachment(file);
+        next.push({
+          id: uid(),
+          name: file.name,
+          mime: file.type,
+          isImage: file.type.startsWith("image/"),
+          dataUrl: uploaded.signedUrl,
+          storagePath: uploaded.path,
+          tooBig: false,
+          size: file.size,
+        });
+      } catch (error) {
+        console.error("Attachment upload failed", error);
       }
-      next.push({
-        id: uid(),
-        name: file.name,
-        mime: file.type,
-        isImage: file.type.startsWith("image/"),
-        dataUrl,
-        tooBig,
-        size: file.size,
-      });
     }
     onChange(next);
     setBusy(false);
   };
 
-  const remove = (id) => onChange(items.filter((i) => i.id !== id));
+  const remove = async (id) => {
+    const item = items.find((i) => i.id === id);
+    try { await removeAttachment(item?.storagePath); } catch (error) { console.error("Attachment delete failed", error); }
+    onChange(items.filter((i) => i.id !== id));
+  };
 
   return (
     <div>
@@ -1337,16 +1359,26 @@ function Attachments({ items = [], onChange }) {
         className="hidden"
         onChange={(e) => e.target.files && e.target.files.length && addFiles(e.target.files)}
       />
-      <p className="text-[11px] text-slate-600">Photos, screenshots, PDFs &amp; docs. Files over ~3.5MB are listed by name only (storage limit).</p>
+      <p className="text-[11px] text-slate-600">Photos, screenshots, PDFs &amp; docs are stored privately in your account.</p>
     </div>
   );
 }
 
 function AttachmentGrid({ items = [] }) {
+  const [resolved, setResolved] = useState(items);
+  useEffect(() => {
+    let active = true;
+    Promise.all(items.map(async (item) => {
+      if (!item.storagePath) return item;
+      try { return { ...item, dataUrl: await refreshAttachmentUrl(item.storagePath) }; }
+      catch { return item; }
+    })).then((next) => { if (active) setResolved(next); });
+    return () => { active = false; };
+  }, [items]);
   if (!items.length) return null;
   return (
     <div className="flex flex-wrap gap-2 mt-2">
-      {items.map((it) =>
+      {resolved.map((it) =>
         it.isImage && it.dataUrl ? (
           <img key={it.id} src={it.dataUrl} alt={it.name} className="w-14 h-14 object-cover rounded-lg border border-slate-700" />
         ) : (
@@ -5090,10 +5122,10 @@ function ActiveTradeMonitor({ data, acc }: any) {
   const today = todayISO();
   const openTrades = allTrades.filter((t) => computeTrade(t).result === null);
 
-  const fetchPricesForTrades = (trades: any[]) => {
+  const fetchPricesForTrades = async (trades: any[]) => {
     const syms = [...new Set(trades.map((t: any) => (t.symbol || "").toUpperCase()).filter(Boolean))] as string[];
     if (!syms.length) return;
-    const token = getToken();
+    const token = await getAccessToken();
     const hdrs: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     syms.forEach((sym) => {
       fetch(`/api/market/price/${encodeURIComponent(sym)}`, { headers: hdrs })
@@ -8000,8 +8032,8 @@ function MTImportModal({ onClose, onImport }: { onClose: () => void; onImport: (
       try {
         const base64 = dataUrl.split(",")[1];
         const mimeType = file.type;
-        const { getToken } = await import("./api");
-        const token = getToken();
+        const { getAccessToken } = await import("./api");
+        const token = await getAccessToken();
         const res = await fetch("/api/mt-import/ocr", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -13089,77 +13121,232 @@ function SettingsPanel({ data, setData }) {
 }
 
 /* ============================================================
+   PORTABLE BACKUPS
+   ============================================================ */
+type AttachmentManifestEntry = {
+  archivePath: string;
+  pointer: string;
+  name: string;
+  mime?: string;
+  size: number;
+  sha256: string;
+};
+
+const escapePointerSegment = (segment: string | number) => String(segment).replace(/~/g, "~0").replace(/\//g, "~1");
+
+function walkAttachmentMetadata(value: any, visit: (attachment: any, pointer: string) => void, pointer = "") {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => walkAttachmentMetadata(item, visit, `${pointer}/${escapePointerSegment(index)}`));
+    return;
+  }
+  Object.entries(value).forEach(([key, child]) => {
+    const childPointer = `${pointer}/${escapePointerSegment(key)}`;
+    if (key === "attachments" && Array.isArray(child)) {
+      child.forEach((attachment, index) => {
+        if (attachment && typeof attachment === "object") visit(attachment, `${childPointer}/${index}`);
+      });
+    } else {
+      walkAttachmentMetadata(child, visit, childPointer);
+    }
+  });
+}
+
+function cloneBackupData(data: any) {
+  const clone = JSON.parse(JSON.stringify(data));
+  // Signed URLs are credentials with a short lifetime, not backup data. Storage
+  // paths are retained for legacy JSON restores, while ZIPs include the bytes.
+  walkAttachmentMetadata(clone, (attachment) => {
+    if (attachment.storagePath) delete attachment.dataUrl;
+  });
+  return clone;
+}
+
+function pointerValue(root: any, pointer: string) {
+  if (!pointer.startsWith("/")) throw new Error("Attachment manifest has an invalid location.");
+  return pointer.slice(1).split("/").reduce((value, encoded) => {
+    if (value === null || value === undefined) throw new Error("Attachment manifest does not match the backup data.");
+    const key = encoded.replace(/~1/g, "/").replace(/~0/g, "~");
+    if (!Object.prototype.hasOwnProperty.call(value, key)) throw new Error("Attachment manifest does not match the backup data.");
+    return value[key];
+  }, root);
+}
+
+async function blobSha256(blob: Blob) {
+  const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function createAttachmentCompleteZip(data: any) {
+  const zip = new JSZip();
+  const backup = cloneBackupData(data);
+  const manifest: AttachmentManifestEntry[] = [];
+  const sources: Array<{ attachment: any; pointer: string }> = [];
+  walkAttachmentMetadata(data, (attachment, pointer) => {
+    if (typeof attachment.storagePath === "string" && attachment.storagePath) sources.push({ attachment, pointer });
+  });
+
+  // Traversal order is deterministic for a given state, so archive paths are
+  // reproducible and do not reveal the user's private Storage object path.
+  for (let index = 0; index < sources.length; index += 1) {
+    const { attachment, pointer } = sources[index];
+    const name = String(attachment.name || "attachment").replace(/[^a-zA-Z0-9._-]/g, "_");
+    const archivePath = `attachments/${String(index + 1).padStart(5, "0")}-${name || "attachment"}`;
+    let bytes: Blob;
+    try {
+      bytes = await downloadAttachment(attachment.storagePath);
+    } catch (error: any) {
+      throw new Error(`Could not download attachment "${attachment.name || attachment.storagePath}": ${error?.message || "unknown error"}`);
+    }
+    zip.file(archivePath, bytes);
+    manifest.push({ archivePath, pointer, name: attachment.name || name, mime: attachment.mime || bytes.type, size: bytes.size, sha256: await blobSha256(bytes) });
+  }
+
+  zip.file("full-backup.json", JSON.stringify(backup, null, 2));
+  zip.file("attachments-manifest.json", JSON.stringify({
+    format: "trading-os-attachment-backup",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    attachments: manifest,
+  }, null, 2));
+  return zip;
+}
+
+async function restoreZipBackup(file: File) {
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(file);
+  } catch {
+    throw new Error("This file is not a valid ZIP backup.");
+  }
+  const backupFile = zip.file("full-backup.json");
+  if (!backupFile) throw new Error("ZIP backup is missing full-backup.json.");
+  let backup: any;
+  try {
+    backup = JSON.parse(await backupFile.async("string"));
+  } catch {
+    throw new Error("ZIP backup contains invalid full-backup.json.");
+  }
+  if (!backup || typeof backup !== "object" || Array.isArray(backup)) throw new Error("ZIP backup has an invalid data snapshot.");
+
+  const manifestFile = zip.file("attachments-manifest.json");
+  // Older ZIPs were data-only. They remain restoreable as before.
+  if (!manifestFile) return backup;
+  let manifest: { format?: string; version?: number; attachments?: AttachmentManifestEntry[] };
+  try {
+    manifest = JSON.parse(await manifestFile.async("string"));
+  } catch {
+    throw new Error("ZIP backup contains an invalid attachment manifest.");
+  }
+  if (manifest.format !== "trading-os-attachment-backup" || manifest.version !== 1 || !Array.isArray(manifest.attachments)) {
+    throw new Error("ZIP backup has an unsupported attachment manifest.");
+  }
+
+  const archivePaths = new Set<string>();
+  const pointers = new Set<string>();
+  for (const entry of manifest.attachments) {
+    if (!entry || typeof entry.archivePath !== "string" || !/^attachments\/\d{5}-[^/]+$/.test(entry.archivePath) ||
+        typeof entry.pointer !== "string" || !/(^|\/)attachments\/\d+$/.test(entry.pointer) ||
+        typeof entry.name !== "string" || !Number.isSafeInteger(entry.size) || entry.size < 0 ||
+        typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(entry.sha256) ||
+        archivePaths.has(entry.archivePath) || pointers.has(entry.pointer)) {
+      throw new Error("ZIP backup has an invalid attachment manifest entry.");
+    }
+    archivePaths.add(entry.archivePath);
+    pointers.add(entry.pointer);
+    const archivedFile = zip.file(entry.archivePath);
+    if (!archivedFile) throw new Error(`ZIP backup is missing ${entry.archivePath}.`);
+    const attachment = pointerValue(backup, entry.pointer);
+    if (!attachment || typeof attachment !== "object") throw new Error("Attachment manifest does not point to an attachment.");
+    const bytes = await archivedFile.async("blob");
+    if (bytes.size !== entry.size) throw new Error(`Attachment size validation failed for ${entry.name}.`);
+    if (await blobSha256(bytes) !== entry.sha256) throw new Error(`Attachment checksum validation failed for ${entry.name}.`);
+    const uploaded = await uploadRestoredAttachment(bytes, entry.name, entry.mime);
+    Object.assign(attachment, {
+      storagePath: uploaded.path,
+      dataUrl: uploaded.signedUrl,
+      name: entry.name,
+      mime: entry.mime || bytes.type || attachment.mime,
+      size: bytes.size,
+      isImage: attachment.isImage ?? (entry.mime || bytes.type || "").startsWith("image/"),
+    });
+  }
+  return backup;
+}
+
+/* ============================================================
    OWNER CONTROL PANEL
    ============================================================ */
-const OWNER_PASSWORD = "1996";
-const OWNER_SESSION_KEY = "otx_owner_unlocked";
-
 function OwnerImport({ data, setData, accent, showToast }: any) {
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState("");
   const [confirmImport, setConfirmImport] = useState(false);
+  const [importZip, setImportZip] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const doImport = () => {
+  const doImport = async () => {
+    setImporting(true);
     try {
-      const parsed = JSON.parse(importText);
+      const parsed = importZip ? await restoreZipBackup(importZip) : JSON.parse(importText);
       if (!parsed || typeof parsed !== "object") throw new Error("bad");
-      setData((d: any) => ({
-        ...DEFAULT_DATA(),
-        ...parsed,
-        settings: { ...DEFAULT_SETTINGS(), ...(parsed.settings || {}), ...(d.settings || {}) },
-        account: parsed.account || d.account || { startingBalance: 1000, currency: "€" },
-      }));
-      setImportText(""); setImportError(""); setConfirmImport(false);
+      setData((d: any) => hydrateAppData(parsed, d));
+      setImportText(""); setImportZip(null); setImportError(""); setConfirmImport(false);
       showToast("✅ Data imported successfully");
-    } catch {
-      setImportError("Invalid JSON — check the file wasn't truncated.");
+    } catch (error: any) {
+      setImportError(error?.message || "Invalid backup — check the file wasn't truncated.");
       setConfirmImport(false);
+    } finally {
+      setImporting(false);
     }
   };
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
+    setImportError("");
+    if (file.name.toLowerCase().endsWith(".zip")) {
+      setImportZip(file);
+      setImportText("");
+      return;
+    }
+    setImportZip(null);
     const reader = new FileReader();
     reader.onload = (ev) => { setImportText((ev.target?.result as string) || ""); setImportError(""); };
     reader.readAsText(file);
-    e.target.value = "";
   };
 
   return (
     <div className="space-y-3">
       <Card>
         <SectionTitle sub="Restore from a previously downloaded backup">Import Backup</SectionTitle>
-        <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={handleFile} />
+        <input ref={fileRef} type="file" accept=".json,.zip,application/json,application/zip" className="hidden" onChange={handleFile} />
         <button onClick={() => fileRef.current?.click()}
           className="w-full mt-3 flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-slate-600 hover:border-slate-500 text-slate-400 text-sm transition">
-          <Upload size={15} /> Choose .json backup file
+          <Upload size={15} /> Choose .json or .zip backup file
         </button>
+        {importZip && <p className="text-xs text-emerald-400 mt-2">Selected ZIP: {importZip.name}. Attachments will be restored privately to this account.</p>}
         <TextArea value={importText} onChange={(e: any) => setImportText(e.target.value)}
-          placeholder="Or paste JSON backup here..."
+          placeholder="Or paste a legacy JSON backup here..."
           className="min-h-[100px] text-[11px] font-mono mt-3" />
         {importError && <p className="text-xs text-rose-400 mt-1.5">{importError}</p>}
-        <button onClick={() => importText.trim() && setConfirmImport(true)}
+        <button onClick={() => (importZip || importText.trim()) && setConfirmImport(true)}
           className="w-full mt-3 py-3 rounded-xl font-semibold text-sm transition"
-          style={{ background: importText.trim() ? accent : "#334155", color: importText.trim() ? "#0f172a" : "#64748b" }}
-          disabled={!importText.trim()}>
-          Import &amp; Restore
+          style={{ background: (importZip || importText.trim()) ? accent : "#334155", color: (importZip || importText.trim()) ? "#0f172a" : "#64748b" }}
+          disabled={importing || (!importZip && !importText.trim())}>
+          {importing ? "Restoring…" : "Import & Restore"}
         </button>
       </Card>
       <ConfirmDialog open={confirmImport} title="Overwrite all data?"
         body="Your current trades, setups, plans, vault notes, and challenges will be replaced with the imported data."
-        onConfirm={doImport} onCancel={() => setConfirmImport(false)} />
+        onConfirm={doImport} onCancel={() => !importing && setConfirmImport(false)} />
     </div>
   );
 }
 
 function OwnerPanel({ data, setData }: any) {
-  const [unlocked, setUnlocked] = useState(() => {
-    try { return sessionStorage.getItem(OWNER_SESSION_KEY) === "true"; } catch { return false; }
-  });
-  const [pin, setPin] = useState("");
-  const [wrongPin, setWrongPin] = useState(false);
+  const [unlocked, setUnlocked] = useState<boolean | null>(null);
   const [confirmAction, setConfirmAction] = useState<null | { title: string; body: string; onConfirm: () => void }>(null);
   const [toast, setToast] = useState("");
   const [activeSection, setActiveSection] = useState("stats");
@@ -13167,20 +13354,9 @@ function OwnerPanel({ data, setData }: any) {
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 2500); };
 
-  const unlock = () => {
-    if (pin === OWNER_PASSWORD) {
-      setUnlocked(true);
-      try { sessionStorage.setItem(OWNER_SESSION_KEY, "true"); } catch {}
-      setPin(""); setWrongPin(false);
-    } else {
-      setWrongPin(true); setPin("");
-    }
-  };
-
-  const lock = () => {
-    setUnlocked(false);
-    try { sessionStorage.removeItem(OWNER_SESSION_KEY); } catch {}
-  };
+  useEffect(() => {
+    getProfile().then((profile) => setUnlocked(profile.role === "owner")).catch(() => setUnlocked(false));
+  }, []);
 
   const downloadFile = (content: BlobPart, filename: string, type = "application/json") => {
     const blob = new Blob([content], { type });
@@ -13195,42 +13371,42 @@ function OwnerPanel({ data, setData }: any) {
   };
 
   const downloadFullBackup = () => {
-    downloadFile(JSON.stringify(data, null, 2), `onkar-tradex-backup-${todayISO()}.json`);
+    downloadFile(JSON.stringify(cloneBackupData(data), null, 2), `onkar-tradex-backup-${todayISO()}.json`);
     showToast("✅ Full backup downloaded");
   };
 
   const downloadZipBackup = async () => {
     try {
-      const zip = new JSZip();
+      const zip = await createAttachmentCompleteZip(data);
+      const backup = cloneBackupData(data);
       const addJson = (filename: string, value: unknown) => {
         zip.file(filename, JSON.stringify(value ?? null, null, 2));
       };
 
-      addJson("trades.json", (data as any).trades || []);
-      addJson("journal.json", (data as any).trades || []);
-      addJson("setups.json", (data as any).setups || []);
-      addJson("strategies.json", (data as any).strategies || []);
-      addJson("trading-plans.json", (data as any).plans || {});
-      addJson("session-plans.json", (data as any).sessionPlans || []);
-      addJson("psychology.json", (data as any).psychology || []);
-      addJson("vault.json", (data as any).vault || []);
-      addJson("check-ins.json", (data as any).checkins || []);
-      addJson("pre-session.json", (data as any).preSession || []);
+      addJson("trades.json", backup.trades || []);
+      addJson("journal.json", backup.trades || []);
+      addJson("setups.json", backup.setups || []);
+      addJson("strategies.json", backup.strategies || []);
+      addJson("trading-plans.json", backup.plans || {});
+      addJson("session-plans.json", backup.sessionPlans || []);
+      addJson("psychology.json", backup.psychology || []);
+      addJson("vault.json", backup.vault || []);
+      addJson("check-ins.json", backup.checkins || []);
+      addJson("pre-session.json", backup.preSession || []);
       addJson("accounts.json", {
-        account: (data as any).account || {},
-        tradingAccounts: (data as any).tradingAccounts || [],
-        activeAccountId: (data as any).activeAccountId || null,
-        propChallenges: (data as any).propChallenges || [],
+        account: backup.account || {},
+        tradingAccounts: backup.tradingAccounts || [],
+        activeAccountId: backup.activeAccountId || null,
+        propChallenges: backup.propChallenges || [],
       });
       addJson("performance-data.json", {
         exportedAt: new Date().toISOString(),
-        trades: ((data as any).trades || []).map((trade: any) => ({
+        trades: (backup.trades || []).map((trade: any) => ({
           ...trade,
           computed: computeTrade(trade),
         })),
       });
-      addJson("settings.json", (data as any).settings || {});
-      addJson("full-backup.json", data);
+      addJson("settings.json", backup.settings || {});
       zip.file(
         "README.txt",
         [
@@ -13239,6 +13415,7 @@ function OwnerPanel({ data, setData }: any) {
           "",
           "Each JSON file contains one data category.",
           "full-backup.json contains the complete app snapshot.",
+          "Private attachment bytes are in attachments/ and mapped by attachments-manifest.json.",
         ].join("\n"),
       );
 
@@ -13305,7 +13482,7 @@ function OwnerPanel({ data, setData }: any) {
     };
   }, [data]);
 
-  if (!unlocked) {
+  if (unlocked !== true) {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-6">
         <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: accent + "20" }}>
@@ -13313,27 +13490,7 @@ function OwnerPanel({ data, setData }: any) {
         </div>
         <div className="text-center">
           <h2 className="text-lg font-bold text-slate-100" style={{ fontFamily: "'Sora', sans-serif" }}>Owner Control</h2>
-          <p className="text-sm text-slate-500 mt-1">Enter your owner password to continue</p>
-        </div>
-        <div className="w-full max-w-xs space-y-3">
-          <input
-            type="password"
-            value={pin}
-            onChange={(e) => { setPin(e.target.value); setWrongPin(false); }}
-            onKeyDown={(e) => e.key === "Enter" && unlock()}
-            placeholder="••••"
-            className={cx(
-              "w-full bg-slate-900 border rounded-xl px-4 py-3 text-slate-100 text-center text-2xl tracking-[0.5em] outline-none focus:border-slate-600 transition",
-              wrongPin ? "border-rose-500" : "border-slate-700"
-            )}
-            autoFocus
-          />
-          {wrongPin && <p className="text-rose-400 text-sm text-center animate-pulse">Incorrect password</p>}
-          <button onClick={unlock}
-            className="w-full py-3 rounded-xl font-semibold text-slate-950 transition active:scale-95"
-            style={{ background: accent }}>
-            Unlock Owner Panel
-          </button>
+          <p className="text-sm text-slate-500 mt-1">{unlocked === null ? "Checking owner role…" : "This account does not have owner access."}</p>
         </div>
       </div>
     );
@@ -13363,10 +13520,6 @@ function OwnerPanel({ data, setData }: any) {
             <p className="text-[11px] text-slate-500">Full access · Session unlocked</p>
           </div>
         </div>
-        <button onClick={lock}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 hover:text-rose-400 transition">
-          <Lock size={12} /> Lock
-        </button>
       </div>
 
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
@@ -15021,7 +15174,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         const res = await storage.get(STORAGE_KEY);
         if (res && res.value) {
           const parsed = JSON.parse(res.value);
-          setDataRaw({ ...DEFAULT_DATA(), ...parsed, account: parsed.account || { startingBalance: 1000, currency: "€" } });
+          setDataRaw(hydrateAppData(parsed));
         } else {
           setDataRaw(DEFAULT_DATA());
         }
