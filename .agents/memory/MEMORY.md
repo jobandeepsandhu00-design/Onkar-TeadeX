@@ -1,3 +1,4 @@
 - [Feature Hub architecture](feature-hub.md) — 50-feature catalog lives in FEATURES_CATALOG before MoreTab; hooks-in-switch must use sub-components.
 - [AI chat endpoint](ai-chat-endpoint.md) — POST /api/mt-import/ai-chat wired in mt-import.ts; uses gpt-4o, max 1024 tokens.
 - [Backtest system](backtest-system.md) — Full replay+strategy tester; canvas chart, fixed-overlay tab (z-30 under nav z-40), Twelve Data API with generated fallback.
+- [Supabase account migration](supabase-account-migration.md) — Legacy accounts use reset-based claiming; temporary Auth passwords must stay within bcrypt's 72-byte limit.

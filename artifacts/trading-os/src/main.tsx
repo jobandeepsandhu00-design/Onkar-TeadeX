@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import { getToken, login, register, logout, me, ownerLogin } from "./api";
+import { login, register, logout, me, requestPasswordReset, updatePassword, supabase } from "./api";
 import "./index.css";
 
 // Suppress the harmless "ResizeObserver loop limit exceeded" browser error.
@@ -310,7 +310,7 @@ function CandlestickBackground() {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Owner Login Panel (code: 1996)
+   Legacy owner panel (owner access now uses the authenticated profile role)
 ───────────────────────────────────────────────────────────── */
 function OwnerLoginPanel({ onAuthed, onClose }: { onAuthed: () => void; onClose: () => void }) {
   const [digits, setDigits] = useState(["", "", "", ""]);
@@ -350,9 +350,8 @@ function OwnerLoginPanel({ onAuthed, onClose }: { onAuthed: () => void; onClose:
     setBusy(true);
     setErr(null);
     try {
-      await ownerLogin(code);
-      setSuccess(true);
-      setTimeout(() => onAuthed(), 900);
+      void code;
+      throw new Error("Owner access now uses your email account and protected profile role.");
     } catch {
       setErr("Incorrect code. Try again.");
       setDigits(["", "", "", ""]);
@@ -481,6 +480,7 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showOwner, setShowOwner] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const submit = async () => {
     setErr(null);
@@ -494,6 +494,21 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Something went wrong.";
       setErr(msg === "unauthorized" ? "Invalid email or password." : msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const forgotPassword = async () => {
+    setErr(null);
+    setNotice(null);
+    if (!email.trim()) { setErr("Enter your email address first."); return; }
+    setBusy(true);
+    try {
+      await requestPasswordReset(email.trim().toLowerCase());
+      setNotice("Password reset email sent. Check your inbox.");
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Could not send reset email.");
     } finally {
       setBusy(false);
     }
@@ -514,7 +529,7 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
       }} />
 
       {/* Owner panel overlay */}
-      {showOwner && (
+      {false && showOwner && (
         <OwnerLoginPanel onAuthed={onAuthed} onClose={() => setShowOwner(false)} />
       )}
 
@@ -634,6 +649,11 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
               color: "#f87171", fontSize: 12,
             }}>{err}</div>
           )}
+          {notice && (
+            <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 10, background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.25)", color: "#34d399", fontSize: 12 }}>
+              {notice}
+            </div>
+          )}
 
           <button
             onClick={submit}
@@ -649,9 +669,15 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
           >
             {busy ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
           </button>
+          {mode === "login" && (
+            <button onClick={forgotPassword} disabled={busy}
+              style={{ width: "100%", marginTop: 10, background: "none", border: "none", color: "#64748b", fontSize: 12, cursor: "pointer" }}>
+              Forgot password or claiming a migrated account?
+            </button>
+          )}
 
           {/* Owner access divider */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "20px 0 0" }}>
+          <div style={{ display: "none", alignItems: "center", gap: 10, margin: "20px 0 0" }}>
             <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.06)" }} />
             <span style={{ color: "#1e293b", fontSize: 11 }}>or</span>
             <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.06)" }} />
@@ -667,7 +693,7 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
               cursor: "pointer", color: "#92400e",
               fontWeight: 600, fontSize: 13, letterSpacing: "0.02em",
               transition: "all 0.2s",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              display: "none", alignItems: "center", justifyContent: "center", gap: 8,
             }}
             onMouseEnter={(e) => {
               (e.currentTarget as HTMLButtonElement).style.background = "rgba(245,158,11,0.14)";
@@ -692,15 +718,47 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
   );
 }
 
+function PasswordRecoveryScreen({ onDone }: { onDone: () => void }) {
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    if (password.length < 8) { setError("Use at least 8 characters."); return; }
+    setBusy(true); setError("");
+    try { await updatePassword(password); onDone(); }
+    catch (e: unknown) { setError(e instanceof Error ? e.message : "Could not update password."); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 text-slate-100">
+      <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6">
+        <h1 className="text-xl font-bold">Set a new password</h1>
+        <p className="text-sm text-slate-400 mt-1 mb-5">Choose a new password to finish recovering your account.</p>
+        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="New password"
+          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-3" />
+        {error && <p className="text-rose-400 text-xs mt-2">{error}</p>}
+        <button onClick={submit} disabled={busy} className="w-full mt-4 py-3 rounded-xl bg-amber-500 text-slate-950 font-bold">
+          {busy ? "Updating…" : "Update password"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────────────────────────
    Root / Splash
 ───────────────────────────────────────────────────────────── */
 function Root() {
-  const [status, setStatus] = useState<"checking" | "out" | "in">("checking");
+  const [status, setStatus] = useState<"checking" | "out" | "in" | "recovery">("checking");
 
   useEffect(() => {
-    if (!getToken()) { setStatus("out"); return; }
     me().then(() => setStatus("in")).catch(() => setStatus("out"));
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") setStatus("recovery");
+      else setStatus(session ? "in" : "out");
+    });
+    return () => data.subscription.unsubscribe();
   }, []);
 
   if (status === "checking") {
@@ -810,7 +868,8 @@ function Root() {
   }
 
   if (status === "out") return <AuthScreen onAuthed={() => setStatus("in")} />;
-  return <App onLogout={() => { logout(); setStatus("out"); }} />;
+  if (status === "recovery") return <PasswordRecoveryScreen onDone={() => setStatus("in")} />;
+  return <App onLogout={() => { void logout(); setStatus("out"); }} />;
 }
 
 createRoot(document.getElementById("root")!).render(
