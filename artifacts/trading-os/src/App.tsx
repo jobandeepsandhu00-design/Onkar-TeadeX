@@ -16,6 +16,7 @@ import {
 import { storage, getAccessToken, uploadAttachment, removeAttachment, refreshAttachmentUrl, getProfile, downloadAttachment, uploadRestoredAttachment } from "./api";
 import CsvImportModal from "./CsvImport";
 import PerformanceReport from "./PerformanceReport";
+import PerformanceLearning from "./performance-learning/PerformanceLearning";
 import BacktestTab from "./Backtest";
 import JSZip from "jszip";
 import { createDefaultTradeSetups, migrateLegacySetupImages, normalizeTradeSetups } from "./trade-setups";
@@ -871,6 +872,7 @@ const DEFAULT_SETTINGS = () => ({
   /* ── More sub-tab visibility ── */
   moreTabVisibility: {
     Account:    true,
+    Performance: true,
     Session:    true,
     Plans:      true,
     Psychology: true,
@@ -6466,9 +6468,12 @@ function emptyTrade(settings?: any) {
     positionSize: "",
     strategyId: "", setupId: "", notes: "", attachments: [],
     session:   s.defaultSession   || "",
+    timeframe: s.defaultTimeframe || "M30",
     entryTime: "", exitDate: "", exitTime: "", fees: "", commission: "",
     tradeType: s.defaultTradeType || "Normal",
     grade: "", mistakes: [], reviewNotes: "", rulesViolated: false,
+    whatWentWell: "", whatWentWrong: "", lesson: "", emotion: "",
+    ruleChecks: [], ruleCompliance: null,
     manualPnl: "",
     platform: "",
     accountId: "",
@@ -6484,13 +6489,17 @@ const GRADE_CONFIG: Record<string, { ring: string; bg: string; label: string; te
   "C":  { ring: "border-rose-500",    bg: "bg-rose-500/15",     text: "text-rose-400",    label: "Poor execution"      },
 };
 const MISTAKE_TAGS = [
-  "FOMO entry", "Oversized", "No clear setup", "Exited early", "Moved SL",
-  "Revenge trade", "News trap", "Wrong bias", "Chased price", "Poor R:R",
-  "Entered without plan", "Held too long",
+  "Entered too early", "No confirmation", "Chased price", "Entered in middle of range",
+  "Wrong direction", "Ignored higher timeframe", "H1/H4 zone nearby", "Moved stop loss",
+  "Overtrading", "FOMO", "Revenge trade", "Low volume", "No clear S/R",
+  "4th/5th motion candle", "Poor clean range", "Bad session timing", "Oversized risk",
+  "Entered against session trend", "Entered with no wick confirmation",
+  "Took trade too far from zone", "Did not secure profit", "Held loser too long",
+  "Cut winner too early", "Other",
 ];
 
 /* ────── Trade Review Panel ────── */
-function TradeReviewPanel({ trade, onClose, onSave }) {
+function TradeReviewPanel({ trade, onClose, onSave, mistakeTags = MISTAKE_TAGS }) {
   const c = computeTrade(trade);
   const [grade, setGrade]   = useState(trade.grade || "");
   const [mistakes, setMistakes] = useState<string[]>(trade.mistakes || []);
@@ -6574,7 +6583,7 @@ function TradeReviewPanel({ trade, onClose, onSave }) {
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            {MISTAKE_TAGS.map((tag) => {
+            {mistakeTags.map((tag) => {
               const active = mistakes.includes(tag);
               return (
                 <button key={tag} onClick={() => toggleMistake(tag)}
@@ -6846,7 +6855,7 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
     }
   }, [form.exit, form.entry, form.side, form.symbol, form.positionSize, form.sl, form.riskPct]);
 
-  const STEPS = ["Setup", "Entry", "Risk", "Notes", "Preview"];
+  const STEPS = ["Setup", "Trade", "Risk", "Review", "Confirm"];
 
   if (!open) return null;
 
@@ -7019,6 +7028,11 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                 </Select>
               </Field>
             </div>
+            <Field label="Timeframe">
+              <Select value={form.timeframe || "M30"} onChange={set("timeframe")}>
+                {["M5", "M15", "M30", "H1", "H4", "Custom"].map((timeframe) => <option key={timeframe} value={timeframe}>{timeframe}</option>)}
+              </Select>
+            </Field>
             <Field label="Platform / Broker" hint="MT4, MT5, TradingView, or your broker name">
               <TextInput
                 list="otx-platforms"
@@ -7568,12 +7582,34 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
             <Field label="Trade Notes">
               <TextArea placeholder="What did you see? How did you execute? What would you do differently?" value={form.notes} onChange={set("notes")} className="min-h-[120px]" />
             </Field>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Field label="What went well">
+                <TextArea placeholder="Which conditions, rules, or decisions worked?" value={form.whatWentWell || ""} onChange={set("whatWentWell")} className="min-h-[90px]" />
+              </Field>
+              <Field label="What went wrong">
+                <TextArea placeholder="What reduced the quality of this trade?" value={form.whatWentWrong || ""} onChange={set("whatWentWrong")} className="min-h-[90px]" />
+              </Field>
+              <Field label="Lesson learned">
+                <TextArea placeholder="What will you repeat or change next time?" value={form.lesson || ""} onChange={set("lesson")} className="min-h-[90px]" />
+              </Field>
+              <Field label="Emotion / psychology">
+                <TextArea placeholder="Calm, patient, FOMO, fear, revenge…" value={form.emotion || ""} onChange={set("emotion")} className="min-h-[90px]" />
+              </Field>
+            </div>
             {form.notes && (
               <button type="button" onClick={() => setForm(f => ({ ...f, notes: "" }))}
                 className="text-[10px] text-slate-600 hover:text-rose-400 transition mb-1">✕ Clear notes</button>
             )}
             <Field label="Screenshots / Attachments">
               <Attachments items={form.attachments} onChange={(items) => setForm((f) => ({ ...f, attachments: items }))} />
+            </Field>
+            <Field label="Mistakes" hint="Select every issue that affected this trade">
+              <div className="flex flex-wrap gap-2">
+                {[...new Set([...MISTAKE_TAGS, ...(settings?.customMistakes || []).filter((item: any) => item.active !== false).map((item: any) => item.name)])].map((mistake) => {
+                  const active = (form.mistakes || []).includes(mistake);
+                  return <button key={mistake} type="button" onClick={() => setForm((current) => ({ ...current, mistakes: active ? (current.mistakes || []).filter((item) => item !== mistake) : [...(current.mistakes || []), mistake] }))} className={cx("rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition", active ? "border-rose-500/40 bg-rose-500/15 text-rose-300" : "border-slate-800 bg-slate-900 text-slate-500 hover:border-slate-700")}>{mistake}</button>;
+                })}
+              </div>
             </Field>
           </div>
         )}
@@ -8406,7 +8442,8 @@ function JournalTab({ data, allTrades = [], setData, autoOpen = false, onAutoOpe
   }
 
   if (reviewTrade) {
-    return <TradeReviewPanel trade={reviewTrade} onClose={() => setReviewTrade(null)} onSave={saveReview} />;
+    const customMistakeTags = (data.settings?.customMistakes || []).filter((item: any) => item.active !== false).map((item: any) => item.name);
+    return <TradeReviewPanel trade={reviewTrade} onClose={() => setReviewTrade(null)} onSave={saveReview} mistakeTags={[...new Set([...MISTAKE_TAGS, ...customMistakeTags])]} />;
   }
 
   if (replayTrade) {
@@ -12918,7 +12955,7 @@ function SettingsPanel({ data, setData }) {
                 </SettingRow>
                 <div className="pt-3">
                   <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">More Menu Tabs</div>
-                  {["Account", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report"].map((t) => {
+                  {["Account", "Performance", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report"].map((t) => {
                     const on = moreVis[t] !== false;
                     return (
                       <div key={t} className="flex items-center justify-between py-2.5 border-b border-slate-800/50 last:border-0">
@@ -14928,7 +14965,7 @@ function FeatureHubPanel({ data, setData }: { data: any; setData: any }) {
 }
 
 function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
-  const ALL_TABS = ["Academy", "Account", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report", "AI Lab", "Settings", "Owner"];
+  const ALL_TABS = ["Academy", "Account", "Performance", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report", "AI Lab", "Settings", "Owner"];
   const moreVis = (data as any)?.settings?.moreTabVisibility || {};
   const tabs = ALL_TABS.filter((t) => t === "Settings" || t === "Owner" || t === "AI Lab" || t === "Academy" || moreVis[t] !== false);
   const accent = (data as any)?.settings?.accentColor || "#f59e0b";
@@ -14936,6 +14973,9 @@ function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
 
   if (subTab === "Report") {
     return <PerformanceReport data={data} onClose={() => setSubTab("Account")} />;
+  }
+  if (subTab === "Performance") {
+    return <PerformanceLearning data={data} setData={setData} onClose={() => setSubTab("Account")} />;
   }
 
   return (
