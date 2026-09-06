@@ -172,6 +172,19 @@ export const storage = {
   },
   async set(_key: string, value: string) {
     const parsed = JSON.parse(value);
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    let session = sessionData.session;
+    if (!session) throw new Error("Your session has expired. Please log in again.");
+
+    // Mobile browsers can suspend the app long enough for the access token to
+    // expire before the auto-refresh timer gets another turn.
+    if (session.expires_at && session.expires_at <= Math.floor(Date.now() / 1000) + 30) {
+      const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) throw refreshError;
+      session = refreshed.session;
+      if (!session) throw new Error("Your session has expired. Please log in again.");
+    }
     const { error } = await supabase.rpc("save_trading_state", { state: parsed });
     if (error) throw error;
   },

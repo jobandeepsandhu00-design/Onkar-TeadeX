@@ -1837,6 +1837,16 @@ type OTXNotif = {
   read: boolean;
 };
 
+type OTXNotifLedger = { readIds: string[]; dismissedIds: string[] };
+
+function getNotifLedger(data: any): OTXNotifLedger {
+  const stored = data?.settings?.notificationInbox || {};
+  return {
+    readIds: Array.isArray(stored.readIds) ? stored.readIds.filter((id: unknown) => typeof id === "string") : [],
+    dismissedIds: Array.isArray(stored.dismissedIds) ? stored.dismissedIds.filter((id: unknown) => typeof id === "string") : [],
+  };
+}
+
 function computeNotifications(data: any, enabled: Record<string, boolean>): OTXNotif[] {
   const notifs: OTXNotif[] = [];
   const push = (key: string, id: string, title: string, body: string, tone: OTXNotif["tone"], icon: string) => {
@@ -2081,7 +2091,8 @@ function NotificationCentre({ notifs, onMarkAllRead, onDismiss, onClose, accent 
   const unread = notifs.filter((n: OTXNotif) => !n.read).length;
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-950">
-      <div className="flex items-center justify-between px-4 py-4 border-b border-slate-800 shrink-0">
+      <div className="flex items-center justify-between px-4 pb-4 border-b border-slate-800 shrink-0"
+        style={{ paddingTop: "calc(1rem + env(safe-area-inset-top, 0px))" }}>
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-200"><ArrowLeft size={20} /></button>
           <div>
@@ -2095,7 +2106,8 @@ function NotificationCentre({ notifs, onMarkAllRead, onDismiss, onClose, accent 
           </button>
         )}
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2"
+        style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom, 0px))" }}>
         {notifs.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
             <span className="text-4xl">🔔</span>
@@ -2150,8 +2162,8 @@ function NotifToast({ notif, onDismiss }: { notif: OTXNotif; onDismiss: () => vo
   }, [notif.id]);
   const s = NOTIF_TONE_STYLES[notif.tone] || NOTIF_TONE_STYLES.slate;
   return (
-    <div className="fixed top-4 left-4 right-4 z-[999] flex items-start gap-3 p-3.5 rounded-2xl border shadow-2xl shadow-black/60 animate-[slideDown_0.3s_ease]"
-      style={{ background: "#0f172a", borderColor: s.border }}>
+    <div className="fixed left-4 right-4 z-[999] flex items-start gap-3 p-3.5 rounded-2xl border shadow-2xl shadow-black/60 animate-[slideDown_0.3s_ease]"
+      style={{ background: "#0f172a", borderColor: s.border, top: "calc(1rem + env(safe-area-inset-top, 0px))" }}>
       <span className="text-lg leading-none shrink-0">{notif.icon}</span>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold leading-snug" style={{ color: s.text }}>{notif.title}</p>
@@ -15180,7 +15192,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const [quickLogOpen, setQuickLogOpen] = useState(false);
   const [riskAlert, setRiskAlert] = useState<RiskAlert | null>(null);
   const dismissedAtRef = useRef<number>(0);
-  const saveTimer = useRef(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<any>(null);
+  const saveInFlightRef = useRef(false);
+  const saveErrorShownRef = useRef(false);
 
   /* ── Notification state ── */
   const [notifCentreOpen, setNotifCentreOpen] = useState(false);
@@ -15210,26 +15225,105 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     })();
   }, []);
 
+  const flushPendingSave = async () => {
+    if (saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    try {
+      while (pendingSaveRef.current) {
+        const snapshot = pendingSaveRef.current;
+        pendingSaveRef.current = null;
+        let lastError: unknown = null;
+
+        // One short retry absorbs mobile radio handoffs and suspended-tab wakeups.
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            await storage.set(STORAGE_KEY, JSON.stringify(snapshot));
+            lastError = null;
+            saveErrorShownRef.current = false;
+            break;
+          } catch (error) {
+            lastError = error;
+            if (attempt === 0) await new Promise((resolve) => window.setTimeout(resolve, 700));
+          }
+        }
+
+        if (lastError) {
+          console.error("[workspace] Supabase save failed:", lastError);
+          // Keep the failed snapshot until a focus/online event retries it.
+          if (!pendingSaveRef.current) pendingSaveRef.current = snapshot;
+          if (!saveErrorShownRef.current) {
+            saveErrorShownRef.current = true;
+            const detail = lastError instanceof Error && lastError.message ? ` ${lastError.message}` : "";
+            setToastQueue((queue) => [...queue, {
+              id: `workspace-save-${Date.now()}`,
+              key: "workspaceSave",
+              title: "Changes not saved yet",
+              body: `Your latest edit is safe on this screen. We will retry when the connection returns.${detail}`,
+              tone: "rose",
+              icon: "!",
+              ts: Date.now(),
+              read: false,
+            }]);
+          }
+          break;
+        }
+      }
+    } finally {
+      saveInFlightRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    const retry = () => { if (pendingSaveRef.current) void flushPendingSave(); };
+    window.addEventListener("online", retry);
+    window.addEventListener("focus", retry);
+    return () => {
+      window.removeEventListener("online", retry);
+      window.removeEventListener("focus", retry);
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, []);
+
   const setData = (updater) => {
     setDataRaw((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      pendingSaveRef.current = next;
       saveTimer.current = setTimeout(() => {
-        storage.set(STORAGE_KEY, JSON.stringify(next)).catch(() => {
-          setToastQueue((queue) => [...queue, {
-            id: `workspace-save-${Date.now()}`,
-            key: "workspaceSave",
-            title: "Changes not saved",
-            body: "The workspace could not reach Supabase. Your latest edit is still visible here; check your connection and try again.",
-            tone: "rose",
-            icon: "!",
-            ts: Date.now(),
-            read: false,
-          }]);
-        });
+        void flushPendingSave();
       }, 400);
       return next;
     });
+  };
+
+  const updateNotificationLedger = (update: (ledger: OTXNotifLedger) => OTXNotifLedger) => {
+    const unique = (ids: string[]) => Array.from(new Set(ids)).slice(-250);
+    setData((current: any) => ({
+      ...current,
+      settings: {
+        ...(current.settings || {}),
+        notificationInbox: (() => {
+          const next = update(getNotifLedger(current));
+          return { readIds: unique(next.readIds), dismissedIds: unique(next.dismissedIds) };
+        })(),
+      },
+    }));
+  };
+
+  const markNotificationsRead = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setNotifs((items) => items.map((item) => ids.includes(item.id) ? { ...item, read: true } : item));
+    setToastQueue((items) => items.filter((item) => !ids.includes(item.id)));
+    updateNotificationLedger((ledger) => ({ ...ledger, readIds: [...ledger.readIds, ...ids] }));
+  };
+
+  const dismissNotification = (id: string) => {
+    setNotifs((items) => items.filter((item) => item.id !== id));
+    setToastQueue((items) => items.filter((item) => item.id !== id));
+    updateNotificationLedger((ledger) => ({
+      readIds: ledger.readIds.filter((itemId) => itemId !== id),
+      dismissedIds: [...ledger.dismissedIds, id],
+    }));
   };
 
   const goTo = (tab, sub) => {
@@ -15255,7 +15349,12 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     let fresh: OTXNotif[] = [];
     try {
       const enabled = { ...DEFAULT_SETTINGS().notifications, ...((data as any).settings?.notifications || {}) };
-      fresh = computeNotifications(data as any, enabled);
+      const ledger = getNotifLedger(data);
+      const readIds = new Set(ledger.readIds);
+      const dismissedIds = new Set(ledger.dismissedIds);
+      fresh = computeNotifications(data as any, enabled)
+        .filter((notification) => !dismissedIds.has(notification.id))
+        .map((notification) => ({ ...notification, read: readIds.has(notification.id) }));
     } catch (err) {
       console.error("[notifications] computeNotifications threw:", err);
       return;
@@ -15264,7 +15363,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
     // Compute new notifications HERE (effect scope) — never inside a state updater.
     // React 18 Strict Mode runs updater functions twice, so any ref mutation or
     // setState call inside an updater would fire twice and break the de-dup logic.
-    const newOnes = fresh.filter((n) => !prevNotifIds.current.has(n.id));
+    const newOnes = fresh.filter((n) => !n.read && !prevNotifIds.current.has(n.id));
     newOnes.forEach((n) => prevNotifIds.current.add(n.id));
 
     // Update the notification list, preserving read-state for already-seen items.
@@ -15497,7 +15596,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       {/* Scrollable content — header scrolls with content, only bottom nav is fixed */}
       <div className="mx-auto max-w-[1800px] overflow-y-auto px-4 py-4"
         style={{
-          paddingTop: "max(1rem, env(safe-area-inset-top))",
+          paddingTop: "calc(1rem + env(safe-area-inset-top, 0px))",
           paddingBottom: "calc(72px + env(safe-area-inset-bottom))",
         }}>
         {/* Inline top header — scrolls away to give full screen to content */}
@@ -15513,7 +15612,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               <div className="flex items-center gap-1.5">
                 <NotifBell count={unreadCount} accent={accent} onClick={() => {
                   setNotifCentreOpen(true);
-                  setNotifs((n) => n.map((x) => ({ ...x, read: true })));
+                  markNotificationsRead(notifs.map((notification) => notification.id));
                 }} />
                 {(data as any)?.settings?.showSearchBar !== false && (
                   <button onClick={() => setSearchOpen(true)} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 transition">
@@ -15588,8 +15687,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           notifs={notifs}
           accent={(data as any)?.settings?.accentColor || "#f59e0b"}
           onClose={() => setNotifCentreOpen(false)}
-          onMarkAllRead={() => setNotifs((n) => n.map((x) => ({ ...x, read: true })))}
-          onDismiss={(id: string) => setNotifs((n) => n.filter((x) => x.id !== id))}
+          onMarkAllRead={() => markNotificationsRead(notifs.map((notification) => notification.id))}
+          onDismiss={dismissNotification}
         />
       )}
 
@@ -15597,7 +15696,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       {toastQueue.length > 0 && !notifCentreOpen && !riskAlert && (
         <NotifToast
           notif={toastQueue[0]}
-          onDismiss={() => setToastQueue((q) => q.slice(1))}
+          onDismiss={() => {
+            const shown = toastQueue[0];
+            setToastQueue((q) => q.slice(1));
+            if (shown && shown.key !== "workspaceSave") markNotificationsRead([shown.id]);
+          }}
         />
       )}
 

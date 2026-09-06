@@ -887,12 +887,18 @@ function Root() {
   const [status, setStatus] = useState<"checking" | "out" | "in" | "recovery">("checking");
 
   useEffect(() => {
-    me().then(() => setStatus("in")).catch(() => setStatus("out"));
+    let active = true;
+    // Restore the persisted session without making startup depend on a network
+    // round-trip. The auth listener then owns all later session transitions.
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (active) setStatus(!error && data.session ? "in" : "out");
+    });
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!active) return;
       if (event === "PASSWORD_RECOVERY") setStatus("recovery");
       else setStatus(session ? "in" : "out");
     });
-    return () => data.subscription.unsubscribe();
+    return () => { active = false; data.subscription.unsubscribe(); };
   }, []);
 
   if (status === "checking") {
