@@ -1009,7 +1009,15 @@ function Root() {
 
   if (status === "out") return <AuthScreen onAuthed={() => setStatus("in")} />;
   if (status === "recovery") return <PasswordRecoveryScreen onDone={() => setStatus("in")} />;
-  return <App onLogout={() => { void logout(); setStatus("out"); }} />;
+  return <App onLogout={async () => {
+    try {
+      await logout();
+    } catch {
+      // Local auth data is cleared by logout even if the remote revoke fails.
+    } finally {
+      setStatus("out");
+    }
+  }} />;
 }
 
 createRoot(document.getElementById("root")!).render(

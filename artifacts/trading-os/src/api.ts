@@ -80,7 +80,12 @@ export async function register(email: string, password: string) {
 }
 
 export async function logout() {
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut({ scope: "local" });
+  for (const store of [localStorage, sessionStorage]) {
+    const authKeys = Array.from({ length: store.length }, (_, index) => store.key(index))
+      .filter((key): key is string => Boolean(key?.includes("-auth-token")));
+    authKeys.forEach((key) => store.removeItem(key));
+  }
   if (error) throw error;
 }
 

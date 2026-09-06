@@ -15224,7 +15224,7 @@ function RiskAlertOverlay({ alert, onDismiss }: { alert: RiskAlert; onDismiss: (
   );
 }
 
-export default function App({ onLogout }: { onLogout?: () => void } = {}) {
+export default function App({ onLogout }: { onLogout?: () => void | Promise<void> } = {}) {
   const [data, setDataRaw] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
@@ -15233,12 +15233,23 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const [moreSubTab, setMoreSubTab] = useState("Plans");
   const [searchOpen, setSearchOpen] = useState(false);
   const [quickLogOpen, setQuickLogOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [riskAlert, setRiskAlert] = useState<RiskAlert | null>(null);
   const dismissedAtRef = useRef<number>(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSaveRef = useRef<any>(null);
   const saveInFlightRef = useRef(false);
   const saveErrorShownRef = useRef(false);
+
+  const handleLogout = async () => {
+    if (!onLogout || loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await onLogout();
+    } finally {
+      setLoggingOut(false);
+    }
+  };
 
   /* ── Notification state ── */
   const [notifCentreOpen, setNotifCentreOpen] = useState(false);
@@ -15663,9 +15674,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
                   </button>
                 )}
                 {onLogout && (
-                  <button onClick={onLogout} title="Log out"
-                    className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-rose-400 transition">
+                  <button onClick={handleLogout} disabled={loggingOut} title="Logout and return to login"
+                    className="h-9 px-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-rose-400 hover:border-rose-500/30 transition flex items-center gap-1.5 text-[11px] font-semibold disabled:opacity-60"
+                    aria-label="Logout and return to login">
                     <LogOut size={16} />
+                    <span>{loggingOut ? "Leaving…" : "Logout"}</span>
                   </button>
                 )}
               </div>
