@@ -55,7 +55,8 @@ import {
 type Props = {
   data: any;
   setData: (updater: (current: any) => any) => void;
-  onClose: () => void;
+  onClose?: () => void;
+  embedded?: boolean;
 };
 
 type Filters = {
@@ -170,11 +171,13 @@ function FilterBar({
   onChange,
   data,
   trades,
+  sticky = true,
 }: {
   filters: Filters;
   onChange: (key: keyof Filters, value: string) => void;
   data: any;
   trades: EnrichedTrade[];
+  sticky?: boolean;
 }) {
   const options = [
     [
@@ -236,7 +239,9 @@ function FilterBar({
     ],
   ] as Array<[keyof Filters, string, string[][]]>;
   return (
-    <div className={`${panel} sticky top-0 z-20 p-3 backdrop-blur-xl`}>
+    <div
+      className={`${panel} ${sticky ? "sticky top-0 z-20" : ""} p-3 backdrop-blur-xl`}
+    >
       <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
         {presets.map((preset) => (
           <button
@@ -1909,7 +1914,12 @@ function SectionHeading({
   );
 }
 
-export default function PerformanceLearning({ data, setData, onClose }: Props) {
+export default function PerformanceLearning({
+  data,
+  setData,
+  onClose,
+  embedded = false,
+}: Props) {
   const allTrades = useMemo(
     () => enrichTrades(data.trades || [], data.setups || []),
     [data.trades, data.setups],
@@ -2117,16 +2127,18 @@ export default function PerformanceLearning({ data, setData, onClose }: Props) {
       )
     : undefined;
   return (
-    <div className="min-h-screen space-y-6 pb-8">
+    <div className={`${embedded ? "" : "min-h-screen"} space-y-6 pb-8`}>
       <header className="relative overflow-hidden rounded-2xl border border-amber-500/15 bg-slate-900 p-4 md:p-6">
         <div className="absolute right-0 top-0 h-40 w-64 bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,.12),transparent_65%)]" />
         <div className="relative flex items-start gap-3">
-          <button
-            onClick={onClose}
-            className="mt-0.5 rounded-xl border border-slate-800 bg-slate-950 p-2 text-slate-400 hover:text-amber-400"
-          >
-            <ArrowLeft size={17} />
-          </button>
+          {!embedded && (
+            <button
+              onClick={onClose}
+              className="mt-0.5 rounded-xl border border-slate-800 bg-slate-950 p-2 text-slate-400 hover:text-amber-400"
+            >
+              <ArrowLeft size={17} />
+            </button>
+          )}
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-[.2em] text-amber-400">
@@ -2164,6 +2176,7 @@ export default function PerformanceLearning({ data, setData, onClose }: Props) {
         }
         data={data}
         trades={allTrades}
+        sticky={!embedded}
       />
       <div className="flex gap-2 overflow-x-auto pb-1 md:grid md:grid-cols-4 xl:grid-cols-6">
         {kpis.map(([label, value, tone, hint]) => (

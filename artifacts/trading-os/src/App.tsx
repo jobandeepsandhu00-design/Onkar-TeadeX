@@ -812,6 +812,7 @@ const DEFAULT_SETTINGS = () => ({
     marketOverview:  true,
     marketSessions:  true,
     accountOverview: true,
+    performanceLearning: true,
     todaysFocus:     true,
     propChallenges:  true,
     thisWeek:        true,
@@ -826,7 +827,7 @@ const DEFAULT_SETTINGS = () => ({
     equityCurve:     true,
     tvChart:         true,
   },
-  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
+  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -6000,6 +6001,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog }) {
         </div>
       </>
     ),
+    performanceLearning: <PerformanceLearning data={data} setData={setData} embedded />,
     todaysFocus: (
       <>
         <SessionPlanDashCard data={data} goTo={goTo} />
@@ -12591,6 +12593,7 @@ const DASH_SECTION_META = [
   { key: "liveTicker",      label: "Live Market Ticker",    icon: "📊" },
   { key: "activeTrades",    label: "Active Trades Monitor",  icon: "📡" },
   { key: "accountOverview", label: "Account Overview",       icon: "💰" },
+  { key: "performanceLearning", label: "Performance & Learning", icon: "📊" },
   { key: "setupLibrary",    label: "Trade Setup Board",       icon: "📚" },
   { key: "marketSessions",  label: "Forex Market Sessions",  icon: "🌍" },
   { key: "todaysFocus",     label: "Today's Focus",          icon: "🎯" },
