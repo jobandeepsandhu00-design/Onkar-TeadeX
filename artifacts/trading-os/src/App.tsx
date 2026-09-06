@@ -18,6 +18,9 @@ import CsvImportModal from "./CsvImport";
 import PerformanceReport from "./PerformanceReport";
 import BacktestTab from "./Backtest";
 import JSZip from "jszip";
+import { createDefaultTradeSetups, migrateLegacySetupImages, normalizeTradeSetups } from "./trade-setups";
+import { SetupLibrary } from "./trade-setups/SetupLibrary";
+import { TradeSetupDashboard } from "./trade-setups/TradeSetupBoard";
 
 /* ============================================================
    UTILITIES
@@ -909,7 +912,8 @@ const DEFAULT_SETTINGS = () => ({
 
 const DEFAULT_DATA = () => ({
   trades: [],
-  setups: seedSetups(),
+  setups: createDefaultTradeSetups(),
+  setupLibraryVersion: 2,
   strategies: seedStrategies(),
   plans: seedPlans(),
   psychology: [],
@@ -931,6 +935,11 @@ function hydrateAppData(parsed: any, current?: any) {
   return {
     ...defaults,
     ...incoming,
+    setupLibraryVersion: 2,
+    setups: normalizeTradeSetups(
+      Array.isArray(incoming.setups) ? incoming.setups : defaults.setups,
+      incoming.setupLibraryVersion !== 2,
+    ),
     plans: {
       ...defaults.plans,
       ...(incoming.plans || {}),
@@ -6035,7 +6044,18 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog }) {
         <YourEdgePanel a={a} />
       </>
     ),
-    setupLibrary: <BestSetupsCard data={data} goTo={goTo} />,
+    setupLibrary: (
+      <TradeSetupDashboard
+        setups={data.setups || []}
+        onChange={(setups) => setData((current: any) => ({ ...current, setups }))}
+        tradingRules={(data.settings as any)?.tradeSetupBoardRules}
+        onTradingRulesChange={(tradeSetupBoardRules) => setData((current: any) => ({
+          ...current,
+          settings: { ...current.settings, tradeSetupBoardRules },
+        }))}
+        onViewLibrary={() => goTo("library", "Setups")}
+      />
+    ),
     marketCalendar: (
       <>
         <EconomicCalendarWidget />
@@ -10053,7 +10073,7 @@ function LibraryTab({ data, setData, subTab, setSubTab, goTo }) {
           </button>
         ))}
       </div>
-      {subTab === "Setups" ? <SetupsPanel data={data} setData={setData} goTo={goTo} />
+      {subTab === "Setups" ? <SetupLibrary setups={data.setups || []} onChange={(setups) => setData((current: any) => ({ ...current, setups }))} />
         : subTab === "Strategies" ? <StrategiesPanel data={data} setData={setData} goTo={goTo} />
         : <ForexBlueprintLibrary />}
     </div>
@@ -12522,6 +12542,7 @@ const DASH_SECTION_META = [
   { key: "liveTicker",      label: "Live Market Ticker",    icon: "📊" },
   { key: "activeTrades",    label: "Active Trades Monitor",  icon: "📡" },
   { key: "accountOverview", label: "Account Overview",       icon: "💰" },
+  { key: "setupLibrary",    label: "Trade Setup Board",       icon: "📚" },
   { key: "marketSessions",  label: "Forex Market Sessions",  icon: "🌍" },
   { key: "todaysFocus",     label: "Today's Focus",          icon: "🎯" },
   { key: "riskTools",       label: "Risk & Tools",           icon: "⚖️" },
@@ -12531,7 +12552,6 @@ const DASH_SECTION_META = [
   { key: "recentTrades",    label: "Recent Trades",          icon: "📋" },
   { key: "insightsEdge",    label: "Insights & Edge",        icon: "💡" },
   { key: "tvChart",         label: "TradingView Chart",      icon: "🖥️" },
-  { key: "setupLibrary",    label: "Setup Library",          icon: "📚" },
   { key: "marketCalendar",  label: "Market Calendar",        icon: "🗓️" },
   { key: "statistics",      label: "Statistics",             icon: "📊" },
   { key: "reference",       label: "Reference",              icon: "📖" },
@@ -15174,7 +15194,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         const res = await storage.get(STORAGE_KEY);
         if (res && res.value) {
           const parsed = JSON.parse(res.value);
-          setDataRaw(hydrateAppData(parsed));
+          const hydrated = hydrateAppData(parsed);
+          const migrated = await migrateLegacySetupImages(hydrated.setups);
+          const next = migrated.changed ? { ...hydrated, setups: migrated.setups } : hydrated;
+          if (migrated.changed) await storage.set(STORAGE_KEY, JSON.stringify(next));
+          setDataRaw(next);
         } else {
           setDataRaw(DEFAULT_DATA());
         }
@@ -15191,7 +15215,18 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
       const next = typeof updater === "function" ? updater(prev) : updater;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
-        storage.set(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+        storage.set(STORAGE_KEY, JSON.stringify(next)).catch(() => {
+          setToastQueue((queue) => [...queue, {
+            id: `workspace-save-${Date.now()}`,
+            key: "workspaceSave",
+            title: "Changes not saved",
+            body: "The workspace could not reach Supabase. Your latest edit is still visible here; check your connection and try again.",
+            tone: "rose",
+            icon: "!",
+            ts: Date.now(),
+            read: false,
+          }]);
+        });
       }, 400);
       return next;
     });
@@ -15460,7 +15495,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   return (
     <div className="w-full bg-slate-950" style={{ fontFamily: "'Inter', sans-serif", minHeight: "100dvh" }}>
       {/* Scrollable content — header scrolls with content, only bottom nav is fixed */}
-      <div className="overflow-y-auto px-4 py-4"
+      <div className="mx-auto max-w-[1800px] overflow-y-auto px-4 py-4"
         style={{
           paddingTop: "max(1rem, env(safe-area-inset-top))",
           paddingBottom: "calc(72px + env(safe-area-inset-bottom))",

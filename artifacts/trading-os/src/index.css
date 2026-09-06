@@ -5,3 +5,36 @@ html, body, #root {
   margin: 0;
   background: #020617;
 }
+
+@keyframes setup-panel-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.setup-board-slide {
+  min-width: min(88vw, 440px);
+  width: min(88vw, 440px);
+}
+
+@media (min-width: 900px) {
+  .setup-board-slide {
+    min-width: calc((100% - 1rem) / 2);
+    width: calc((100% - 1rem) / 2);
+  }
+}
+
+@media (min-width: 1450px) {
+  .setup-board-slide {
+    min-width: calc((100% - 2rem) / 3);
+    width: calc((100% - 2rem) / 3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
