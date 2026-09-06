@@ -13983,7 +13983,7 @@ function OwnerPanel({ data, setData }: any) {
             <Card>
               <SectionTitle sub="Lock the owner panel and clear this session">Session Controls</SectionTitle>
               <div className="space-y-2 mt-3">
-                <button onClick={() => { lock(); showToast("🔒 Owner session locked"); }}
+                <button onClick={() => { setUnlocked(false); showToast("🔒 Owner session locked"); }}
                   className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border border-amber-500/20 hover:border-amber-500/40 bg-amber-500/5 transition text-left">
                   <div className="w-8 h-8 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
                     <Lock size={14} className="text-amber-400" />
