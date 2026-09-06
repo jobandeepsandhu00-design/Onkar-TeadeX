@@ -1,8 +1,9 @@
 import type { SetupDirection, SetupQuality, SetupRuleType, TradeSetup, TradeSetupRule } from "./types";
 
-const DEFAULT_COVER = "/trade-setup-breakout.png";
+const LEGACY_DEFAULT_COVER = "/trade-setup-breakout.png";
 
 export const createSetupId = () => crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
 export const slugifySetup = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
 const SETUP_SPECS: Array<[string, SetupDirection, string, SetupQuality]> = [
@@ -54,14 +55,14 @@ export function createDefaultTradeSetups(): TradeSetup[] {
       description: `${name} playbook for disciplined structure, confirmation and managed execution.`,
       timeframe: "M30", session: "London", status: "active", isFavorite: index < 4,
       sortOrder: index,
-      coverImage: { id: `default-cover-${index}`, url: DEFAULT_COVER, caption: "Illustrative breakout and retest playbook", sortOrder: 0 },
+      coverImage: null,
       images: [], rules, createdAt: now, updatedAt: now,
       tags: ["Forex"], trend: rule("condition"), entry: rule("entry"), stop: rule("stop_loss"),
       target: rule("take_profit"), midTrade: rule("risk"), notes: "",
       checklist: rules.filter((item) => item.type === "condition").map((item) => ({ id: item.id, text: item.content, done: false })),
       attachments: [], marketBias: direction === "Buy" ? "Bullish" : direction === "Sell" ? "Bearish" : "Neutral",
       setupType: category, exception: name === "Wickfill in Range" || name === "Breakout Big Body",
-      image: DEFAULT_COVER, photos: [],
+      image: null, photos: [],
     };
     return setup;
   });
@@ -90,7 +91,10 @@ export function normalizeTradeSetup(raw: unknown, index = 0): TradeSetup {
     id: String(item.id || createSetupId()), url: String(item.url || item.dataUrl || ""), storagePath: item.storagePath,
     name: item.name, mime: item.mime, caption: String(item.caption || ""), sortOrder: Number.isFinite(item.sortOrder) ? item.sortOrder : imageIndex,
   })).filter((item: { url: string }) => item.url);
-  const coverSource = source.coverImage ?? (source.image ? { id: createSetupId(), url: source.image, caption: "", sortOrder: 0 } : null);
+  const sourceCoverUrl = source.coverImage?.url ?? source.image;
+  const coverSource = sourceCoverUrl && sourceCoverUrl !== LEGACY_DEFAULT_COVER
+    ? source.coverImage ?? { id: createSetupId(), url: source.image, caption: "", sortOrder: 0 }
+    : null;
   const coverImage = coverSource?.url ? { id: String(coverSource.id || createSetupId()), url: String(coverSource.url), storagePath: coverSource.storagePath, name: coverSource.name, mime: coverSource.mime, caption: String(coverSource.caption || ""), sortOrder: 0 } : images[0] ?? null;
   const name = String(source.name || "Untitled Setup");
   const firstRule = (type: SetupRuleType) => rules.find((item) => item.type === type)?.content ?? "";
@@ -148,4 +152,3 @@ export const RISK_CARDS = [
   ["Price not pushing", "Cut loss according to plan"],
   ["Lower timeframe breaks", "Reduce or exit"],
 ] as const;
-

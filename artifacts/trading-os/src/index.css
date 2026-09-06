@@ -12,22 +12,34 @@ html, body, #root {
 }
 
 .setup-board-slide {
-  min-width: min(88vw, 440px);
-  width: min(88vw, 440px);
+  min-width: 100%;
+  width: 100%;
 }
 
-@media (min-width: 900px) {
-  .setup-board-slide {
-    min-width: calc((100% - 1rem) / 2);
-    width: calc((100% - 1rem) / 2);
-  }
+.setup-board-track {
+  scrollbar-width: none;
 }
 
-@media (min-width: 1450px) {
-  .setup-board-slide {
-    min-width: calc((100% - 2rem) / 3);
-    width: calc((100% - 2rem) / 3);
-  }
+.setup-board-track::-webkit-scrollbar {
+  display: none;
+}
+
+.board-nav-button {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(51 65 85 / 0.9);
+  border-radius: 0.65rem;
+  color: rgb(203 213 225);
+  transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
+}
+
+.board-nav-button:hover {
+  border-color: rgb(251 191 36 / 0.45);
+  background: rgb(15 23 42 / 0.8);
+  color: white;
 }
 
 @media (prefers-reduced-motion: reduce) {

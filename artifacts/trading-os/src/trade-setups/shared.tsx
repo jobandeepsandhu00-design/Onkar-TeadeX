@@ -28,9 +28,11 @@ export function useResolvedImage(image: TradeSetupImage | null | undefined) {
   return url;
 }
 
-export function ResolvedImage({ image, alt, className = "", fallback = "/trade-setup-breakout.png" }: { image: TradeSetupImage | null | undefined; alt: string; className?: string; fallback?: string }) {
+export function ResolvedImage({ image, alt, className = "" }: { image: TradeSetupImage | null | undefined; alt: string; className?: string }) {
   const url = useResolvedImage(image);
-  return <img src={url || fallback} alt={alt} className={className} />;
+  return url
+    ? <img src={url} alt={alt} className={className} />
+    : <div role="img" aria-label={alt || "No setup image"} className={`flex items-center justify-center bg-[#050a13] text-slate-700 ${className}`}><ImageIcon size={18} /></div>;
 }
 
 export function SetupImage({ setup, className = "", onZoom }: { setup: TradeSetup; className?: string; onZoom?: () => void }) {
