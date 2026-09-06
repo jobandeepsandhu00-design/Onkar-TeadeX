@@ -115,6 +115,10 @@ function computeTrade(t) {
     else if (pnl < -0.0000001) result = "Loss";
     else result = "Breakeven";
   }
+  const reviewedResult = String(t.result || "").toLowerCase();
+  if (reviewedResult === "win") result = "Win";
+  else if (reviewedResult === "loss") result = "Loss";
+  else if (reviewedResult.includes("break") || reviewedResult === "be") result = "Breakeven";
   const fees = (parseFloat(t.fees) || 0) + (parseFloat(t.commission) || 0);
   const netPnl = pnl === null ? null : pnl - fees;
 
@@ -6559,8 +6563,9 @@ function emptyTrade(settings?: any) {
     timeframe: s.defaultTimeframe || "M30",
     entryTime: "", exitDate: "", exitTime: "", fees: "", commission: "",
     tradeType: s.defaultTradeType || "Normal",
-    grade: "", mistakes: [], reviewNotes: "", rulesViolated: false,
+    grade: "", result: "", mistakes: [], strengths: [], reviewNotes: "", rulesViolated: false,
     whatWentWell: "", whatWentWrong: "", lesson: "", emotion: "",
+    rootCause: "", nextAction: "",
     ruleChecks: [], ruleCompliance: null,
     manualPnl: "",
     platform: "",
@@ -6584,6 +6589,12 @@ const MISTAKE_TAGS = [
   "Entered against session trend", "Entered with no wick confirmation",
   "Took trade too far from zone", "Did not secure profit", "Held loser too long",
   "Cut winner too early", "Other",
+];
+const WIN_STRENGTH_TAGS = [
+  "Followed setup rules", "Waited for confirmation", "Followed session trend",
+  "Clear S/R", "Clean range", "Good volume", "Correct entry timing",
+  "Good stop loss", "Risk managed correctly", "Stayed patient",
+  "Held the winner", "Took planned profit",
 ];
 
 /* ────── Trade Review Panel ────── */
@@ -6862,7 +6873,7 @@ function MistakeCostPanel({ trades }) {
 }
 
 function TradeForm({ open, onClose, onSave, initial, setups, strategies, account, settings, tradingAccounts = [], defaultAccountId = "", allTrades = [] }) {
-  const [form, setForm] = useState(emptyTrade(settings));
+  const [form, setForm] = useState<any>(emptyTrade(settings));
   const [step, setStep] = useState(0);
   useEffect(() => {
     const base = initial || emptyTrade(settings);
@@ -6872,6 +6883,44 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
   }, [initial, open]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const live = useMemo(() => computeTrade(form), [form]);
+  const reviewOutcome = form.result || live.result || "";
+  const mistakeOptions = useMemo(
+    () => [...new Set([...MISTAKE_TAGS, ...(settings?.customMistakes || []).filter((item: any) => item.active !== false).map((item: any) => item.name)])],
+    [settings?.customMistakes],
+  );
+  const suggestedMistakes = useMemo(() => {
+    const text = [form.notes, form.whatWentWrong, form.emotion, form.rootCause].join(" ").toLowerCase();
+    const patterns: Array<[RegExp, string]> = [
+      [/fomo|fear of missing/, "FOMO"], [/revenge/, "Revenge trade"], [/overtrad|too many trade/, "Overtrading"],
+      [/early|before.*clos|didn.?t wait/, "Entered too early"], [/no confirm|without confirm/, "No confirmation"],
+      [/chas|too far|extended/, "Chased price"], [/higher time|\bhtf\b/, "Ignored higher timeframe"],
+      [/h1|h4 zone/, "H1/H4 zone nearby"], [/moved.*stop|widen.*stop/, "Moved stop loss"],
+      [/low volume|no volume|asian/, "Low volume"], [/middle.*range/, "Entered in middle of range"],
+      [/no.*s\/?r|no support|no resistance/, "No clear S/R"], [/4th|5th|fourth|fifth/, "4th/5th motion candle"],
+      [/held.*loss|hope/, "Held loser too long"], [/cut.*early|fear.*profit/, "Cut winner too early"],
+      [/secure.*profit|didn.?t take.*profit|greed/, "Did not secure profit"],
+    ];
+    const suggestions = patterns.filter(([pattern]) => pattern.test(text)).map(([, mistake]) => mistake);
+    const risk = parseFloat(form.riskPct);
+    if (!isNaN(risk) && risk > 2) suggestions.push("Oversized risk");
+    return [...new Set(suggestions)].filter((mistake) => !(form.mistakes || []).includes(mistake));
+  }, [form.notes, form.whatWentWrong, form.emotion, form.rootCause, form.riskPct, form.mistakes]);
+  const selectOutcome = (outcome: string) => {
+    setForm((current: any) => ({
+      ...current,
+      result: current.result === outcome ? "" : outcome,
+      ...(outcome === "Win" ? { mistakes: [], whatWentWrong: "", rootCause: "", nextAction: "" } : {}),
+      ...(outcome === "Loss" ? { strengths: [], whatWentWell: "" } : {}),
+    }));
+  };
+  const toggleReviewTag = (key: "mistakes" | "strengths", value: string) => {
+    setForm((current: any) => ({
+      ...current,
+      [key]: (current[key] || []).includes(value)
+        ? (current[key] || []).filter((item: string) => item !== value)
+        : [...(current[key] || []), value],
+    }));
+  };
 
   const [livePrice, setLivePrice] = useState<{ price: number; bid: number | null; ask: number | null; change: number; changePct: number } | null>(null);
   const [livePriceLoading, setLivePriceLoading] = useState(false);
@@ -6938,7 +6987,7 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
       const rounded = pnl.toFixed(2);
       if (form.manualPnl === "" || form.manualPnl === autoCalcPnlRef.current) {
         autoCalcPnlRef.current = rounded;
-        setForm(f => ({ ...f, manualPnl: rounded }));
+        setForm((f: any) => ({ ...f, manualPnl: rounded }));
       }
     }
   }, [form.exit, form.entry, form.side, form.symbol, form.positionSize, form.sl, form.riskPct]);
@@ -7492,7 +7541,7 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                       <div className="text-[10px] text-slate-500">Pip Val/Lot</div>
                     </div>
                   </div>
-                  <button onClick={() => setForm((f) => ({ ...f, positionSize: ps.roundedLots.toFixed(2) }))}
+                  <button onClick={() => setForm((f: any) => ({ ...f, positionSize: ps.roundedLots.toFixed(2) }))}
                     className="w-full py-2 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 text-xs font-semibold hover:bg-sky-500/25 transition">
                     ↓ Apply {ps.roundedLots.toFixed(2)} lots to position size
                   </button>
@@ -7502,7 +7551,7 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Entry Time" hint="Enables hold-time stats"><TextInput id="tf-entryTime" type="time" value={form.entryTime} onChange={set("entryTime")} /></Field>
-              <Field label="Exit Time"><TextInput id="tf-exitTime" type="time" value={form.exitTime} onChange={set("exitTime")} /></Field>
+              <Field label="Exit Time" hint="Optional"><TextInput id="tf-exitTime" type="time" value={form.exitTime} onChange={set("exitTime")} /></Field>
             </div>
             <Field label="Exit Date" hint="Only if trade closed on a different day">
               <TextInput type="date" value={form.exitDate} onChange={set("exitDate")} />
@@ -7523,7 +7572,7 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                   <div className="text-[10px] text-slate-500 mt-0.5">R-Multiple</div>
                 </div>
                 <div className="bg-slate-800 rounded-xl p-3 text-center">
-                  <Pill tone={RESULT_TONE[live.result || "Open"]}>{live.result || "Open"}</Pill>
+                  <Pill tone={RESULT_TONE[(live.result || "Open") as keyof typeof RESULT_TONE]}>{live.result || "Open"}</Pill>
                   <div className="text-[10px] text-slate-500 mt-1">Result</div>
                 </div>
               </div>
@@ -7566,7 +7615,7 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                   const active = form.riskPct === String(pct);
                   return (
                     <button key={pct} type="button"
-                      onClick={() => setForm((f) => ({ ...f, riskPct: String(pct) }))}
+                      onClick={() => setForm((f: any) => ({ ...f, riskPct: String(pct) }))}
                       className={cx("flex flex-col items-center px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition min-w-[44px]",
                         active
                           ? "bg-amber-500/25 border-amber-500/50 text-amber-300"
@@ -7584,8 +7633,8 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
               <Field label="Position Size" hint="Units or lots"><TextInput type="number" step="any" placeholder="1.0" value={form.positionSize} onChange={set("positionSize")} /></Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Fees"><TextInput type="number" step="any" placeholder="0.00" value={form.fees} onChange={set("fees")} /></Field>
-              <Field label="Commission"><TextInput type="number" step="any" placeholder="0.00" value={form.commission} onChange={set("commission")} /></Field>
+              <Field label="Fees" hint="Optional"><TextInput type="number" step="any" placeholder="0.00" value={form.fees} onChange={set("fees")} /></Field>
+              <Field label="Commission" hint="Optional"><TextInput type="number" step="any" placeholder="0.00" value={form.commission} onChange={set("commission")} /></Field>
             </div>
             <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 mt-2">
               <div className="text-[11px] uppercase tracking-wide text-slate-500 font-medium mb-3">Risk Rules Reminder</div>
@@ -7602,6 +7651,80 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
         {/* Step 3: Notes */}
         {step === 3 && (
           <div className="space-y-0">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4 mb-3">
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Trade outcome</div>
+                  <p className="text-[10px] text-slate-600 mt-0.5">Optional — leave on Auto to use your exit price or broker P&amp;L.</p>
+                </div>
+                {reviewOutcome && <Pill tone={RESULT_TONE[reviewOutcome as keyof typeof RESULT_TONE]}>{reviewOutcome}</Pill>}
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { value: "", label: "Auto", cls: "border-sky-500/40 bg-sky-500/12 text-sky-300" },
+                  { value: "Win", label: "Win", cls: "border-emerald-500/40 bg-emerald-500/12 text-emerald-300" },
+                  { value: "Loss", label: "Loss", cls: "border-rose-500/40 bg-rose-500/12 text-rose-300" },
+                  { value: "Breakeven", label: "BE", cls: "border-slate-500/40 bg-slate-500/12 text-slate-300" },
+                ].map((option) => {
+                  const active = form.result === option.value;
+                  return (
+                    <button key={option.label} type="button" onClick={() => option.value ? selectOutcome(option.value) : setForm((current: any) => ({ ...current, result: "" }))}
+                      className={cx("rounded-xl border py-2.5 text-xs font-bold transition", active ? option.cls : "border-slate-800 bg-slate-950 text-slate-500 hover:border-slate-700")}
+                      aria-pressed={active}>
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {reviewOutcome === "Loss" && (
+              <div className="rounded-2xl border border-rose-500/25 bg-rose-500/5 p-4 mb-3">
+                <div className="flex items-center gap-2 mb-1 text-rose-300 text-sm font-bold">
+                  <AlertTriangle size={15} /> Why did this trade lose?
+                </div>
+                <p className="text-[10px] text-slate-500 mb-3">Select every cause that applied. These feed Mistake Analysis and your coaching plan.</p>
+                {suggestedMistakes.length > 0 && (
+                  <div className="mb-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-amber-300">Suggested from your notes</p>
+                        <p className="mt-1 text-[10px] text-slate-500">Review these suggestions before adding them; they are not automatic trading signals.</p>
+                      </div>
+                      <button type="button" onClick={() => setForm((current: any) => ({ ...current, mistakes: [...new Set([...(current.mistakes || []), ...suggestedMistakes])] }))}
+                        className="shrink-0 rounded-lg bg-amber-500 px-2.5 py-1.5 text-[10px] font-black text-slate-950">Add all</button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {suggestedMistakes.map((mistake) => <span key={mistake} className="rounded-md border border-amber-500/20 bg-slate-950 px-2 py-1 text-[10px] font-semibold text-amber-200">{mistake}</span>)}
+                    </div>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {mistakeOptions.map((mistake) => {
+                    const active = (form.mistakes || []).includes(mistake);
+                    return <button key={mistake} type="button" onClick={() => toggleReviewTag("mistakes", mistake)}
+                      className={cx("rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition", active ? "border-rose-500/45 bg-rose-500/18 text-rose-200" : "border-slate-800 bg-slate-950 text-slate-500 hover:border-rose-500/30")}>{active ? "✓ " : ""}{mistake}</button>;
+                  })}
+                </div>
+              </div>
+            )}
+
+            {reviewOutcome === "Win" && (
+              <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-4 mb-3">
+                <div className="flex items-center gap-2 mb-1 text-emerald-300 text-sm font-bold">
+                  <CheckCircle2 size={15} /> What made this trade work?
+                </div>
+                <p className="text-[10px] text-slate-500 mb-3">Tag the actions worth repeating. Winning patterns are compared with losing trades automatically.</p>
+                <div className="flex flex-wrap gap-2">
+                  {WIN_STRENGTH_TAGS.map((strength) => {
+                    const active = (form.strengths || []).includes(strength);
+                    return <button key={strength} type="button" onClick={() => toggleReviewTag("strengths", strength)}
+                      className={cx("rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition", active ? "border-emerald-500/45 bg-emerald-500/18 text-emerald-200" : "border-slate-800 bg-slate-950 text-slate-500 hover:border-emerald-500/30")}>{active ? "✓ " : ""}{strength}</button>;
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Quick note suggestion chips */}
             {(() => {
               const NOTE_GROUPS = [
@@ -7636,7 +7759,7 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
               ];
 
               const append = (chip: string) => {
-                setForm((f) => {
+                setForm((f: any) => {
                   const prev = f.notes.trim();
                   return { ...f, notes: prev ? prev + ". " + chip : chip };
                 });
@@ -7668,37 +7791,43 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                 </div>
               );
             })()}
-            <Field label="Trade Notes">
+            <Field label="Trade Notes" hint="Saved to this trade and used in future reviews">
               <TextArea placeholder="What did you see? How did you execute? What would you do differently?" value={form.notes} onChange={set("notes")} className="min-h-[120px]" />
             </Field>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <Field label="What went well">
-                <TextArea placeholder="Which conditions, rules, or decisions worked?" value={form.whatWentWell || ""} onChange={set("whatWentWell")} className="min-h-[90px]" />
-              </Field>
-              <Field label="What went wrong">
-                <TextArea placeholder="What reduced the quality of this trade?" value={form.whatWentWrong || ""} onChange={set("whatWentWrong")} className="min-h-[90px]" />
-              </Field>
-              <Field label="Lesson learned">
+              {reviewOutcome !== "Loss" && (
+                <Field label={reviewOutcome === "Win" ? "Winning lesson" : "What went well"} hint="What should become repeatable?">
+                  <TextArea placeholder="Which conditions, rules, or decisions should you repeat?" value={form.whatWentWell || ""} onChange={set("whatWentWell")} className="min-h-[90px]" />
+                </Field>
+              )}
+              {reviewOutcome !== "Win" && (
+                <Field label="What went wrong" hint="Describe the decision or condition">
+                  <TextArea placeholder="What reduced the quality of this trade?" value={form.whatWentWrong || ""} onChange={set("whatWentWrong")} className="min-h-[90px]" />
+                </Field>
+              )}
+              {reviewOutcome === "Loss" && (
+                <Field label="Root cause" hint="The underlying process or emotion">
+                  <TextArea placeholder="What was the underlying reason — decision, emotion, or process?" value={form.rootCause || ""} onChange={set("rootCause")} className="min-h-[90px]" />
+                </Field>
+              )}
+              <Field label="Lesson learned" hint="One clear takeaway">
                 <TextArea placeholder="What will you repeat or change next time?" value={form.lesson || ""} onChange={set("lesson")} className="min-h-[90px]" />
               </Field>
-              <Field label="Emotion / psychology">
+              {reviewOutcome === "Loss" && (
+                <Field label="What should I do next time?" hint="Turn the lesson into an action">
+                  <TextArea placeholder="Example: Wait for candle close and re-break before entry." value={form.nextAction || ""} onChange={set("nextAction")} className="min-h-[90px]" />
+                </Field>
+              )}
+              <Field label="Emotion / psychology" hint="Optional">
                 <TextArea placeholder="Calm, patient, FOMO, fear, revenge…" value={form.emotion || ""} onChange={set("emotion")} className="min-h-[90px]" />
               </Field>
             </div>
             {form.notes && (
-              <button type="button" onClick={() => setForm(f => ({ ...f, notes: "" }))}
+              <button type="button" onClick={() => setForm((f: any) => ({ ...f, notes: "" }))}
                 className="text-[10px] text-slate-600 hover:text-rose-400 transition mb-1">✕ Clear notes</button>
             )}
-            <Field label="Screenshots / Attachments">
-              <Attachments items={form.attachments} onChange={(items) => setForm((f) => ({ ...f, attachments: items }))} />
-            </Field>
-            <Field label="Mistakes" hint="Select every issue that affected this trade">
-              <div className="flex flex-wrap gap-2">
-                {[...new Set([...MISTAKE_TAGS, ...(settings?.customMistakes || []).filter((item: any) => item.active !== false).map((item: any) => item.name)])].map((mistake) => {
-                  const active = (form.mistakes || []).includes(mistake);
-                  return <button key={mistake} type="button" onClick={() => setForm((current) => ({ ...current, mistakes: active ? (current.mistakes || []).filter((item) => item !== mistake) : [...(current.mistakes || []), mistake] }))} className={cx("rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition", active ? "border-rose-500/40 bg-rose-500/15 text-rose-300" : "border-slate-800 bg-slate-900 text-slate-500 hover:border-slate-700")}>{mistake}</button>;
-                })}
-              </div>
+            <Field label="Screenshots / Attachments" hint="Optional">
+              <Attachments items={form.attachments} onChange={(items: any[]) => setForm((f: any) => ({ ...f, attachments: items }))} />
             </Field>
           </div>
         )}
@@ -7727,7 +7856,7 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                   [{ label: "Risk Amount", value: ps ? fmtBal(ps.riskAmount, cur) : (form.riskPct ? form.riskPct + "%" : "—"), col: "text-rose-400" }, { label: "Potential Profit", value: potProfit ? fmtBal(potProfit, cur) : "—", col: "text-emerald-400" }],
                   [{ label: "Risk : Reward", value: live.plannedRR !== null ? "1 : " + fmt2(live.plannedRR) : "—", col: "text-sky-400" }, { label: "R-Multiple", value: live.rMultiple !== null ? fmtSigned(live.rMultiple, "R") : "—", col: live.rMultiple !== null && live.rMultiple >= 0 ? "text-emerald-400" : "text-rose-400" }],
                   [{ label: "Lot Size", value: ps ? ps.roundedLots.toFixed(2) + " lots" : (form.positionSize || "—"), col: "text-amber-400" }, { label: "SL Distance", value: ps ? Math.round(ps.pipDistance).toLocaleString() + " " + ps.pipLabel : "—", col: "text-slate-300" }],
-                  [{ label: "Realised P/L", value: live.pnl !== null ? fmtBal(live.pnl, cur) : "Pending", col: live.pnl === null ? "text-slate-500" : live.pnl >= 0 ? "text-emerald-400" : "text-rose-400" }, { label: "Result", value: live.result || "Open", col: toneMap[live.result] || "text-sky-400" }],
+                  [{ label: "Realised P/L", value: live.pnl !== null ? fmtBal(live.pnl, cur) : "Pending", col: live.pnl === null ? "text-slate-500" : live.pnl >= 0 ? "text-emerald-400" : "text-rose-400" }, { label: "Result", value: live.result || "Open", col: toneMap[(live.result || "Open") as keyof typeof toneMap] || "text-sky-400" }],
                 ].map((row, ri) => (
                   <div key={ri} className="grid grid-cols-2 divide-x divide-slate-800/60 border-b border-slate-800/60 last:border-0">
                     {row.map(({ label, value, col }, ci) => (

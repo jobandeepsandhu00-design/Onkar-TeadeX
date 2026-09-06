@@ -104,6 +104,53 @@ function unique(values: Array<string | undefined>) {
   ].sort();
 }
 
+const MISTAKE_ACTIONS: Record<string, string> = {
+  "Entered too early": "Wait for the confirmation candle to close before entering.",
+  "No confirmation": "Require your saved confirmation rule before every entry.",
+  "Chased price": "Only enter near the planned zone; skip extended candles.",
+  "Entered in middle of range": "Wait for price to reach a clear support or resistance area.",
+  "Wrong direction": "Confirm higher-timeframe and session direction before entry.",
+  "Ignored higher timeframe": "Check M30/H1 structure and nearby H1/H4 zones first.",
+  "H1/H4 zone nearby": "Avoid entries without clean room beyond the higher-timeframe zone.",
+  "Moved stop loss": "Set the invalidation level before entry and do not widen it.",
+  Overtrading: "Set a maximum number of trades for the session and stop at the limit.",
+  FOMO: "Use a short pause checklist and accept missed trades instead of chasing.",
+  "Revenge trade": "Pause after a loss and complete a review before taking another trade.",
+  "Low volume": "Wait for a planned volume window and a valid M15/M30 body.",
+  "No clear S/R": "Mark support and resistance before considering an entry.",
+  "4th/5th motion candle": "Skip late-motion entries and wait for a fresh pullback or structure.",
+  "Poor clean range": "Confirm enough unobstructed room to the target before entry.",
+  "Bad session timing": "Trade only inside the sessions defined in your plan.",
+  "Oversized risk": "Keep risk at or below your predefined maximum.",
+  "Did not secure profit": "Follow your planned partial or protection rule at the chosen milestone.",
+  "Held loser too long": "Exit when your invalidation or structure-break rule triggers.",
+  "Cut winner too early": "Manage the trade using the planned target and structure, not emotion.",
+};
+const WIN_STRENGTH_OPTIONS = [
+  "Followed setup rules",
+  "Waited for confirmation",
+  "Followed session trend",
+  "Clear S/R",
+  "Clean range",
+  "Good volume",
+  "Correct entry timing",
+  "Good stop loss",
+  "Risk managed correctly",
+  "Stayed patient",
+  "Held the winner",
+  "Took planned profit",
+];
+
+function topTag(trades: EnrichedTrade[], key: "mistakes" | "strengths") {
+  const counts = new Map<string, number>();
+  trades.forEach((trade) =>
+    (Array.isArray(trade[key]) ? trade[key] : []).forEach((tag: string) =>
+      counts.set(tag, (counts.get(tag) || 0) + 1),
+    ),
+  );
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0] || null;
+}
+
 function KpiCard({
   label,
   value,
@@ -486,6 +533,7 @@ function WinLossComparison({
     (a, b) => a.pnl - b.pnl,
   )[0];
   const topMistake = mistakeMetrics(losses)[0];
+  const topStrength = topTag(wins, "strengths");
   const card = (kind: "win" | "loss", rows: EnrichedTrade[]) => {
     const positive = kind === "win";
     const pnl = rows.reduce((sum, trade) => sum + trade.pnlValue, 0);
@@ -521,9 +569,9 @@ function WinLossComparison({
               positive ? bestSetup?.key || "—" : worstSetup?.key || "—",
             ],
             [
-              positive ? "Avg R" : "Top mistake",
+              positive ? "Top winning behavior" : "Top mistake",
               positive
-                ? signed(average(rows.map((trade) => trade.rValue || 0)), "R")
+                ? topStrength?.[0] || "Add win review tags"
                 : topMistake?.name || "—",
             ],
           ].map(([label, value]) => (
@@ -559,6 +607,14 @@ function WinLossComparison({
         {card("win", wins)}
         {card("loss", losses)}
       </div>
+      {wins.length > 0 && losses.length > 0 && (topStrength || topMistake) && (
+        <div className="mt-3 rounded-xl border border-amber-500/15 bg-amber-500/5 px-4 py-3">
+          <p className="text-[10px] font-black uppercase tracking-[.16em] text-amber-400">Your comparison</p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-400">
+            Winning trades most often show <span className="font-semibold text-emerald-300">{topStrength?.[0] || "your saved winning behaviors"}</span>, while losing trades most often include <span className="font-semibold text-rose-300">{topMistake?.name || "a saved mistake"}</span>.
+          </p>
+        </div>
+      )}
     </section>
   );
 }
@@ -1163,17 +1219,28 @@ function LearningInsights({
   trades,
   setups,
   mistakes,
+  customMistakes,
   currency,
   onViewMistake,
 }: {
   trades: EnrichedTrade[];
   setups: GroupMetric[];
   mistakes: MistakeMetric[];
+  customMistakes: any[];
   currency: string;
   onViewMistake: (mistake: MistakeMetric) => void;
 }) {
   const best = [...setups].sort((a, b) => b.pnl - a.pnl)[0];
   const worstMistake = mistakes[0];
+  const wins = trades.filter((trade) => trade.outcome === "Win");
+  const losses = trades.filter((trade) => trade.outcome === "Loss");
+  const winningStrength = topTag(wins, "strengths");
+  const latestLesson = [...trades].reverse().find((trade) => String(trade.lesson || "").trim())?.lesson;
+  const mistakeAction = worstMistake
+    ? customMistakes.find((item: any) => item.name === worstMistake.name)?.improvementRule ||
+      MISTAKE_ACTIONS[worstMistake.name] ||
+      `Add a pre-entry check that prevents “${worstMistake.name}”.`
+    : "";
   const sessions = groupTrades(
     trades,
     (trade) => trade.session || "Unspecified",
@@ -1195,8 +1262,20 @@ function LearningInsights({
       tone: "red",
       title: `${worstMistake.name} is your most expensive mistake`,
       reason: `${worstMistake.occurrences} occurrences with ${money(worstMistake.pnl, currency)} impact.`,
-      action: "Open the linked trades and rehearse the saved improvement rule.",
+      action: mistakeAction,
       click: () => onViewMistake(worstMistake),
+    },
+    winningStrength && {
+      tone: "green",
+      title: `${winningStrength[0]} is your most repeated winning behavior`,
+      reason: `You tagged it on ${winningStrength[1]} of ${wins.length} winning trades.`,
+      action: `Make “${winningStrength[0]}” a non-negotiable part of your pre-trade process.`,
+    },
+    wins.length > 0 && losses.length > 0 && (winningStrength || worstMistake) && {
+      tone: "gold",
+      title: "What separates your wins from your losses",
+      reason: `Wins most often include ${winningStrength?.[0] || "your documented strengths"}; losses most often include ${worstMistake?.name || "a recorded mistake"}.`,
+      action: `Repeat the winning behavior and use this guardrail: ${mistakeAction || "review the loss before the next entry."}`,
     },
     sessions[0] && {
       tone: "blue",
@@ -1215,6 +1294,12 @@ function LearningInsights({
         currency,
       )}.`,
       action: "Review violations weekly and choose one rule to improve.",
+    },
+    latestLesson && {
+      tone: "blue",
+      title: "Your latest saved lesson",
+      reason: String(latestLesson),
+      action: "Apply this lesson deliberately on the next matching setup, then review the result.",
     },
   ].filter(Boolean) as Array<{
     tone: string;
@@ -1275,9 +1360,11 @@ function LearningInsights({
 function ImprovementPlan({
   goals,
   onChange,
+  suggestions,
 }: {
   goals: any[];
   onChange: (goals: any[]) => void;
+  suggestions: Array<{ name: string; reason: string; source: string }>;
 }) {
   const [name, setName] = useState("");
   const add = () => {
@@ -1294,6 +1381,21 @@ function ImprovementPlan({
     ]);
     setName("");
   };
+  const addSuggested = (suggestion: { name: string; reason: string; source: string }) => {
+    if (goals.some((goal) => goal.name.toLowerCase() === suggestion.name.toLowerCase())) return;
+    onChange([
+      ...goals,
+      {
+        id: crypto.randomUUID(),
+        name: suggestion.name,
+        active: true,
+        progress: 0,
+        violations: 0,
+        reason: suggestion.reason,
+        source: suggestion.source,
+      },
+    ]);
+  };
   return (
     <section>
       <SectionHeading
@@ -1302,6 +1404,37 @@ function ImprovementPlan({
         subtitle="Turn one repeated lesson into a measurable habit"
       />
       <div className={`${panel} p-4`}>
+        {suggestions.length > 0 && (
+          <div className="mb-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold text-slate-200">Recommended from your journal</p>
+                <p className="mt-0.5 text-[10px] text-slate-600">Generated from your tagged losses, winning strengths, and setup results.</p>
+              </div>
+              <Lightbulb size={16} className="shrink-0 text-amber-400" />
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {suggestions.map((suggestion) => {
+                const alreadyAdded = goals.some((goal) => goal.name.toLowerCase() === suggestion.name.toLowerCase());
+                return (
+                  <div key={suggestion.name} className="rounded-xl border border-amber-500/15 bg-amber-500/5 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-amber-200">{suggestion.name}</p>
+                        <p className="mt-1 text-[10px] leading-relaxed text-slate-500">{suggestion.reason}</p>
+                        <p className="mt-1.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600">Source: {suggestion.source}</p>
+                      </div>
+                      <button onClick={() => addSuggested(suggestion)} disabled={alreadyAdded}
+                        className="shrink-0 rounded-lg border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[10px] font-bold text-amber-300 disabled:border-emerald-500/20 disabled:bg-emerald-500/10 disabled:text-emerald-400">
+                        {alreadyAdded ? "Added" : "+ Add"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div className="flex gap-2">
           <input
             value={name}
@@ -1470,6 +1603,8 @@ function TradeReviewDrawer({
   const [draft, setDraft] = useState<any>({
     ...trade,
     mistakes: trade.mistakes || [],
+    strengths: trade.strengths || [],
+    result: trade.result || (trade.outcome === "Open" ? "" : trade.outcome),
     lesson: trade.lesson || "",
     whatWentWell: trade.whatWentWell || "",
     whatWentWrong: trade.whatWentWrong || "",
@@ -1485,6 +1620,14 @@ function TradeReviewDrawer({
         ? current.mistakes.filter((item: string) => item !== name)
         : [...current.mistakes, name],
     }));
+  const toggleStrength = (name: string) =>
+    setDraft((current: any) => ({
+      ...current,
+      strengths: current.strengths.includes(name)
+        ? current.strengths.filter((item: string) => item !== name)
+        : [...current.strengths, name],
+    }));
+  const reviewOutcome = draft.result || trade.outcome;
   const checks = [
     draft.setupRulesFollowed,
     draft.riskRulesFollowed,
@@ -1527,6 +1670,23 @@ function TradeReviewDrawer({
           </span>
         </div>
         <div className="flex-1 space-y-4 overflow-y-auto p-4 pb-28">
+          <div className={`${panel} p-4`}>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Trade outcome</p>
+            <p className="mt-1 text-[10px] text-slate-600">Optional manual review result. P&amp;L remains your recorded broker value.</p>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {["Win", "Loss", "Breakeven"].map((outcome) => (
+                <button key={outcome} onClick={() => setDraft((current: any) => ({
+                  ...current,
+                  result: current.result === outcome ? "" : outcome,
+                  ...(outcome === "Win" ? { mistakes: [] } : {}),
+                  ...(outcome === "Loss" ? { strengths: [] } : {}),
+                }))}
+                  className={`rounded-xl border py-2 text-xs font-bold ${draft.result === outcome ? outcome === "Win" ? "border-emerald-500/40 bg-emerald-500/12 text-emerald-300" : outcome === "Loss" ? "border-rose-500/40 bg-rose-500/12 text-rose-300" : "border-slate-600 bg-slate-800 text-slate-200" : "border-slate-800 bg-slate-950 text-slate-500"}`}>
+                  {outcome === "Breakeven" ? "BE" : outcome}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="grid grid-cols-3 gap-2">
             {[
               ["P&L", money(trade.pnlValue, currency)],
@@ -1600,9 +1760,9 @@ function TradeReviewDrawer({
               ))}
             </div>
           </div>
-          <div className={`${panel} p-4`}>
+          {reviewOutcome === "Loss" && <div className={`${panel} border-rose-500/20 p-4`}>
             <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Mistakes
+              Why this trade lost
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {mistakeOptions.map((name) => (
@@ -1615,10 +1775,22 @@ function TradeReviewDrawer({
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
+          {reviewOutcome === "Win" && <div className={`${panel} border-emerald-500/20 p-4`}>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">What made this trade work</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {WIN_STRENGTH_OPTIONS.map((name) => (
+                <button key={name} onClick={() => toggleStrength(name)}
+                  className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold ${draft.strengths.includes(name) ? "border-emerald-500/35 bg-emerald-500/12 text-emerald-300" : "border-slate-800 bg-slate-950 text-slate-500"}`}>
+                  {name}
+                </button>
+              ))}
+            </div>
+          </div>}
           {[
-            ["whatWentWell", "What went well?"],
-            ["whatWentWrong", "What went wrong?"],
+            ...(reviewOutcome !== "Loss" ? [["whatWentWell", reviewOutcome === "Win" ? "Winning lesson" : "What went well?"]] : []),
+            ...(reviewOutcome !== "Win" ? [["whatWentWrong", "What went wrong?"]] : []),
+            ...(reviewOutcome === "Loss" ? [["rootCause", "Root cause"], ["nextAction", "What should I do next time?"]] : []),
             ["lesson", "Lesson learned"],
             ["emotion", "Emotion / psychology"],
           ].map(([key, label]) => (
@@ -2126,6 +2298,28 @@ export default function PerformanceLearning({
           .includes(selectedMistake.name.toLowerCase().split(" ")[0]),
       )
     : undefined;
+  const winningStrength = topTag(wins, "strengths");
+  const automaticSuggestions = [
+    topMistake && {
+      name: `Avoid: ${topMistake.name}`,
+      reason:
+        customMistakes.find((item: any) => item.name === topMistake.name)
+          ?.improvementRule ||
+        MISTAKE_ACTIONS[topMistake.name] ||
+        `Add a pre-entry check that prevents “${topMistake.name}”.`,
+      source: `${topMistake.occurrences} tagged trade${topMistake.occurrences === 1 ? "" : "s"} · ${money(topMistake.pnl, currency)} impact`,
+    },
+    winningStrength && {
+      name: `Repeat: ${winningStrength[0]}`,
+      reason: `This is your most frequently tagged winning behavior. Deliberately check for it before the next matching setup.`,
+      source: `${winningStrength[1]} winning trade${winningStrength[1] === 1 ? "" : "s"}`,
+    },
+    bestSetup && {
+      name: `Review ${bestSetup.key} before trading`,
+      reason: `This is currently your best logged setup. Study its clean wins and compare them with its losses before the next execution.`,
+      source: `${pct(bestSetup.winRate)} win rate · ${money(bestSetup.pnl, currency)} · ${bestSetup.trades} trades`,
+    },
+  ].filter(Boolean) as Array<{ name: string; reason: string; source: string }>;
   return (
     <div className={`${embedded ? "" : "min-h-screen"} space-y-6 pb-8`}>
       <header className="relative overflow-hidden rounded-2xl border border-amber-500/15 bg-slate-900 p-4 md:p-6">
@@ -2208,6 +2402,7 @@ export default function PerformanceLearning({
         trades={closed}
         setups={setupRows}
         mistakes={mistakeRows}
+        customMistakes={customMistakes}
         currency={currency}
         onViewMistake={setSelectedMistake}
       />
@@ -2215,6 +2410,7 @@ export default function PerformanceLearning({
       <ImprovementPlan
         goals={data.settings?.improvementGoals || []}
         onChange={(goals) => updateSettings("improvementGoals", goals)}
+        suggestions={automaticSuggestions}
       />
       <TradeTable
         trades={filtered}
