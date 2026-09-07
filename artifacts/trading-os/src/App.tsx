@@ -190,7 +190,7 @@ function syncChallengeBalances(d: any) {
 
     const todayTrades = relevantTrades.filter((t: any) => t.date === today);
     const hasTodayTrades = todayTrades.length > 0;
-    const todayPnl = todayTrades.reduce((sum: number, t: any) => sum + (computeTrade(t).pnl || 0), 0);
+    const todayPnl = todayTrades.reduce((sum: number, t: any) => sum + (computeTrade(t).netPnl || 0), 0);
 
     const todayEntry = (c.dailyLog || []).find((e: any) => e.date === today);
 
@@ -1008,9 +1008,72 @@ function getEffectiveAccount(data: any): { startingBalance: number; currency: st
 function getFilteredTrades(data: any): any[] {
   const activeId = data.activeAccountId;
   if (!activeId) return data.trades || [];
-  // Include trades that belong to the active account OR have no accountId at all
-  // (so trades logged without account selection are never hidden)
-  return (data.trades || []).filter((t: any) => t.accountId === activeId || !t.accountId);
+  return (data.trades || []).filter((t: any) => t.accountId === activeId);
+}
+
+type AccountRiskContext = {
+  accountId: string | null;
+  scopeId: string;
+  accountName: string;
+  accountType: string;
+  startingBalance: number;
+  currency: string;
+  dailyLossPct: number;
+  trades: any[];
+  linkedChallenge: any | null;
+};
+
+function getAccountRiskContext(data: any): AccountRiskContext {
+  const accounts: any[] = data.tradingAccounts || [];
+  const allTrades: any[] = data.trades || [];
+  const activeId = data.activeAccountId || null;
+  const active = activeId ? accounts.find((account: any) => account.id === activeId) : null;
+  const linkedChallenge = active
+    ? (data.propChallenges || []).find((challenge: any) => challenge.accountId === active.id) || null
+    : null;
+  const settingsPct = parseDecimalValue(data.settings?.maxDailyLossPct);
+  const planPct = parseDecimalValue(data.plans?.master?.maxDailyLoss);
+  const defaultPct = !isNaN(settingsPct) && settingsPct > 0
+    ? settingsPct
+    : !isNaN(planPct) && planPct > 0
+      ? planPct
+      : 0;
+
+  if (active) {
+    const isProp = active.accountType === "Prop Challenge" || active.accountType === "Prop" || active.accountType === "Challenge";
+    const challengeSize = parseDecimalValue(linkedChallenge?.accountSize);
+    const accountBalance = parseDecimalValue(active.balance);
+    const challengePct = parseDecimalValue(linkedChallenge?.maxDailyLossPct);
+    const accountPct = parseDecimalValue(active.dailyLossLimitPct);
+    return {
+      accountId: active.id,
+      scopeId: active.id,
+      accountName: active.alias || active.accountNumber || "Active account",
+      accountType: isProp ? "Prop Challenge" : (active.accountType || "Trading Account"),
+      startingBalance: isProp && !isNaN(challengeSize) && challengeSize > 0
+        ? challengeSize
+        : (!isNaN(accountBalance) && accountBalance > 0 ? accountBalance : 0),
+      currency: linkedChallenge?.currency || active.currency || "USD",
+      dailyLossPct: isProp && !isNaN(challengePct) && challengePct > 0
+        ? challengePct
+        : (!isNaN(accountPct) && accountPct > 0 ? accountPct : defaultPct),
+      trades: allTrades.filter((trade: any) => trade.accountId === active.id),
+      linkedChallenge: isProp ? linkedChallenge : null,
+    };
+  }
+
+  const fallbackBalance = parseDecimalValue(data.account?.startingBalance);
+  return {
+    accountId: null,
+    scopeId: "fallback",
+    accountName: "Default / Fallback",
+    accountType: "Fallback",
+    startingBalance: !isNaN(fallbackBalance) && fallbackBalance > 0 ? fallbackBalance : 0,
+    currency: data.account?.currency || "€",
+    dailyLossPct: defaultPct,
+    trades: allTrades.filter((trade: any) => !trade.accountId),
+    linkedChallenge: null,
+  };
 }
 
 const STORAGE_KEY = "src_trading_os_v1";
@@ -1895,42 +1958,55 @@ function computeNotifications(data: any, enabled: Record<string, boolean>): OTXN
   };
 
   const today = todayISO();
-  const a = computeAnalytics(data);
-  const acc = data.account || { startingBalance: 1000, currency: "€" };
-  const startBal = parseFloat(String(acc.startingBalance)) || 0;
-  const cur = acc.currency || "€";
+  const risk = getAccountRiskContext(data);
+  const scopedData = {
+    ...data,
+    account: { startingBalance: risk.startingBalance, currency: risk.currency },
+    trades: risk.trades,
+  };
+  const a = computeAnalytics(scopedData);
+  const startBal = risk.startingBalance;
+  const cur = risk.currency;
   const settings = { ...DEFAULT_SETTINGS(), ...(data.settings || {}) };
-  const trades = data.trades || [];
+  const trades = risk.trades;
   const closed = a.closedTrades || [];
 
   const todayTrades = closed.filter((t: any) => t.date === today);
-  const todayPnl = todayTrades.reduce((s: number, t: any) => s + (t.c?.pnl || 0), 0);
+  const todayPnl = todayTrades.reduce((s: number, t: any) => s + (t.c?.netPnl ?? t.c?.pnl ?? 0), 0);
   const todayCount = trades.filter((t: any) => t.date === today).length;
   const openTrades = trades.filter((t: any) => !t.exit).length;
   const weekStart = (() => { const d = new Date(today + "T12:00:00"); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); })();
   const weekTrades = closed.filter((t: any) => t.date >= weekStart && t.date <= today);
-  const weekPnl = weekTrades.reduce((s: number, t: any) => s + (t.c?.pnl || 0), 0);
+  const weekPnl = weekTrades.reduce((s: number, t: any) => s + (t.c?.netPnl ?? t.c?.pnl ?? 0), 0);
 
   /* ── RISK ALERTS ── */
-  const maxDailyLossPct = parseFloat(settings.maxDailyLossPct || "") || 0;
+  const maxDailyLossPct = risk.dailyLossPct;
   if (maxDailyLossPct > 0 && startBal > 0) {
     const limitAmt = (maxDailyLossPct / 100) * startBal;
     const todayLoss = Math.max(0, -todayPnl);
     if (todayLoss >= limitAmt) {
-      push("dailyLossLimit", "daily_loss_hit", "🛑 Daily Loss Limit Hit",
-        `You've lost ${cur}${todayLoss.toFixed(2)} today — max allowed: ${cur}${limitAmt.toFixed(2)} (${maxDailyLossPct}%). Stop trading.`, "rose", "🛑");
+      const isProp = risk.accountType === "Prop Challenge";
+      push(isProp ? "propDailyLossHit" : "dailyLossLimit", `daily_loss_hit_${risk.scopeId}_${today}`,
+        `🛑 Daily Loss Limit Hit — ${risk.accountName}`,
+        `${risk.accountType} account: you've lost ${cur}${todayLoss.toFixed(2)} today — max allowed is ${cur}${limitAmt.toFixed(2)} (${maxDailyLossPct}% of ${cur}${startBal.toFixed(2)}). Stop trading this account.`, "rose", "🛑");
+    } else if (risk.accountType === "Prop Challenge" && todayLoss >= limitAmt * 0.8) {
+      push("propDailyLossApproach", `daily_loss_approach_${risk.scopeId}_${today}`,
+        `⚠ Daily Loss Limit Approaching — ${risk.accountName}`,
+        `${risk.accountName} has used ${cur}${todayLoss.toFixed(2)} of its ${cur}${limitAmt.toFixed(2)} daily limit (${maxDailyLossPct}%).`, "amber", "⚠");
     }
   }
 
   const singleAlertPct = parseFloat(settings.singleTradeLossAlertPct || "") || 3;
   if (startBal > 0) {
     const sortedToday = [...todayTrades].sort((a: any, b: any) => (b.date || "").localeCompare(a.date || ""));
-    const lastLoss = sortedToday.find((t: any) => (t.c?.pnl || 0) < 0);
+    const lastLoss = sortedToday.find((t: any) => (t.c?.netPnl ?? t.c?.pnl ?? 0) < 0);
     if (lastLoss) {
-      const pct = (Math.abs(lastLoss.c.pnl) / startBal) * 100;
+      const lossAmount = Math.abs(lastLoss.c.netPnl ?? lastLoss.c.pnl ?? 0);
+      const pct = (lossAmount / startBal) * 100;
       if (pct >= singleAlertPct) {
-        push("singleTradeLoss", "single_trade_loss", "⚠ Large Single-Trade Loss",
-          `${lastLoss.symbol || "A trade"} lost ${cur}${Math.abs(lastLoss.c.pnl).toFixed(2)} (${pct.toFixed(1)}% of account). Was this in your plan?`, "rose", "⚠");
+        push("singleTradeLoss", `single_trade_loss_${risk.scopeId}_${lastLoss.id || today}`,
+          `⚠ Large Single-Trade Loss — ${risk.accountName}`,
+          `${lastLoss.symbol || "A trade"} lost ${cur}${lossAmount.toFixed(2)} (${pct.toFixed(1)}% of ${risk.accountName}). Was this in your plan?`, "rose", "⚠");
       }
     }
   }
@@ -1975,26 +2051,12 @@ function computeNotifications(data: any, enabled: Record<string, boolean>): OTXN
   }
 
   /* ── PROP CHALLENGE ALERTS ── */
-  (data.propChallenges || []).filter((c: any) => c.status === "active").forEach((ch: any) => {
+  (risk.linkedChallenge && risk.linkedChallenge.status === "active" ? [risk.linkedChallenge] : []).forEach((ch: any) => {
     const size = parseFloat(ch.accountSize) || 0;
-    const maxDD = parseFloat(ch.maxDrawdown) || 0;
-    const dailyDD = parseFloat(ch.dailyDrawdown) || 0;
-    const target = parseFloat(ch.profitTarget) || 0;
+    const maxDD = parseFloat(ch.maxTotalDrawdownPct || ch.maxDrawdown) || 0;
+    const target = parseFloat(ch.profitTargetPct || ch.profitTarget) || 0;
     const logs = ch.dailyLog || [];
     const lastBal = logs.length ? parseFloat(logs[logs.length - 1].balance) || size : size;
-    const todayLog = logs.find((l: any) => l.date === today);
-    const todayLoss = todayLog ? Math.max(0, size - parseFloat(todayLog.balance || "0")) : 0;
-
-    if (dailyDD > 0 && size > 0) {
-      const dailyLimitAmt = (dailyDD / 100) * size;
-      if (todayLoss >= dailyLimitAmt) {
-        push("propDailyLossHit", `prop_daily_hit_${ch.id}`, `🛑 Prop Daily Loss Hit — ${ch.name}`,
-          `Daily drawdown limit reached on "${ch.name}". STOP trading immediately to protect the account.`, "rose", "🛑");
-      } else if (todayLoss >= dailyLimitAmt * 0.8) {
-        push("propDailyLossApproach", `prop_daily_approach_${ch.id}`, `⚠ Prop DD Limit Approaching — ${ch.name}`,
-          `You're 80%+ into your daily drawdown limit on "${ch.name}". Trade with extreme caution.`, "amber", "⚠");
-      }
-    }
 
     if (target > 0 && size > 0 && lastBal >= size + (target / 100) * size) {
       push("propTargetReached", `prop_target_${ch.id}`, `🏆 Prop Target Reached — ${ch.name}`,
@@ -2636,6 +2698,7 @@ function TradingAccountsManager({ data, setData, goTo }: any) {
   const activeId: string | null = data.activeAccountId || null;
   const emptyTA = () => ({
     alias: "", accountNumber: "", platform: "MT4", accountType: "Live", currency: "USD", balance: "",
+    dailyLossLimitPct: "3",
     propFirm: "FTMO", propPhase: "Evaluation", profitTargetPct: "10", maxDailyLossPct: "5", maxTotalDrawdownPct: "10",
   });
   const [form, setForm] = useState<any>(emptyTA());
@@ -2748,6 +2811,7 @@ function TradingAccountsManager({ data, setData, goTo }: any) {
       alias: a.alias || "", accountNumber: a.accountNumber, platform: a.platform,
       accountType: a.accountType === "Prop" || a.accountType === "Challenge" ? "Prop Challenge" : a.accountType,
       currency: a.currency, balance: a.balance || "",
+      dailyLossLimitPct: a.dailyLossLimitPct || data.settings?.maxDailyLossPct || "3",
       propFirm: linked?.firm || "FTMO", propPhase: linked?.phase || "Evaluation",
       profitTargetPct: linked?.profitTargetPct || "10", maxDailyLossPct: linked?.maxDailyLossPct || "5",
       maxTotalDrawdownPct: linked?.maxTotalDrawdownPct || "10",
@@ -2847,6 +2911,11 @@ function TradingAccountsManager({ data, setData, goTo }: any) {
               </div>
             </div>
           )}
+          {form.accountType !== "Prop Challenge" && (
+            <Field label="Daily Loss Limit %" hint="Applied only to this Live or Demo account">
+              <TextInput inputMode="decimal" value={form.dailyLossLimitPct} onChange={setF("dailyLossLimitPct")} placeholder="3" />
+            </Field>
+          )}
           <div className="grid grid-cols-2 gap-2 pt-1">
             <button onClick={() => { setOpen(false); setEditId(null); setForm(emptyTA()); }}
               className="py-2.5 rounded-xl border border-slate-700 text-slate-400 text-sm font-medium hover:bg-slate-800 transition">
@@ -2936,6 +3005,17 @@ function TradingAccountsManager({ data, setData, goTo }: any) {
                             {cfg.icon} {m.hasFailed ? "Breached" : m.hasPassed ? "Passed" : m.hasWarning ? "Warning" : `${m.totalPnlPct >= 0 ? "+" : ""}${m.totalPnlPct.toFixed(1)}%`}
                           </span>
                         );
+                      })()}
+                      {isActive && (() => {
+                        const linked = (data.propChallenges || []).find((c: any) => c.accountId === a.id);
+                        const dailyLimit = a.accountType === "Prop Challenge"
+                          ? linked?.maxDailyLossPct
+                          : (a.dailyLossLimitPct || data.settings?.maxDailyLossPct || "3");
+                        return dailyLimit ? (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-md border border-rose-500/20 bg-rose-500/8 text-rose-300 font-semibold">
+                            {dailyLimit}% daily limit
+                          </span>
+                        ) : null;
                       })()}
                     </div>
                   </div>
@@ -15442,6 +15522,9 @@ const NAV_ITEMS = [
    ============================================================ */
 type RiskAlert = {
   type: "daily_loss" | "trade_loss";
+  accountId: string;
+  accountName: string;
+  accountType: string;
   todayLossAmt: number;
   limitAmt: number;
   limitPct: number;
@@ -15479,6 +15562,9 @@ function RiskAlertOverlay({ alert, onDismiss }: { alert: RiskAlert; onDismiss: (
             </div>
             <div className="text-rose-200 text-xs mt-0.5">
               {isDailyBreach ? "Stop trading now — rule triggered" : "Loss exceeds per-trade risk threshold"}
+            </div>
+            <div className="text-white/90 text-[11px] font-semibold mt-1">
+              {alert.accountName} · {alert.accountType}
             </div>
           </div>
 
@@ -15567,7 +15653,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   const [quickLogOpen, setQuickLogOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [riskAlert, setRiskAlert] = useState<RiskAlert | null>(null);
-  const dismissedAtRef = useRef<number>(0);
+  const dismissedAtRef = useRef<Record<string, number>>({});
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSaveRef = useRef<any>(null);
   const saveInFlightRef = useRef(false);
@@ -15768,32 +15854,42 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   useEffect(() => {
     if (!data || !loaded) return;
 
-    const acc = data.account || { startingBalance: 1000, currency: "€" };
-    const startBal = parseFloat(String(acc.startingBalance)) || 0;
-    const cur = (acc.currency as string) || "€";
+    const risk = getAccountRiskContext(data);
+    const startBal = risk.startingBalance;
+    const cur = risk.currency;
     if (startBal <= 0) return;
 
     const today = todayISO();
-    const todayTrades = (data.trades || []).filter(
+    const todayTrades = risk.trades.filter(
       (t: any) => t.date === today && computeTrade(t).result !== null
     );
-    const todayNetPnl = todayTrades.reduce((s: number, t: any) => s + (computeTrade(t).pnl || 0), 0);
+    const todayNetPnl = todayTrades.reduce((s: number, t: any) => s + (computeTrade(t).netPnl || 0), 0);
     const todayLossAmt = Math.max(0, -todayNetPnl);
 
     /* ── Check 1: Daily loss limit — settings override, then master plan ── */
-    const settingsDailyPct = parseFloat((data as any).settings?.maxDailyLossPct || "") || 0;
-    const planDailyPct     = parseFloat((data as any).plans?.master?.maxDailyLoss || "") || 0;
-    const maxDailyLossPct  = settingsDailyPct || planDailyPct;
+    const maxDailyLossPct = risk.dailyLossPct;
+    const dismissedAt = dismissedAtRef.current[risk.scopeId] || 0;
 
     if (maxDailyLossPct > 0) {
       const limitAmt = (maxDailyLossPct / 100) * startBal;
-      if (todayLossAmt >= limitAmt && todayLossAmt > dismissedAtRef.current) {
+      if (todayLossAmt >= limitAmt && todayLossAmt > dismissedAt) {
         const overByAmt = todayLossAmt - limitAmt;
         const overByPct = limitAmt > 0 ? (overByAmt / limitAmt) * 100 : 0;
-        setRiskAlert({ type: "daily_loss", todayLossAmt, limitAmt, limitPct: maxDailyLossPct, currency: cur, overByAmt, overByPct });
+        setRiskAlert({
+          type: "daily_loss",
+          accountId: risk.scopeId,
+          accountName: risk.accountName,
+          accountType: risk.accountType,
+          todayLossAmt,
+          limitAmt,
+          limitPct: maxDailyLossPct,
+          currency: cur,
+          overByAmt,
+          overByPct,
+        });
         return;
       }
-      if (todayLossAmt < dismissedAtRef.current - 0.01) { dismissedAtRef.current = 0; setRiskAlert(null); }
+      if (todayLossAmt < dismissedAt - 0.01) { dismissedAtRef.current[risk.scopeId] = 0; setRiskAlert(null); }
       if (todayLossAmt < limitAmt) setRiskAlert(null);
     }
 
@@ -15803,17 +15899,20 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
     const lastTrade = sortedToday[0];
     if (lastTrade) {
       const c = computeTrade(lastTrade);
-      if (c.pnl !== null && c.pnl < 0) {
-        const lossPct = (Math.abs(c.pnl) / startBal) * 100;
+      if (c.netPnl !== null && c.netPnl < 0) {
+        const lossPct = (Math.abs(c.netPnl) / startBal) * 100;
         if (maxDailyLossPct <= 0 && lossPct >= singleAlertPct) {
           const overByAmt = Math.abs(c.pnl) - (singleAlertPct / 100) * startBal;
           setRiskAlert({
             type: "trade_loss",
+            accountId: risk.scopeId,
+            accountName: risk.accountName,
+            accountType: risk.accountType,
             todayLossAmt,
             limitAmt: (singleAlertPct / 100) * startBal,
             limitPct: singleAlertPct,
             currency: cur,
-            tradePnl: c.pnl,
+            tradePnl: c.netPnl,
             tradeSymbol: lastTrade.symbol || "",
             overByAmt: Math.max(0, overByAmt),
             overByPct: Math.max(0, (overByAmt / ((singleAlertPct / 100) * startBal)) * 100),
@@ -15821,7 +15920,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
         }
       }
     }
-  }, [data?.trades, data?.account, data?.plans, loaded]);
+  }, [data?.trades, data?.account, data?.plans, data?.settings, data?.activeAccountId, data?.tradingAccounts, data?.propChallenges, loaded]);
 
   if (!loaded || !data) {
     const candles = [
@@ -16097,7 +16196,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
         <RiskAlertOverlay
           alert={riskAlert}
           onDismiss={() => {
-            dismissedAtRef.current = riskAlert.todayLossAmt;
+            dismissedAtRef.current[riskAlert.accountId] = riskAlert.todayLossAmt;
             setRiskAlert(null);
           }}
         />
