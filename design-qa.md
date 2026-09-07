@@ -1,36 +1,35 @@
 **Evidence**
 
-- Source visual truth: `C:\Users\joban\.codex\codex-remote-attachments\01a07180-c785-7692-9b30-a7c170f1481f\6A5C5009-2AE5-45DD-958A-764E4A0A9E1E\3-Photo-3.jpg`
-- Supporting dashboard references: `1-Photo-1.jpg` and `2-Photo-2.jpg` in the same attachment directory.
-- Implementation: `http://localhost:3000`, Trade Log → Review → Loss and Win states.
-- Implementation screenshot path: CUA in-app-browser tab 21 capture embedded in the task transcript; the browser tool does not expose a filesystem path.
-- Source pixels: 590 × 1279, iPhone browser capture at device density.
-- Implementation capture: 1280 × 720 CSS px, DPR 1. The source was used as a product-style and mobile-flow reference rather than a pixel-identical desktop target.
-- State: dark theme, Log Trade step 4/5, explicit Loss state and explicit Win state.
-- Primary interactions tested: opened Log Trade, jumped to Review, selected Loss, selected mistake tags, switched to Win, confirmed loss fields cleared and winning-strength controls appeared.
-- Console/runtime: no interaction-breaking runtime error appeared during the tested flow. Production build completed successfully.
+- Source visual truth: `C:\Users\joban\.codex\codex-remote-attachments\01a07180-c785-7692-9b30-a7c170f1481f\7CB0B90E-1AE2-4154-978D-CE0BD4E10446\1-Photo-1.jpg` and `2-Photo-2.jpg` in the same directory.
+- Implementation: `http://localhost:3000`, Log Trade step 2/5.
+- Implementation screenshot path: CUA in-app-browser tab 23 capture embedded in the task transcript; the browser tool does not expose a filesystem path.
+- Source pixels: 590 × 1279, iPhone Safari capture at device density.
+- Implementation capture: 1280 × 720 CSS px, DPR 1. The source was used as the mobile problem reference; verification focused on field behavior, calculated results, and consistency with the existing responsive form.
+- States tested: GBPUSD Buy with comma decimals; winning exit and losing exit.
+- Primary interactions tested: entered `1,1613`, `1,1603`, `1,1643`, and `1,1627`; confirmed stored/displayed dot normalization; changed exit to `1,1590`; confirmed result and amounts updated without leaving the step.
 
 **Full-view comparison evidence**
 
-- The implementation preserves the source hierarchy: persistent step header, large scrollable form area, dark navy surfaces, amber progress/action emphasis, and fixed bottom action bar.
-- The new outcome selector sits at the top of Review, so the user's choice controls the rest of the form before long note content.
-- Loss uses restrained rose borders and text; Win uses restrained emerald borders and text. Both remain consistent with the existing slate/amber product tokens.
-- Long mistake and strength lists wrap instead of overflowing, preserving access to the fixed Back and Review Trade actions.
+- The existing five-step Trade Log hierarchy, dark navy surfaces, amber action styling, quick-price controls, and fixed bottom actions are preserved.
+- Entry, stop, take-profit, and exit remain paired in the same compact grid visible in the source screenshots.
+- A concise calculated-result card now appears immediately below Exit Price, keeping the result close to the value that drives it.
+- The result card uses existing semantic colors: emerald for Win, rose for Loss, and slate for breakeven.
 
 **Focused region comparison evidence**
 
-- Outcome control: Auto / Win / Loss / BE is visually compact and uses the existing rounded segmented-control language.
-- Loss panel: heading, explanatory copy, and cause chips are immediately visible; tags include FOMO, oversized risk, no confirmation, moved stop loss, revenge trading, session timing, and custom active mistakes.
-- Win panel: repeatable behaviors are visually separated from loss causes and include confirmation, session alignment, S/R, risk management, patience, and planned profit.
-- Reflection fields change with outcome: Loss shows root cause and next action; Win shows a winning lesson. This removes irrelevant fields without changing the five-step workflow.
+- Decimal entry: all price fields accept either comma or dot and normalize the stored value to a dot. The test converted `1,1627` to `1.1627`.
+- Winning state: entry `1.1613` to exit `1.1627` displayed `Win`, `+14.0 pips`, and `+€14.00 Estimated P/L`.
+- Losing state: changing exit to `1.1590` displayed `Loss`, `-23.0 pips`, and `-€23.00 Estimated P/L`.
+- Direction awareness: calculations use Buy/Sell direction rather than assuming rising prices always win.
+- Accessibility: the five decimal inputs expose specific accessible names, while `inputMode="decimal"` retains the appropriate mobile keyboard.
 
 **Required fidelity surfaces**
 
-- Fonts and typography: existing Sora/Inter hierarchy, weights, line heights, and compact uppercase labels are retained.
-- Spacing and layout rhythm: existing 12–16 px card padding, rounded-xl/2xl radii, chip gaps, and fixed footer spacing are retained.
-- Colors and tokens: existing slate/navy foundation and amber primary action remain; rose and emerald are used only for semantic outcome states.
-- Image quality and assets: this change introduces no new visible imagery or replacement assets.
-- Copy and content: labels are direct, outcome-specific, and explain that coaching is journal-derived rather than a trading signal.
+- Fonts and typography: existing compact labels and Sora/Inter hierarchy are retained.
+- Spacing and layout rhythm: existing two-column price grid, rounded-xl cards, and 12–16 px spacing are retained.
+- Colors and tokens: no new palette was introduced; result feedback uses existing emerald, rose, and slate tokens.
+- Image quality and assets: no imagery or asset changes were required.
+- Copy and content: field hints explicitly state `Use . or ,`; calculated amounts are labelled `Estimated P/L` so they are not confused with broker-confirmed P/L.
 
 **Findings**
 
@@ -38,24 +37,26 @@
 
 **Open Questions**
 
-- A physical iPhone Safari pass remains useful after deployment because the available in-app browser viewport is fixed at 1280 × 720. The implementation uses the existing responsive form shell and wrapping controls rather than introducing a new layout system.
+- A physical iPhone Safari and Android keyboard pass remains useful after deployment because the available verification browser cannot emulate their locale keyboards. The implementation removes the browser number-field restriction and accepts both separators in application code.
 
 **Implementation Checklist**
 
-- [x] Outcome can be left automatic or set to Win, Loss, or BE.
-- [x] Loss displays connected mistake tags and loss-specific reflection fields.
-- [x] Win displays connected repeatable-strength tags.
-- [x] Switching outcomes clears incompatible hidden tags.
-- [x] Dashboard comparisons, coaching insights, and improvement-plan recommendations consume saved review data.
-- [x] Production build passes.
-- [x] Supabase REST endpoint responds and the atomic JSONB save path covers the new trade fields.
+- [x] TP and Exit accept both comma and dot decimal separators.
+- [x] Entry, Stop Loss, and broker P/L use the same locale-safe input behavior.
+- [x] Exit price derives Win/Loss/BE using trade direction.
+- [x] Exit price derives pips using the instrument pip specification.
+- [x] Estimated P/L uses position size, or the existing risk-based position-size calculation when available.
+- [x] Derived result, pips, R multiple, and net P/L are saved with the trade.
+- [x] Performance analytics prioritize the saved net P/L.
+- [x] Quick Exit, live-price, entry, and direction changes invalidate stale manual outcomes.
 
 **Comparison History**
 
-- Initial implementation capture: no P0/P1/P2 issues found, so no visual-fix iteration was required.
+- Initial functional capture: comma input normalized correctly and produced a Win calculation.
+- Follow-up capture: changing only Exit Price produced the correct Loss calculation and updated pips, amount, R multiple, and result.
 
 **Follow-up Polish**
 
-- [P3] Consider collapsing the older Quick Note Suggestions groups by default on very small screens after collecting real-device usage feedback.
+- [P3] Confirm the exact keyboard presentation on the user's physical iPhone and Android after production deployment.
 
 final result: passed

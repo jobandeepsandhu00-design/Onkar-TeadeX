@@ -28,6 +28,20 @@ import { TradeSetupDashboard } from "./trade-setups/TradeSetupBoard";
    ============================================================ */
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const cx = (...a) => a.filter(Boolean).join(" ");
+const parseDecimalValue = (value: unknown): number => {
+  if (typeof value === "number") return value;
+  return parseFloat(String(value ?? "").trim().replace(",", "."));
+};
+const sanitizeDecimalInput = (value: unknown, allowNegative = false): string => {
+  const normalized = String(value ?? "").replace(/,/g, ".").replace(/\s/g, "");
+  const negative = allowNegative && normalized.startsWith("-");
+  const unsigned = normalized.replace(/-/g, "").replace(/[^\d.]/g, "");
+  const dot = unsigned.indexOf(".");
+  const cleaned = dot === -1
+    ? unsigned
+    : unsigned.slice(0, dot + 1) + unsigned.slice(dot + 1).replace(/\./g, "");
+  return `${negative ? "-" : ""}${cleaned}`;
+};
 const fmt2 = (n) => (n === null || n === undefined || isNaN(n) ? "—" : n.toFixed(2));
 const fmtPct = (n) => (n === null || n === undefined || isNaN(n) ? "—" : n.toFixed(1) + "%");
 const fmtSigned = (n, suffix = "") =>
@@ -83,13 +97,16 @@ function formatMinutes(mins) {
   return `${days}d ${remHours}h`;
 }
 
-function computeTrade(t) {
+function computeTrade(t: any) {
   const dir = t.side === "Sell" ? -1 : 1;
-  const entry = parseFloat(t.entry);
-  const exit = parseFloat(t.exit);
-  const sl = parseFloat(t.sl);
-  const tp = parseFloat(t.tp);
-  const size = parseFloat(t.positionSize) || 1;
+  const entry = parseDecimalValue(t.entry);
+  const exit = parseDecimalValue(t.exit);
+  const sl = parseDecimalValue(t.sl);
+  const tp = parseDecimalValue(t.tp);
+  const size = parseDecimalValue(t.positionSize);
+  const spec = getSpec(t.symbol);
+  const priceMove = !isNaN(entry) && !isNaN(exit) ? (exit - entry) * dir : null;
+  const pips = priceMove === null ? null : priceMove / (spec?.pipSize || getPipInfo(t.symbol).pip);
   let pnl = null, rMultiple = null, plannedRR = null, result = null, pctMove = null;
   const riskPerUnit = !isNaN(entry) && !isNaN(sl) ? Math.abs(entry - sl) : null;
   if (!isNaN(entry) && !isNaN(tp) && riskPerUnit) {
@@ -97,7 +114,7 @@ function computeTrade(t) {
   }
 
   // If the user entered a manual P/L (from their broker), always use that
-  const manualPnlNum = t.manualPnl !== undefined && t.manualPnl !== "" ? parseFloat(t.manualPnl) : null;
+  const manualPnlNum = t.manualPnl !== undefined && t.manualPnl !== "" ? parseDecimalValue(t.manualPnl) : null;
   if (manualPnlNum !== null && !isNaN(manualPnlNum)) {
     pnl = manualPnlNum;
     if (riskPerUnit && !isNaN(entry) && !isNaN(exit)) {
@@ -107,20 +124,29 @@ function computeTrade(t) {
     if (pnl > 0.0000001) result = "Win";
     else if (pnl < -0.0000001) result = "Loss";
     else result = "Breakeven";
-  } else if (!isNaN(entry) && !isNaN(exit)) {
-    pnl = (exit - entry) * dir * size;
+  } else if (priceMove !== null) {
+    if (spec && pips !== null && !isNaN(size) && size > 0) {
+      pnl = pips * size * spec.pipValuePerLot;
+    } else if (!spec && !isNaN(size) && size > 0) {
+      pnl = priceMove * size;
+    }
     if (riskPerUnit) rMultiple = ((exit - entry) * dir) / riskPerUnit;
     if (entry !== 0) pctMove = ((exit - entry) / Math.abs(entry)) * dir * 100;
-    if (pnl > 0.0000001) result = "Win";
-    else if (pnl < -0.0000001) result = "Loss";
+    if (priceMove > 0.0000000001) result = "Win";
+    else if (priceMove < -0.0000000001) result = "Loss";
     else result = "Breakeven";
   }
+  const fees = (parseFloat(t.fees) || 0) + (parseFloat(t.commission) || 0);
+  const netPnl = pnl === null ? null : pnl - fees;
   const reviewedResult = String(t.result || "").toLowerCase();
   if (reviewedResult === "win") result = "Win";
   else if (reviewedResult === "loss") result = "Loss";
   else if (reviewedResult.includes("break") || reviewedResult === "be") result = "Breakeven";
-  const fees = (parseFloat(t.fees) || 0) + (parseFloat(t.commission) || 0);
-  const netPnl = pnl === null ? null : pnl - fees;
+  else if (netPnl !== null) {
+    if (netPnl > 0.0000001) result = "Win";
+    else if (netPnl < -0.0000001) result = "Loss";
+    else result = "Breakeven";
+  }
 
   let holdMinutes = null;
   if (t.entryTime && t.exitTime && t.date) {
@@ -130,7 +156,7 @@ function computeTrade(t) {
     if (entryDt && exitDt && exitDt >= entryDt) holdMinutes = (exitDt - entryDt) / 60000;
   }
 
-  return { pnl, rMultiple, plannedRR, result, pctMove, fees, netPnl, holdMinutes };
+  return { pnl, pips, rMultiple, plannedRR, result, pctMove, fees, netPnl, holdMinutes };
 }
 
 /** Computes the running balance for an account: starting balance + sum of all closed trade P&Ls */
@@ -6882,6 +6908,15 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
     setStep(0);
   }, [initial, open]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const setDecimal = (key: string, allowNegative = false, recalculateOutcome = false) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const value = sanitizeDecimalInput(event.target.value, allowNegative);
+      setForm((current: any) => ({
+        ...current,
+        [key]: value,
+        ...(recalculateOutcome ? { result: "" } : {}),
+      }));
+    };
   const live = useMemo(() => computeTrade(form), [form]);
   const reviewOutcome = form.result || live.result || "";
   const mistakeOptions = useMemo(
@@ -6959,7 +6994,15 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
 
   const save = () => {
     if (!form.symbol.trim()) return;
-    onSave({ ...form, id: form.id || uid() });
+    const metrics = computeTrade(form);
+    onSave({
+      ...form,
+      id: form.id || uid(),
+      result: form.result || metrics.result || "",
+      pips: metrics.pips === null ? (form.pips || "") : String(Math.round(metrics.pips * 10) / 10),
+      rMultiple: metrics.rMultiple === null ? (form.rMultiple || "") : String(Math.round(metrics.rMultiple * 100) / 100),
+      netPnl: metrics.netPnl === null ? (form.netPnl || "") : String(Math.round(metrics.netPnl * 100) / 100),
+    });
   };
 
   const nf = (id: string) => (e: React.KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); (document.getElementById(id) as HTMLElement | null)?.focus(); } };
@@ -6967,14 +7010,26 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
   // Auto-calculate P/L when exit price is entered (uses spec pipValue × lots)
   const autoCalcPnlRef = useRef<string>("");
   useEffect(() => {
-    const entryN = parseFloat(form.entry);
-    const exitN = parseFloat(form.exit);
-    if (!form.exit || isNaN(exitN) || !form.entry || isNaN(entryN) || entryN === exitN) return;
+    const entryN = parseDecimalValue(form.entry);
+    const exitN = parseDecimalValue(form.exit);
+    const clearAutomaticPnl = () => {
+      if (autoCalcPnlRef.current && form.manualPnl === autoCalcPnlRef.current) {
+        autoCalcPnlRef.current = "";
+        setForm((current: any) => ({ ...current, manualPnl: "" }));
+      }
+    };
+    if (!form.exit || isNaN(exitN) || !form.entry || isNaN(entryN)) {
+      clearAutomaticPnl();
+      return;
+    }
     const spec = getSpec(form.symbol);
-    if (!spec) return;
+    if (!spec) {
+      clearAutomaticPnl();
+      return;
+    }
     const dir = form.side === "Buy" ? 1 : -1;
     let lots: number | null = null;
-    const manualLots = parseFloat(form.positionSize);
+    const manualLots = parseDecimalValue(form.positionSize);
     if (form.positionSize && !isNaN(manualLots) && manualLots > 0) {
       lots = manualLots;
     } else {
@@ -6984,13 +7039,13 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
     if (lots !== null && lots > 0) {
       const profitPips = ((exitN - entryN) * dir) / spec.pipSize;
       const pnl = profitPips * lots * spec.pipValuePerLot;
-      const rounded = pnl.toFixed(2);
+      const rounded = Math.abs(pnl) < 0.005 ? "0.00" : pnl.toFixed(2);
       if (form.manualPnl === "" || form.manualPnl === autoCalcPnlRef.current) {
         autoCalcPnlRef.current = rounded;
         setForm((f: any) => ({ ...f, manualPnl: rounded }));
       }
     }
-  }, [form.exit, form.entry, form.side, form.symbol, form.positionSize, form.sl, form.riskPct]);
+  }, [form.exit, form.entry, form.side, form.symbol, form.positionSize, form.sl, form.riskPct, acc.startingBalance]);
 
   const STEPS = ["Setup", "Trade", "Risk", "Review", "Confirm"];
 
@@ -7135,12 +7190,12 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
             </div>
             <Field label="Direction">
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setForm((f) => ({ ...f, side: "Buy" }))}
+                <button type="button" onClick={() => setForm((f) => ({ ...f, side: "Buy", result: "" }))}
                   className={cx("py-3 rounded-xl text-sm font-semibold border flex items-center justify-center gap-2",
                     form.side === "Buy" ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400" : "bg-slate-900 border-slate-700 text-slate-500")}>
                   <TrendingUp size={16} /> Buy / Long
                 </button>
-                <button type="button" onClick={() => setForm((f) => ({ ...f, side: "Sell" }))}
+                <button type="button" onClick={() => setForm((f) => ({ ...f, side: "Sell", result: "" }))}
                   className={cx("py-3 rounded-xl text-sm font-semibold border flex items-center justify-center gap-2",
                     form.side === "Sell" ? "bg-rose-500/15 border-rose-500/40 text-rose-400" : "bg-slate-900 border-slate-700 text-slate-500")}>
                   <TrendingDown size={16} /> Sell / Short
@@ -7264,12 +7319,12 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                       </div>
                       <div className="grid grid-cols-3 gap-1.5">
                         <button
-                          onClick={() => setForm((f) => ({ ...f, entry: livePrice.ask ? String(livePrice.ask) : String(livePrice.price) }))}
+                          onClick={() => setForm((f) => ({ ...f, entry: livePrice.ask ? String(livePrice.ask) : String(livePrice.price), result: "" }))}
                           className="py-2 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 text-[11px] font-bold hover:bg-sky-500/25 transition">
                           ↓ Use as Entry
                         </button>
                         <button
-                          onClick={() => setForm((f) => ({ ...f, exit: String(livePrice.price) }))}
+                          onClick={() => setForm((f) => ({ ...f, exit: String(livePrice.price), result: "" }))}
                           className="py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 text-[11px] font-bold hover:bg-slate-700 transition">
                           ↓ Use as Exit
                         </button>
@@ -7278,6 +7333,7 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                             ...f,
                             sl: livePrice.bid ? String(livePrice.bid) : String(livePrice.price),
                             entry: livePrice.ask ? String(livePrice.ask) : String(livePrice.price),
+                            result: "",
                           }))}
                           className="py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 text-[11px] font-bold hover:bg-slate-700 transition">
                           ↓ Entry + SL
@@ -7291,13 +7347,13 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
 
             {/* Row 1: Entry + SL — the two prices a trader always knows first */}
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Entry Price">
-                <TextInput id="tf-entry" type="number" inputMode="decimal" step="any" placeholder="0.00000"
-                  enterKeyHint="next" value={form.entry} onChange={set("entry")} onKeyDown={nf("tf-sl")} />
+              <Field label="Entry Price" hint="Use . or ,">
+                <TextInput id="tf-entry" aria-label="Entry Price" type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="0.00000"
+                  autoComplete="off" spellCheck={false} enterKeyHint="next" value={form.entry} onChange={setDecimal("entry", false, true)} onKeyDown={nf("tf-sl")} />
               </Field>
-              <Field label="Stop Loss">
-                <TextInput id="tf-sl" type="number" inputMode="decimal" step="any" placeholder="0.00000"
-                  enterKeyHint="next" value={form.sl} onChange={set("sl")} onKeyDown={nf("tf-tp")} />
+              <Field label="Stop Loss" hint="Use . or ,">
+                <TextInput id="tf-sl" aria-label="Stop Loss" type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="0.00000"
+                  autoComplete="off" spellCheck={false} enterKeyHint="next" value={form.sl} onChange={setDecimal("sl", false, true)} onKeyDown={nf("tf-tp")} />
               </Field>
             </div>
 
@@ -7340,15 +7396,40 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
 
             {/* Row 2: TP + Exit price */}
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Take Profit">
-                <TextInput id="tf-tp" type="number" inputMode="decimal" step="any" placeholder="0.00000"
-                  enterKeyHint="next" value={form.tp} onChange={set("tp")} onKeyDown={nf("tf-exit")} />
+              <Field label="Take Profit" hint="Use . or ,">
+                <TextInput id="tf-tp" aria-label="Take Profit" type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="0.00000"
+                  autoComplete="off" spellCheck={false} enterKeyHint="next" value={form.tp} onChange={setDecimal("tp")} onKeyDown={nf("tf-exit")} />
               </Field>
-              <Field label="Exit Price" hint="Leave blank if still open">
-                <TextInput id="tf-exit" type="number" inputMode="decimal" step="any" placeholder="0.00000"
-                  enterKeyHint="next" value={form.exit} onChange={set("exit")} onKeyDown={nf("tf-pnl")} />
+              <Field label="Exit Price" hint="Use . or , · blank = open">
+                <TextInput id="tf-exit" aria-label="Exit Price" type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="0.00000"
+                  autoComplete="off" spellCheck={false} enterKeyHint="next" value={form.exit} onChange={setDecimal("exit", false, true)} onKeyDown={nf("tf-pnl")} />
               </Field>
             </div>
+
+            {form.exit && live.result && (() => {
+              const positive = live.result === "Win";
+              const neutral = live.result === "Breakeven";
+              const border = neutral ? "border-slate-700" : positive ? "border-emerald-500/30" : "border-rose-500/30";
+              const bg = neutral ? "bg-slate-900" : positive ? "bg-emerald-500/7" : "bg-rose-500/7";
+              const text = neutral ? "text-slate-300" : positive ? "text-emerald-300" : "text-rose-300";
+              return (
+                <div className={cx("rounded-xl border p-3 -mt-1 mb-2", border, bg)} aria-live="polite">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[9px] font-bold uppercase tracking-[.16em] text-slate-500">Calculated from entry → exit</p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span className={cx("text-sm font-black", text)}>{live.result}</span>
+                        {live.pips !== null && <span className="text-xs font-semibold text-slate-400">{live.pips > 0 ? "+" : ""}{live.pips.toFixed(1)} pips</span>}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className={cx("text-base font-black", text)}>{live.netPnl !== null ? fmtBalSigned(live.netPnl, cur) : "Amount pending"}</p>
+                      <p className="text-[9px] text-slate-600">{live.netPnl !== null ? "Estimated P/L" : "Add risk or lot size"}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Quick Exit strip — R:R + pip presets */}
             {(() => {
@@ -7375,7 +7456,7 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                       const active = form.exit === exitStr;
                       return (
                         <button key={rr} type="button"
-                          onClick={() => setForm((f) => ({ ...f, exit: exitStr }))}
+                          onClick={() => setForm((f) => ({ ...f, exit: exitStr, result: "" }))}
                           className={cx("flex flex-col items-center px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition",
                             active ? "bg-rose-500/25 border-rose-500/50 text-rose-300"
                               : "bg-slate-900 border-slate-800 text-slate-400 hover:border-rose-500/40 hover:text-rose-300")}>
@@ -7394,7 +7475,7 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                       const active = form.exit === exitStr;
                       return (
                         <button key={p} type="button"
-                          onClick={() => setForm((f) => ({ ...f, exit: exitStr }))}
+                          onClick={() => setForm((f) => ({ ...f, exit: exitStr, result: "" }))}
                           className={cx("flex flex-col items-center px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition",
                             active ? "bg-rose-500/25 border-rose-500/50 text-rose-300"
                               : "bg-slate-900 border-slate-800 text-slate-400 hover:border-rose-500/40 hover:text-rose-300")}>
@@ -7454,11 +7535,12 @@ function TradeForm({ open, onClose, onSave, initial, setups, strategies, account
                 <span className="text-[11px] uppercase tracking-wide text-emerald-400 font-semibold">Actual P/L from Broker</span>
               </div>
               <TextInput
-                id="tf-pnl" type="number" inputMode="decimal" step="any"
+                id="tf-pnl" aria-label="Actual P/L from Broker" type="text" inputMode="decimal" pattern="-?[0-9]*[.,]?[0-9]*"
                 placeholder="e.g. 250.00 or -120.00"
+                autoComplete="off" spellCheck={false}
                 enterKeyHint="next"
                 value={form.manualPnl}
-                onChange={(e) => setForm((f) => ({ ...f, manualPnl: e.target.value }))}
+                onChange={setDecimal("manualPnl", true, true)}
                 onKeyDown={nf("tf-entryTime")}
               />
               {/* Quick P/L amount chips */}

@@ -56,7 +56,9 @@ export type GroupMetric = {
 
 const numberValue = (value: unknown) => {
   const parsed =
-    typeof value === "number" ? value : Number.parseFloat(String(value ?? ""));
+    typeof value === "number"
+      ? value
+      : Number.parseFloat(String(value ?? "").trim().replace(",", "."));
   return Number.isFinite(parsed) ? parsed : null;
 };
 
@@ -94,9 +96,9 @@ export function enrichTrades(
       ? -1
       : 1;
     const importedPnl =
+      numberValue(trade.netPnl) ??
       numberValue(trade.manualPnl) ??
-      numberValue(trade.pnl) ??
-      numberValue(trade.netPnl);
+      numberValue(trade.pnl);
     const priceMove =
       entry !== null && exit !== null ? (exit - entry) * direction : null;
     const pnlValue = importedPnl ?? 0;
