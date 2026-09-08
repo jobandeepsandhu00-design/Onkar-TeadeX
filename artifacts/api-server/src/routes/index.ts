@@ -5,6 +5,7 @@ import marketRouter from "./market";
 import mtImportRouter from "./mt-import";
 import backtestRouter from "./backtest";
 import legacyReadRouter from "./legacy-read";
+import videoLessonsRouter from "./video-lessons";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(marketRouter);
 router.use(mtImportRouter);
 router.use(backtestRouter);
 router.use(legacyReadRouter);
+router.use(videoLessonsRouter);
 
 export default router;

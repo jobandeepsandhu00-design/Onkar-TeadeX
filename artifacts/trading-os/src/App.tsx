@@ -22,6 +22,7 @@ import JSZip from "jszip";
 import { createDefaultTradeSetups, migrateLegacySetupImages, normalizeTradeSetups } from "./trade-setups";
 import { SetupLibrary } from "./trade-setups/SetupLibrary";
 import { TradeSetupDashboard } from "./trade-setups/TradeSetupBoard";
+import { DashboardVideoSection, VideoLearningHub, VideoLessonPage } from "./video-lessons";
 
 /* ============================================================
    UTILITIES
@@ -842,6 +843,7 @@ const DEFAULT_SETTINGS = () => ({
     marketOverview:  true,
     marketSessions:  true,
     accountOverview: true,
+    videoLearning: true,
     performanceLearning: true,
     todaysFocus:     true,
     propChallenges:  true,
@@ -857,7 +859,7 @@ const DEFAULT_SETTINGS = () => ({
     equityCurve:     true,
     tvChart:         true,
   },
-  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
+  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","videoLearning","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -6021,7 +6023,7 @@ function EquityCurveCard({ data }: { data: any }) {
   );
 }
 
-function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog }) {
+function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLesson }) {
   const a = useMemo(() => computeAnalytics(data), [data.trades, data.strategies, data.setups]);
   const acc = data.account || { startingBalance: 1000, currency: "€" };
   const cur = acc.currency || "€";
@@ -6199,6 +6201,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog }) {
       </>
     ),
     performanceLearning: <PerformanceLearning data={data} setData={setData} embedded />,
+    videoLearning: <DashboardVideoSection onOpenLesson={onOpenLesson} onManage={() => goTo("academy", "Video Lessons")} />,
     todaysFocus: (
       <>
         <SessionPlanDashCard data={data} goTo={goTo} />
@@ -10757,18 +10760,18 @@ function PlaybookAcademy({ data, goTo }: { data: any; goTo?: (tab: string, sub?:
   );
 }
 
-function AcademyTab({ data, setData, subTab, setSubTab, goTo }) {
+function AcademyTab({ data, setData, subTab, setSubTab, goTo, onOpenLesson }) {
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1">
-        {["Price Action", "Smart Money", "Playbook", "Forex Blueprint"].map((s) => (
+      <div className="flex gap-1 overflow-x-auto bg-slate-900 border border-slate-800 rounded-xl p-1">
+        {["Video Lessons", "Price Action", "Smart Money", "Playbook", "Forex Blueprint"].map((s) => (
           <button key={s} onClick={() => setSubTab(s)}
-            className={cx("flex-1 py-2 rounded-lg text-[10px] font-medium transition leading-tight", subTab === s ? "bg-amber-500 text-slate-950" : "text-slate-400")}>
+            className={cx("min-w-[92px] flex-1 py-2 rounded-lg text-[10px] font-medium transition leading-tight", subTab === s ? "bg-amber-500 text-slate-950" : "text-slate-400")}>
             {s}
           </button>
         ))}
       </div>
-      {subTab !== "Forex Blueprint" && (
+      {!["Forex Blueprint", "Video Lessons"].includes(subTab) && (
         <SectionTitle sub={
           subTab === "Price Action" ? "The full SRC reference guide"
             : subTab === "Smart Money" ? "Order-flow terminology & your notes"
@@ -10777,7 +10780,8 @@ function AcademyTab({ data, setData, subTab, setSubTab, goTo }) {
           {subTab === "Price Action" ? "Price Action Academy" : subTab === "Smart Money" ? "Smart Money Concepts" : "Playbook"}
         </SectionTitle>
       )}
-      {subTab === "Price Action" ? <PriceActionAcademy />
+      {subTab === "Video Lessons" ? <VideoLearningHub onOpenLesson={onOpenLesson} />
+        : subTab === "Price Action" ? <PriceActionAcademy />
         : subTab === "Smart Money" ? <SmartMoneyAcademy data={data} setData={setData} />
         : subTab === "Playbook" ? <PlaybookAcademy data={data} goTo={goTo} />
         : <ForexBlueprintAcademy />}
@@ -13012,6 +13016,7 @@ const DASH_SECTION_META = [
   { key: "liveTicker",      label: "Live Market Ticker",    icon: "📊" },
   { key: "activeTrades",    label: "Active Trades Monitor",  icon: "📡" },
   { key: "accountOverview", label: "Account Overview",       icon: "💰" },
+  { key: "videoLearning",  label: "Featured Strategy Videos", icon: "🎬" },
   { key: "performanceLearning", label: "Performance & Learning", icon: "📊" },
   { key: "setupLibrary",    label: "Trade Setup Board",       icon: "📚" },
   { key: "marketSessions",  label: "Forex Market Sessions",  icon: "🌍" },
@@ -15386,7 +15391,7 @@ function FeatureHubPanel({ data, setData }: { data: any; setData: any }) {
   );
 }
 
-function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
+function MoreTab({ data, setData, subTab, setSubTab, goTo, onOpenLesson }) {
   const ALL_TABS = ["Academy", "Account", "Performance", "Session", "Plans", "Psychology", "Vault", "Prop", "Backup", "Report", "AI Lab", "Settings", "Owner"];
   const moreVis = (data as any)?.settings?.moreTabVisibility || {};
   const tabs = ALL_TABS.filter((t) => t === "Settings" || t === "Owner" || t === "AI Lab" || t === "Academy" || moreVis[t] !== false);
@@ -15414,7 +15419,7 @@ function MoreTab({ data, setData, subTab, setSubTab, goTo }) {
           </button>
         ))}
       </div>
-      {subTab === "Academy" && <AcademyTab data={data} setData={setData} subTab={academySub} setSubTab={setAcademySub} goTo={goTo} />}
+      {subTab === "Academy" && <AcademyTab data={data} setData={setData} subTab={academySub} setSubTab={setAcademySub} goTo={goTo} onOpenLesson={onOpenLesson} />}
       {subTab === "Account" && <AccountSettings data={data} setData={setData} goTo={goTo} />}
       {subTab === "Session" && <SessionPlanPanel data={data} setData={setData} />}
       {subTab === "Plans" && <PlansPanel data={data} setData={setData} goTo={goTo} />}
@@ -15659,6 +15664,8 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   const [searchOpen, setSearchOpen] = useState(false);
   const [quickLogOpen, setQuickLogOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const routeLessonId = window.location.pathname.match(/^\/learn\/strategy\/([^/]+)\/?$/)?.[1] || null;
+  const [videoLessonId, setVideoLessonId] = useState<string | null>(routeLessonId ? decodeURIComponent(routeLessonId) : null);
   const [riskAlert, setRiskAlert] = useState<RiskAlert | null>(null);
   const dismissedAtRef = useRef<Record<string, number>>({});
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -15674,6 +15681,29 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
     } finally {
       setLoggingOut(false);
     }
+  };
+
+  useEffect(() => {
+    const syncRoute = () => {
+      const match = window.location.pathname.match(/^\/learn\/strategy\/([^/]+)\/?$/);
+      setVideoLessonId(match ? decodeURIComponent(match[1]) : null);
+    };
+    window.addEventListener("popstate", syncRoute);
+    return () => window.removeEventListener("popstate", syncRoute);
+  }, []);
+
+  const openVideoLesson = (id: string) => {
+    window.history.pushState({}, "", "/learn/strategy/" + encodeURIComponent(id));
+    setVideoLessonId(id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const closeVideoLesson = () => {
+    window.history.pushState({}, "", "/");
+    setVideoLessonId(null);
+    setActiveTab("academy");
+    setAcademySubTab("Video Lessons");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   /* ── Notification state ── */
@@ -15806,6 +15836,10 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   };
 
   const goTo = (tab, sub) => {
+    if (videoLessonId) {
+      window.history.pushState({}, "", "/");
+      setVideoLessonId(null);
+    }
     setActiveTab(tab);
     if (tab === "library" && sub) setLibrarySubTab(sub);
     if (tab === "academy" && sub) setAcademySubTab(sub);
@@ -16134,16 +16168,18 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
           };
           return (
             <>
-              {activeTab === "home" && <Dashboard data={effectiveData} allTrades={d.trades || []} setData={setData} goTo={goTo} onQuickLog={() => { setActiveTab("journal"); setQuickLogOpen(true); }} />}
+              {videoLessonId ? <VideoLessonPage lessonId={videoLessonId} onBack={closeVideoLesson} /> : <>
+              {activeTab === "home" && <Dashboard data={effectiveData} allTrades={d.trades || []} setData={setData} goTo={goTo} onQuickLog={() => { setActiveTab("journal"); setQuickLogOpen(true); }} onOpenLesson={openVideoLesson} />}
               {activeTab === "journal" && <JournalTab data={effectiveData} allTrades={d.trades || []} setData={setData} autoOpen={quickLogOpen} onAutoOpenDone={() => setQuickLogOpen(false)} />}
               {activeTab === "library" && <LibraryTab data={effectiveData} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} />}
-              {activeTab === "academy" && <AcademyTab data={effectiveData} setData={setData} subTab={academySubTab} setSubTab={setAcademySubTab} goTo={goTo} />}
-              {activeTab === "more" && <MoreTab data={d} setData={setData} subTab={moreSubTab} setSubTab={setMoreSubTab} goTo={goTo} />}
+              {activeTab === "academy" && <AcademyTab data={effectiveData} setData={setData} subTab={academySubTab} setSubTab={setAcademySubTab} goTo={goTo} onOpenLesson={openVideoLesson} />}
+              {activeTab === "more" && <MoreTab data={d} setData={setData} subTab={moreSubTab} setSubTab={setMoreSubTab} goTo={goTo} onOpenLesson={openVideoLesson} />}
               {activeTab === "backtest" && (
                 <div style={{ position: "fixed", inset: 0, zIndex: 30, overflow: "hidden" }}>
                   <BacktestTab data={effectiveData} setData={setData} />
                 </div>
               )}
+              </>}
             </>
           );
         })()}
@@ -16161,7 +16197,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
               const Icon = item.icon;
               const isActive = activeTab === item.key;
               return (
-                <button key={item.key} onClick={() => setActiveTab(item.key)}
+                <button key={item.key} onClick={() => goTo(item.key, undefined)}
                   className="flex flex-col items-center justify-center gap-1 py-2.5">
                   <Icon size={19} style={{ color: isActive ? "var(--otx-accent,#f59e0b)" : undefined }} className={isActive ? "" : "text-slate-500"} />
                   <span className={cx("text-[10px] font-medium", isActive ? "" : "text-slate-500")}
