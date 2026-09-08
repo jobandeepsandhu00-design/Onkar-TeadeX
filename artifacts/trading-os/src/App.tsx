@@ -992,15 +992,16 @@ function hydrateAppData(parsed: any, current?: any) {
 }
 
 /* ── Multi-account helpers ─────────────────────────────────── */
-function getEffectiveAccount(data: any): { startingBalance: number; currency: string } {
+function getEffectiveAccount(data: any): { startingBalance: number; currentBalance?: number; currency: string } {
   const activeId = data.activeAccountId;
   const accounts: any[] = data.tradingAccounts || [];
   const active = activeId ? accounts.find((a: any) => a.id === activeId) : null;
   if (active) {
     const startBal = parseFloat(active.balance) || 0;
-    // Use the live running balance (starting + all trade P&Ls) for risk calculations
     const runningBal = getAccountRunningBalance(active.id, startBal, data.trades || []);
-    return { startingBalance: runningBal, currency: active.currency || "USD" };
+    // Keep the original balance as the baseline. Dashboard analytics add each
+    // closed trade once; passing runningBal as startingBalance counted them twice.
+    return { startingBalance: startBal, currentBalance: runningBal, currency: active.currency || "USD" };
   }
   return data.account || { startingBalance: 1000, currency: "€" };
 }
@@ -2340,7 +2341,7 @@ function getDailyItems(arr, count) {
 function PositionSizeCalc({ account }) {
   const acc   = account || { startingBalance: 1000, currency: "€" };
   const cur   = acc.currency || "€";
-  const bal   = parseFloat(acc.startingBalance) || 1000;
+  const bal   = parseFloat(acc.currentBalance ?? acc.startingBalance) || 1000;
 
   const [sym,       setSym]       = useState("XAUUSD");
   const [direction, setDirection] = useState("Buy");
@@ -11476,6 +11477,7 @@ function emptyChallenge() {
 }
 
 function computePropChallenge(c: any) {
+  const todayStr          = todayISO();
   const accountSize        = parseFloat(c.accountSize)        || 100000;
   const profitTargetPct    = parseFloat(c.profitTargetPct)    || 10;
   const maxDailyLossPct    = parseFloat(c.maxDailyLossPct)    || 5;
@@ -11492,16 +11494,22 @@ function computePropChallenge(c: any) {
   const profitProgress = profitTargetAmt > 0 ? Math.min(100, Math.max(0, (totalPnl / profitTargetAmt) * 100)) : 0;
   const profitTargetMet= totalPnl >= profitTargetAmt;
 
-  // Daily loss — compare last two log entries
+  // Daily loss — compare today's synced balance with the prior day's close.
+  // On the first logged day, the challenge starting balance is the baseline.
   let todayLossPct = 0, todayLoss = 0;
-  if (log.length >= 2) {
-    const diff = (parseFloat((log[log.length-1] as any).balance)||0) - (parseFloat((log[log.length-2] as any).balance)||0);
+  const todayLogIndex = log.findIndex((entry: any) => entry.date === todayStr);
+  if (todayLogIndex >= 0) {
+    const currentDayBalance = parseFloat(log[todayLogIndex].balance) || accountSize;
+    const priorDayBalance = todayLogIndex > 0
+      ? (parseFloat(log[todayLogIndex - 1].balance) || accountSize)
+      : accountSize;
+    const diff = currentDayBalance - priorDayBalance;
     todayLoss    = Math.max(0, -diff);
     todayLossPct = accountSize > 0 ? (todayLoss / accountSize) * 100 : 0;
   }
   const maxDailyLossAmt  = accountSize * maxDailyLossPct / 100;
   const dailyLossProgress= maxDailyLossPct > 0 ? Math.min(100, (todayLossPct / maxDailyLossPct) * 100) : 0;
-  const dailyLossViolated= todayLossPct > maxDailyLossPct;
+  const dailyLossViolated= maxDailyLossPct > 0 && todayLossPct >= maxDailyLossPct;
 
   // Total drawdown
   const maxTotalDrawdownAmt = accountSize * maxTotalDrawdownPct / 100;
@@ -11524,7 +11532,6 @@ function computePropChallenge(c: any) {
   const tradingDaysProgress= minTradingDays > 0 ? Math.min(100, (daysTraded / minTradingDays) * 100) : 100;
 
   // Calendar / deadline
-  const todayStr    = todayISO();
   const startDate   = c.startDate || todayStr;
   const daysElapsed = Math.max(0, Math.floor((new Date(todayStr).getTime() - new Date(startDate).getTime()) / 86400000));
   const daysRemaining = maxCalendarDays > 0 ? Math.max(0, maxCalendarDays - daysElapsed) : null;
