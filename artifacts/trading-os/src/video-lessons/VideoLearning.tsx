@@ -95,6 +95,41 @@ export function StrategyCard({ lesson, progress, saved, onOpen, onSave }: Strate
   );
 }
 
+function LessonMiniCard({ lesson, progress, active = false, onSelect }: {
+  lesson: VideoLesson;
+  progress?: LessonProgress;
+  active?: boolean;
+  onSelect: () => void;
+}) {
+  const thumbnailUrl = useSignedMedia(lesson.thumbnailObjectKey || lesson.thumbnailPath, lesson.id, lesson.storageProvider);
+  const uploadedAt = Date.parse(lesson.createdAt);
+  const isNew = Number.isFinite(uploadedAt) && Date.now() - uploadedAt < 14 * 24 * 60 * 60 * 1000;
+  const watched = Math.max(0, Math.min(100, progress?.percentage || 0));
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-label={`${active ? "Currently selected" : "Select"} ${lesson.title}`}
+      aria-pressed={active}
+      className={`group w-[168px] shrink-0 snap-start overflow-hidden rounded-xl border text-left transition duration-200 sm:w-[200px] ${active ? "border-cyan-300/55 bg-cyan-400/[0.08] shadow-lg shadow-cyan-500/10" : "border-white/8 bg-[#081221]/90 hover:-translate-y-0.5 hover:border-cyan-400/25"}`}
+    >
+      <span className="relative block aspect-video overflow-hidden bg-[#030711]">
+        {thumbnailUrl ? <img src={thumbnailUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <span className="flex h-full items-center justify-center text-cyan-400/30"><Video size={25} /></span>}
+        <span className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/5 to-transparent" />
+        {isNew && <span className="absolute left-2 top-2 rounded-md border border-cyan-300/25 bg-cyan-300/90 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-[#03101a]">New</span>}
+        {active && <span className="absolute bottom-2 left-2 flex h-6 w-6 items-center justify-center rounded-full bg-cyan-300 text-[#03101a] shadow-lg shadow-cyan-400/25"><Play size={11} fill="currentColor" /></span>}
+        <span className="absolute bottom-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[9px] font-bold text-white backdrop-blur">{formatTime(lesson.duration)}</span>
+        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-white/10"><span className="block h-full bg-gradient-to-r from-cyan-300 to-violet-400" style={{ width: `${watched}%` }} /></span>
+      </span>
+      <span className="block p-2.5">
+        <span className="line-clamp-2 min-h-8 text-[11px] font-bold leading-4 text-slate-100">{lesson.title}</span>
+        <span className="mt-1 flex items-center gap-1 truncate text-[9px] text-slate-500"><span>{lesson.category}</span><span aria-hidden="true">·</span><span>{lesson.timeframe}</span></span>
+      </span>
+    </button>
+  );
+}
+
 function LessonPopup({ lesson, progress, saved, onClose, onOpen, onProgress, onSave, onNext }: {
   lesson: VideoLesson; progress?: LessonProgress; saved: boolean; onClose: () => void; onOpen: () => void;
   onProgress: (patch: Partial<LessonProgress>, immediate?: boolean) => void; onSave: () => void; onNext: () => void;
@@ -120,8 +155,13 @@ export function DashboardVideoSection({ onOpenLesson, onManage }: { onOpenLesson
   const learning = useVideoLearning();
   const published = useMemo(() => learning.lessons.filter((lesson) => lesson.published), [learning.lessons]);
   const featured = useMemo(() => {
-    const placed = published.filter((lesson) => lesson.featured || lesson.placements.includes("home_slider"));
-    return (placed.length ? placed : published).sort((a, b) => a.sortOrder - b.sortOrder);
+    return [...published].sort((a, b) => {
+      const aFeatured = a.featured || a.placements.includes("home_slider") ? 1 : 0;
+      const bFeatured = b.featured || b.placements.includes("home_slider") ? 1 : 0;
+      if (aFeatured !== bFeatured) return bFeatured - aFeatured;
+      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+      return b.updatedAt.localeCompare(a.updatedAt);
+    });
   }, [published]);
   const [active, setActive] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -130,6 +170,8 @@ export function DashboardVideoSection({ onOpenLesson, onManage }: { onOpenLesson
   const [autoRotate, setAutoRotate] = useState(() => localStorage.getItem("otx_lesson_autorotate") !== "false");
   const [intervalSeconds, setIntervalSeconds] = useState(() => Number(localStorage.getItem("otx_lesson_interval") || 10));
   const touchStart = useRef<number | null>(null);
+  const lessonRail = useRef<HTMLDivElement | null>(null);
+  const popularRail = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!autoRotate || playing || featured.length < 2) return;
@@ -142,13 +184,22 @@ export function DashboardVideoSection({ onOpenLesson, onManage }: { onOpenLesson
 
   const current = featured[active];
   const navigate = (direction: -1 | 1) => setActive((index) => (index + direction + featured.length) % featured.length);
+  const selectLesson = (lessonId: string) => {
+    const index = featured.findIndex((lesson) => lesson.id === lessonId);
+    if (index >= 0) {
+      setPlaying(false);
+      setActive(index);
+    }
+  };
+  const scrollRail = (rail: React.RefObject<HTMLDivElement | null>, direction: -1 | 1) => rail.current?.scrollBy({ left: direction * 220, behavior: "smooth" });
   const categories = ["For You", "Trending", "Beginner", "Advanced", "Price Action", "Smart Money", "Trend", "Breakouts", "Risk Management", "All"];
   const popular = published.filter((lesson) => {
     if (["For You", "Trending", "All"].includes(category)) return true;
     if (["Beginner", "Advanced"].includes(category)) return lesson.difficulty === category;
     if (category === "Breakouts") return lesson.category === "Breakout";
     return lesson.category === category;
-  }).slice(0, 6);
+  });
+  const newestFirst = useMemo(() => [...published].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [published]);
   const continueLessons = published.filter((lesson) => (learning.progress[lesson.id]?.percentage || 0) > 0 && !learning.progress[lesson.id]?.completed).sort((a, b) => (learning.progress[b.id]?.lastWatchedAt || "").localeCompare(learning.progress[a.id]?.lastWatchedAt || "")).slice(0, 3);
 
   if (learning.loading) return <section className="space-y-3"><LoadingCard /></section>;
@@ -167,6 +218,15 @@ export function DashboardVideoSection({ onOpenLesson, onManage }: { onOpenLesson
           <div className="mx-auto max-w-5xl">
             <div className="mb-3 flex flex-wrap items-end justify-between gap-3"><div><div className="flex flex-wrap gap-1.5"><span className="rounded-full border border-cyan-400/20 bg-cyan-400/[0.06] px-2 py-1 text-[9px] font-bold text-cyan-200">{current.category}</span><span className="rounded-full border border-violet-400/20 bg-violet-400/[0.06] px-2 py-1 text-[9px] font-bold text-violet-200">{current.difficulty}</span><span className="rounded-full border border-white/10 px-2 py-1 text-[9px] font-bold text-slate-400">{current.timeframe}</span></div><button onClick={() => onOpenLesson(current.id)} className="mt-2 text-left text-xl font-black text-white hover:text-cyan-200 md:text-2xl">{current.title}</button><p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-400">{current.shortDescription}</p></div><button className={primaryButton} onClick={() => setPopup(true)}><Play size={15} /> Open Lesson</button></div>
             <VideoLessonPlayer key={current.id} lesson={current} progress={learning.progress[current.id]} saved={learning.savedIds.includes(current.id)} autoplay={current.autoplay} enableMiniPlayer onProgress={(patch, immediate) => learning.updateProgress(current.id, patch, immediate)} onToggleSaved={() => void learning.toggleSaved(current.id)} onPlayingChange={setPlaying} onPrevious={() => navigate(-1)} onNext={() => navigate(1)} />
+            <div className="mt-4 rounded-2xl border border-white/[0.07] bg-black/15 p-3">
+              <div className="mb-2.5 flex items-center justify-between gap-3">
+                <div className="min-w-0"><div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">Latest & all lessons</div><div className="mt-0.5 text-[9px] text-slate-600">{published.length} videos · swipe or tap to switch</div></div>
+                <div className="flex shrink-0 gap-1.5"><button type="button" onClick={() => scrollRail(lessonRail, -1)} className="rounded-lg border border-white/10 p-1.5 text-slate-400 transition hover:border-cyan-400/30 hover:text-cyan-200" aria-label="Scroll lessons left"><ChevronLeft size={14} /></button><button type="button" onClick={() => scrollRail(lessonRail, 1)} className="rounded-lg border border-white/10 p-1.5 text-slate-400 transition hover:border-cyan-400/30 hover:text-cyan-200" aria-label="Scroll lessons right"><ChevronRight size={14} /></button></div>
+              </div>
+              <div ref={lessonRail} className="-mx-1 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {newestFirst.map((lesson) => <LessonMiniCard key={lesson.id} lesson={lesson} progress={learning.progress[lesson.id]} active={lesson.id === current.id} onSelect={() => selectLesson(lesson.id)} />)}
+              </div>
+            </div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><div className="flex gap-1.5">{featured.map((lesson, index) => <button key={lesson.id} onClick={() => setActive(index)} aria-label={`Show ${lesson.title}`} className={`h-1.5 rounded-full transition-all ${index === active ? "w-7 bg-cyan-300" : "w-1.5 bg-slate-700 hover:bg-slate-500"}`} />)}</div><div className="flex items-center gap-2 text-[10px] text-slate-500"><label className="flex items-center gap-1.5"><input type="checkbox" checked={autoRotate} onChange={(event) => { setAutoRotate(event.target.checked); localStorage.setItem("otx_lesson_autorotate", String(event.target.checked)); }} className="accent-cyan-400" /> Auto rotate</label><select value={intervalSeconds} onChange={(event) => { const value = Number(event.target.value); setIntervalSeconds(value); localStorage.setItem("otx_lesson_interval", String(value)); }} className="rounded-lg border border-white/10 bg-[#07101f] px-2 py-1 text-slate-400">{[5, 10, 15, 30].map((value) => <option key={value} value={value}>{value}s</option>)}</select></div></div>
           </div>
         </div>
@@ -176,8 +236,8 @@ export function DashboardVideoSection({ onOpenLesson, onManage }: { onOpenLesson
 
       <div>
         <div className="-mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1">{categories.map((item) => <button key={item} onClick={() => setCategory(item)} className={`${button} whitespace-nowrap ${category === item ? "border-cyan-300/40 bg-cyan-400/10 text-cyan-200" : ""}`}>{item}</button>)}</div>
-        <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-black text-slate-100">Popular Strategies</h3><button onClick={onManage} className="text-[11px] font-semibold text-cyan-300">View all →</button></div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{popular.map((lesson) => <StrategyCard key={lesson.id} lesson={lesson} progress={learning.progress[lesson.id]} saved={learning.savedIds.includes(lesson.id)} onOpen={() => onOpenLesson(lesson.id)} onSave={() => void learning.toggleSaved(lesson.id)} />)}</div>
+        <div className="mb-2 flex items-center justify-between gap-3"><div><h3 className="text-sm font-black text-slate-100">Popular Strategies</h3><p className="text-[9px] text-slate-600">Compact library · swipe to explore</p></div><div className="flex items-center gap-1.5"><button type="button" onClick={() => scrollRail(popularRail, -1)} className="rounded-lg border border-white/10 p-1.5 text-slate-400 hover:text-cyan-200" aria-label="Scroll popular lessons left"><ChevronLeft size={14} /></button><button type="button" onClick={() => scrollRail(popularRail, 1)} className="rounded-lg border border-white/10 p-1.5 text-slate-400 hover:text-cyan-200" aria-label="Scroll popular lessons right"><ChevronRight size={14} /></button><button onClick={onManage} className="ml-1 text-[11px] font-semibold text-cyan-300">View all →</button></div></div>
+        <div ref={popularRail} className="-mx-1 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{popular.map((lesson) => <LessonMiniCard key={lesson.id} lesson={lesson} progress={learning.progress[lesson.id]} onSelect={() => onOpenLesson(lesson.id)} />)}</div>
       </div>
 
       {popup && <LessonPopup lesson={current} progress={learning.progress[current.id]} saved={learning.savedIds.includes(current.id)} onClose={() => setPopup(false)} onOpen={() => onOpenLesson(current.id)} onProgress={(patch, immediate) => learning.updateProgress(current.id, patch, immediate)} onSave={() => void learning.toggleSaved(current.id)} onNext={() => navigate(1)} />}
