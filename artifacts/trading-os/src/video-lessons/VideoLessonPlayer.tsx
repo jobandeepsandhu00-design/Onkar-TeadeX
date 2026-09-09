@@ -48,16 +48,20 @@ export function VideoLessonPlayer({
   useEffect(() => {
     let active = true;
     setVideoUrl(null);
-    Promise.all([
-      getLessonMediaUrl(lesson.videoObjectKey || lesson.videoPath, lesson.id, lesson.storageProvider),
-      getLessonMediaUrl(lesson.thumbnailObjectKey || lesson.thumbnailPath, lesson.id, lesson.storageProvider),
-    ]).then(([video, poster]) => {
-      if (!active) return;
-      setVideoUrl(video);
-      setPosterUrl(poster);
-    }).catch(() => undefined);
+    getLessonMediaUrl(lesson.videoObjectKey || lesson.videoPath, lesson.id, lesson.storageProvider)
+      .then((video) => { if (active) setVideoUrl(video); })
+      .catch(() => undefined);
     return () => { active = false; };
-  }, [lesson.id, lesson.storageProvider, lesson.videoObjectKey, lesson.videoPath, lesson.thumbnailObjectKey, lesson.thumbnailPath]);
+  }, [lesson.id, lesson.storageProvider, lesson.videoObjectKey, lesson.videoPath]);
+
+  useEffect(() => {
+    let active = true;
+    setPosterUrl(null);
+    getLessonMediaUrl(lesson.thumbnailObjectKey || lesson.thumbnailPath, lesson.id, lesson.storageProvider)
+      .then((poster) => { if (active) setPosterUrl(poster); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [lesson.id, lesson.storageProvider, lesson.thumbnailObjectKey, lesson.thumbnailPath]);
 
   useEffect(() => {
     if (!enableMiniPlayer || !anchorRef.current) return;

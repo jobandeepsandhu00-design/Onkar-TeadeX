@@ -133,7 +133,9 @@ export function DashboardVideoSection({ onOpenLesson, onManage }: { onOpenLesson
 
   useEffect(() => {
     if (!autoRotate || playing || featured.length < 2) return;
-    const timer = setInterval(() => setActive((index) => (index + 1) % featured.length), intervalSeconds * 1000);
+    const timer = setInterval(() => {
+      if (!document.hidden) setActive((index) => (index + 1) % featured.length);
+    }, intervalSeconds * 1000);
     return () => clearInterval(timer);
   }, [autoRotate, playing, featured.length, intervalSeconds]);
   useEffect(() => { if (active >= featured.length) setActive(0); }, [active, featured.length]);

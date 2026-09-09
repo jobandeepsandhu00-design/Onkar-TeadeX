@@ -12,6 +12,11 @@ import type {
 
 const LESSON_BUCKET = "trading-lessons";
 
+type CachedMediaUrl = { url: string; expiresAt: number };
+const mediaUrlCache = new Map<string, CachedMediaUrl>();
+const mediaUrlRequests = new Map<string, Promise<string | null>>();
+const MEDIA_CACHE_SAFETY_MS = 5 * 60 * 1000;
+
 export type UploadedLessonMedia = {
   objectKey: string;
   storageProvider: "cloudflare_r2";
@@ -284,22 +289,36 @@ export async function removeLessonMedia(paths?: string | string[] | null, lesson
 
 export async function getLessonMediaUrl(path?: string | null, lessonId?: string, provider: VideoLesson["storageProvider"] = "supabase_storage"): Promise<string | null> {
   if (!path) return null;
-  if (provider === "cloudflare_r2") {
-    if (!lessonId) throw new Error("Lesson ID is required for private R2 playback.");
-    const token = await getAccessToken();
-    if (!token) throw new Error("Your session expired before media playback.");
-    const response = await fetch("/api/media/playback-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ lessonId, objectKey: path }),
-    });
-    const body = await response.json() as { url?: string; error?: string };
-    if (!response.ok || !body.url) throw new Error(body.error || "Private lesson media could not be opened.");
-    return body.url;
-  }
-  const { data, error } = await supabase.storage.from(LESSON_BUCKET).createSignedUrl(path, 60 * 60 * 6);
-  if (error) throw error;
-  return data.signedUrl;
+  const cacheKey = `${provider}:${lessonId || "none"}:${path}`;
+  const cached = mediaUrlCache.get(cacheKey);
+  if (cached && cached.expiresAt - MEDIA_CACHE_SAFETY_MS > Date.now()) return cached.url;
+  const pending = mediaUrlRequests.get(cacheKey);
+  if (pending) return pending;
+
+  const request = (async () => {
+    if (provider === "cloudflare_r2") {
+      if (!lessonId) throw new Error("Lesson ID is required for private R2 playback.");
+      const token = await getAccessToken();
+      if (!token) throw new Error("Your session expired before media playback.");
+      const response = await fetch("/api/media/playback-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ lessonId, objectKey: path }),
+      });
+      const body = await response.json() as { url?: string; expiresAt?: string; error?: string };
+      if (!response.ok || !body.url) throw new Error(body.error || "Private lesson media could not be opened.");
+      const expiresAt = body.expiresAt ? Date.parse(body.expiresAt) : Date.now() + 60 * 60 * 1000;
+      mediaUrlCache.set(cacheKey, { url: body.url, expiresAt });
+      return body.url;
+    }
+    const { data, error } = await supabase.storage.from(LESSON_BUCKET).createSignedUrl(path, 60 * 60 * 6);
+    if (error) throw error;
+    mediaUrlCache.set(cacheKey, { url: data.signedUrl, expiresAt: Date.now() + 6 * 60 * 60 * 1000 });
+    return data.signedUrl;
+  })().finally(() => mediaUrlRequests.delete(cacheKey));
+
+  mediaUrlRequests.set(cacheKey, request);
+  return request;
 }
 
 export async function generateLessonTranscript(videoPath: string, lessonId: string, title: string, provider: VideoLesson["storageProvider"]): Promise<TranscriptResult> {
