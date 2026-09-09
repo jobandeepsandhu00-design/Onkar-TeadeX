@@ -1,62 +1,64 @@
 **Evidence**
 
-- Source visual truth: `C:\Users\joban\.codex\codex-remote-attachments\01a07180-c785-7692-9b30-a7c170f1481f\7CB0B90E-1AE2-4154-978D-CE0BD4E10446\1-Photo-1.jpg` and `2-Photo-2.jpg` in the same directory.
-- Implementation: `http://localhost:3000`, Log Trade step 2/5.
-- Implementation screenshot path: CUA in-app-browser tab 23 capture embedded in the task transcript; the browser tool does not expose a filesystem path.
-- Source pixels: 590 × 1279, iPhone Safari capture at device density.
-- Implementation capture: 1280 × 720 CSS px, DPR 1. The source was used as the mobile problem reference; verification focused on field behavior, calculated results, and consistency with the existing responsive form.
-- States tested: GBPUSD Buy with comma decimals; winning exit and losing exit.
-- Primary interactions tested: entered `1,1613`, `1,1603`, `1,1643`, and `1,1627`; confirmed stored/displayed dot normalization; changed exit to `1,1590`; confirmed result and amounts updated without leaving the step.
+- Source visual truth: `C:\Users\joban\.codex\codex-remote-attachments\01a07180-c785-7692-9b30-a7c170f1481f\AE1046D8-0113-4B00-BB27-F2A114CCBD5B\1-Photo-1.jpg` and `2-Photo-2.jpg`.
+- Source pixels: 590 × 1279 and 590 × 1279, iPhone Safari screenshots at device density.
+- Intended implementation: authenticated Dashboard Featured Strategy section at `https://onkartradex.com/`.
+- Implementation screenshot path: unavailable. The available in-app and Chrome browser sessions both reached the unauthenticated login screen, so the authenticated Dashboard section could not be captured without the user's credentials.
+- Viewport: intended mobile verification at approximately 390 × 844 CSS px; no authenticated implementation capture was available for density normalization.
+- State: published lesson library with an active featured lesson and multiple uploaded videos.
 
 **Full-view comparison evidence**
 
-- The existing five-step Trade Log hierarchy, dark navy surfaces, amber action styling, quick-price controls, and fixed bottom actions are preserved.
-- Entry, stop, take-profit, and exit remain paired in the same compact grid visible in the source screenshots.
-- A concise calculated-result card now appears immediately below Exit Price, keeping the result close to the value that drives it.
-- The result card uses existing semantic colors: emerald for Win, rose for Loss, and slate for breakeven.
+- The source shows oversized stacked strategy cards below the main player. The implementation replaces that grid with a horizontal, snap-scrolling compact card rail.
+- The Featured Strategy board now contains its own `Latest & all lessons` rail directly under the player so videos can be switched without leaving the dashboard.
+- The production JavaScript bundle was checked and contains the new slider implementation.
 
 **Focused region comparison evidence**
 
-- Decimal entry: all price fields accept either comma or dot and normalize the stored value to a dot. The test converted `1,1627` to `1.1627`.
-- Winning state: entry `1.1613` to exit `1.1627` displayed `Win`, `+14.0 pips`, and `+€14.00 Estimated P/L`.
-- Losing state: changing exit to `1.1590` displayed `Loss`, `-23.0 pips`, and `-€23.00 Estimated P/L`.
-- Direction awareness: calculations use Buy/Sell direction rather than assuming rising prices always win.
-- Accessibility: the five decimal inputs expose specific accessible names, while `inputMode="decimal"` retains the appropriate mobile keyboard.
+- Code-level checks confirm each compact card contains a lazy-loaded thumbnail, title, category, timeframe, duration, watch progress, new-upload badge, and selected state.
+- Native horizontal overflow and snap behavior support touch swiping; explicit previous/next controls support desktop and keyboard use.
+- A rendered focused-region comparison could not be completed because the dashboard is authenticated.
 
 **Required fidelity surfaces**
 
-- Fonts and typography: existing compact labels and Sora/Inter hierarchy are retained.
-- Spacing and layout rhythm: existing two-column price grid, rounded-xl cards, and 12–16 px spacing are retained.
-- Colors and tokens: no new palette was introduced; result feedback uses existing emerald, rose, and slate tokens.
-- Image quality and assets: no imagery or asset changes were required.
-- Copy and content: field hints explicitly state `Use . or ,`; calculated amounts are labelled `Estimated P/L` so they are not confused with broker-confirmed P/L.
+- Fonts and typography: existing app type sizes, weights, uppercase labels, truncation, and line-clamp conventions are reused.
+- Spacing and layout rhythm: 168 px mobile cards, 200 px larger-screen cards, 10 px gaps, 16:9 thumbnails, and existing rounded-card rhythm are used.
+- Colors and visual tokens: existing navy, cyan, violet, slate, border-opacity, and shadow tokens are reused.
+- Image quality and assets: real uploaded lesson thumbnails are used with `object-cover`, lazy loading, and async decoding; no replacement or placeholder artwork was introduced.
+- Copy and content: the rail clearly states that it contains latest and all lessons and tells mobile users to swipe or tap.
 
 **Findings**
 
-- No actionable P0, P1, or P2 visual or interaction findings remain in the tested states.
+- [P2] Authenticated mobile visual capture is unavailable.
+  Location: Dashboard Featured Strategy section.
+  Evidence: both available browser surfaces show the login page rather than the user's authenticated dashboard.
+  Impact: exact physical-device wrapping and above-the-fold density cannot be visually confirmed in this run.
+  Fix: open the deployed dashboard while signed in and capture the Featured Strategy section at the same iPhone viewport as the source.
 
 **Open Questions**
 
-- A physical iPhone Safari and Android keyboard pass remains useful after deployment because the available verification browser cannot emulate their locale keyboards. The implementation removes the browser number-field restriction and accepts both separators in application code.
+- None about the requested behavior. A signed-in browser state is needed only for final visual comparison.
 
 **Implementation Checklist**
 
-- [x] TP and Exit accept both comma and dot decimal separators.
-- [x] Entry, Stop Loss, and broker P/L use the same locale-safe input behavior.
-- [x] Exit price derives Win/Loss/BE using trade direction.
-- [x] Exit price derives pips using the instrument pip specification.
-- [x] Estimated P/L uses position size, or the existing risk-based position-size calculation when available.
-- [x] Derived result, pips, R multiple, and net P/L are saved with the trade.
-- [x] Performance analytics prioritize the saved net P/L.
-- [x] Quick Exit, live-price, entry, and direction changes invalidate stale manual outcomes.
+- [x] Show every published lesson in a compact slider.
+- [x] Put newest uploads first in the mini rail.
+- [x] Preserve featured/home-slider priority in the main player.
+- [x] Include thumbnail, title, duration, category, timeframe, progress, and new state.
+- [x] Tap a mini card to switch the main featured video.
+- [x] Support mobile swipe, desktop horizontal scrolling, and arrow controls.
+- [x] Replace oversized Popular Strategy cards with compact slider cards.
+- [x] Production build passed and deployed bundle contains the new UI.
+- [ ] Capture and compare the authenticated mobile dashboard.
 
 **Comparison History**
 
-- Initial functional capture: comma input normalized correctly and produced a Win calculation.
-- Follow-up capture: changing only Exit Price produced the correct Loss calculation and updated pips, amount, R multiple, and result.
+- Initial source review: identified oversized stacked strategy cards and a missing compact selector under the featured player.
+- Implementation pass: added the compact all-lessons rail and converted Popular Strategies to the same compact slider pattern.
+- Post-fix visual evidence: blocked at authentication; production bundle verification succeeded.
 
 **Follow-up Polish**
 
-- [P3] Confirm the exact keyboard presentation on the user's physical iPhone and Android after production deployment.
+- [P3] After authenticated capture, adjust card width by a few pixels if the target device does not reveal enough of the next card to communicate swiping.
 
-final result: passed
+final result: blocked
