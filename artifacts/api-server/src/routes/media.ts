@@ -29,6 +29,18 @@ function readMediaType(value: unknown): LessonMediaType {
 
 function sendError(res: Response, cause: unknown) {
   const rawMessage = cause instanceof Error ? cause.message : "";
+  const diagnostic = cause as {
+    name?: string;
+    Code?: string;
+    $metadata?: { httpStatusCode?: number; requestId?: string };
+  };
+  console.error("[lesson-media] request failed", {
+    name: diagnostic?.name || "UnknownError",
+    code: diagnostic?.Code,
+    status: diagnostic?.$metadata?.httpStatusCode,
+    requestId: diagnostic?.$metadata?.requestId,
+    message: rawMessage || "Unknown media error",
+  });
   const isPublicMessage =
     /^(Authentication required|Your session|Supabase server|Invalid |Unsupported |Video file is too large|Thumbnail file is too large|Caption file is too large|Audio file is too large|You can only |Upload ownership|The uploaded R2 object|Lesson access|Lesson media access|This lesson media|No lesson media|Cloudflare R2 is not configured)/.test(
       rawMessage,
@@ -120,13 +132,14 @@ router.post("/media/confirm-upload", async (req, res): Promise<void> => {
         "The uploaded R2 object was not found. Retry the upload.",
       );
     const size = Number(object.ContentLength || 0);
-    const expectedSize = Number(object.Metadata?.expectedsize || 0);
     let mimeType: string;
     try {
-      if (!expectedSize || expectedSize !== size)
-        throw new Error(
-          "The uploaded file size did not match the signed request.",
-        );
+      // R2 does not retain PutObject metadata from a presigned URL unless the
+      // browser also sends every x-amz-meta-* header. Mobile browsers reached
+      // R2 successfully, but the old metadata check then rejected and deleted
+      // the valid object. Validate the persisted object itself instead: the
+      // actual byte length must remain inside the media limit and its stored
+      // content type must be allowed for this key/media category.
       mimeType = validateMedia(mediaType, object.ContentType || "", size);
     } catch (cause) {
       await deleteLessonMedia([objectKey]).catch(() => undefined);
