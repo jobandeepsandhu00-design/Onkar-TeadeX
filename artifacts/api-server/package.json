@@ -8,9 +8,12 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "migrate:supabase": "tsx scripts/migrate-to-supabase.ts"
+    "migrate:supabase": "tsx scripts/migrate-to-supabase.ts",
+    "migrate:lesson-media-r2": "tsx scripts/migrate-video-lessons-to-r2.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1127.0",
+    "@aws-sdk/s3-request-presigner": "3.1127.0",
     "@google/genai": "^2.9.0",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",

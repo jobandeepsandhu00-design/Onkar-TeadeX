@@ -54,11 +54,14 @@ replit.nix
 # Environment variables — never commit real values
 .env
 .env.local
-.env.*.local
-.env.production
+.env.*
+!.env.example
 
 # Zip exports
 *.zip
 
 # pnpm store
 .pnpm-store/
+
+# Supabase CLI local metadata
+supabase/.temp/

@@ -13,6 +13,9 @@ export type LessonCategory =
 export type LessonDifficulty = "Beginner" | "Intermediate" | "Advanced";
 export type LessonAudioType = "original_video_audio" | "ai_voice" | "custom_voice";
 export type DashboardPlacement = "home_slider" | "featured" | "strategy_hub" | "popup_only" | "learn_only";
+export type MediaStorageProvider = "supabase_storage" | "cloudflare_r2";
+export type MediaUploadStatus = "pending" | "uploading" | "uploaded" | "processing" | "ready" | "failed";
+export type MediaProcessingStatus = "pending" | "processing" | "ready" | "failed";
 
 export type LessonCaption = {
   id: string;
@@ -38,6 +41,16 @@ export type VideoLesson = {
   tags: string[];
   videoPath: string;
   thumbnailPath: string | null;
+  storageProvider: MediaStorageProvider;
+  videoObjectKey: string | null;
+  videoFileName: string;
+  videoSizeBytes: number | null;
+  videoMimeType: string;
+  thumbnailObjectKey: string | null;
+  captionObjectKey: string | null;
+  audioObjectKey: string | null;
+  uploadStatus: MediaUploadStatus;
+  processingStatus: MediaProcessingStatus;
   duration: number;
   audioType: LessonAudioType;
   captionsEnabled: boolean;

@@ -4,6 +4,8 @@ import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { logger } from "../lib/logger";
+import { createDownloadUrl, isOwnedLessonKey, objectExists } from "../lib/r2";
+import { requireSupabaseUser } from "../lib/supabase-auth";
 
 const router: IRouter = Router();
 const MAX_PROCESSING_BYTES = 80 * 1024 * 1024;
@@ -12,20 +14,6 @@ function getAI() {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("Automatic transcription is not configured. Add GEMINI_API_KEY to the API server.");
   return new GoogleGenAI({ apiKey });
-}
-
-async function requireSupabaseUser(authorization?: string) {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  const publishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  if (!supabaseUrl || !publishableKey) throw new Error("Supabase server environment is incomplete.");
-  if (!authorization?.startsWith("Bearer ")) throw new Error("Authentication required.");
-  const response = await fetch(supabaseUrl + "/auth/v1/user", {
-    headers: { Authorization: authorization, apikey: publishableKey },
-  });
-  if (!response.ok) throw new Error("Your session has expired. Please log in again.");
-  const user = await response.json() as { id?: string };
-  if (!user.id) throw new Error("Authentication required.");
-  return { supabaseUrl };
 }
 
 function validateStorageUrl(rawUrl: string, supabaseUrl: string) {
@@ -66,15 +54,24 @@ function parseTranscript(raw: string) {
 }
 
 router.post("/video-lessons/transcribe", async (req, res): Promise<void> => {
-  const { videoUrl, title } = req.body as { videoUrl?: string; title?: string };
-  if (!videoUrl || typeof videoUrl !== "string") { res.status(400).json({ error: "Missing signed video URL." }); return; }
+  const { videoUrl, videoObjectKey, lessonId, title } = req.body as { videoUrl?: string; videoObjectKey?: string; lessonId?: string; title?: string };
+  if ((!videoUrl || typeof videoUrl !== "string") && (!videoObjectKey || typeof videoObjectKey !== "string")) {
+    res.status(400).json({ error: "Missing lesson video." }); return;
+  }
 
   let tempPath: string | null = null;
   let geminiFileName: string | undefined;
   let ai: GoogleGenAI | null = null;
   try {
-    const { supabaseUrl } = await requireSupabaseUser(req.headers.authorization);
-    const safeUrl = validateStorageUrl(videoUrl, supabaseUrl);
+    const identity = await requireSupabaseUser(req.headers.authorization);
+    let safeUrl: URL;
+    if (videoObjectKey) {
+      if (!lessonId || !isOwnedLessonKey(videoObjectKey, identity.userId, lessonId)) throw new Error("Video ownership could not be verified.");
+      if (!await objectExists(videoObjectKey)) throw new Error("The uploaded R2 video was not found.");
+      safeUrl = new URL(await createDownloadUrl(videoObjectKey, 10 * 60));
+    } else {
+      safeUrl = validateStorageUrl(String(videoUrl), identity.supabaseUrl);
+    }
     ai = getAI();
 
     const media = await fetch(safeUrl);

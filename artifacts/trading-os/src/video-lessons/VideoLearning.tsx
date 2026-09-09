@@ -36,14 +36,14 @@ const reorder = <T,>(items: T[], index: number, direction: -1 | 1) => {
   return next;
 };
 
-function useSignedMedia(path?: string | null) {
+function useSignedMedia(path: string | null | undefined, lessonId: string, provider: VideoLesson["storageProvider"]) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     setUrl(null);
-    getLessonMediaUrl(path).then((next) => { if (active) setUrl(next); }).catch(() => undefined);
+    getLessonMediaUrl(path, lessonId, provider).then((next) => { if (active) setUrl(next); }).catch(() => undefined);
     return () => { active = false; };
-  }, [path]);
+  }, [lessonId, path, provider]);
   return url;
 }
 
@@ -71,7 +71,7 @@ type StrategyCardProps = {
 };
 
 export function StrategyCard({ lesson, progress, saved, onOpen, onSave }: StrategyCardProps) {
-  const thumbnailUrl = useSignedMedia(lesson.thumbnailPath);
+  const thumbnailUrl = useSignedMedia(lesson.thumbnailObjectKey || lesson.thumbnailPath, lesson.id, lesson.storageProvider);
   const preview = lesson.captions[0]?.text || lesson.shortDescription;
   return (
     <article className={`${panel} group overflow-hidden transition duration-200 hover:-translate-y-0.5 hover:border-cyan-400/25`}>
@@ -222,6 +222,9 @@ function createDraft(initial?: VideoLesson): LessonDraft {
     id: crypto.randomUUID(), title: "", slug: "", shortDescription: "", description: "",
     category: "Price Action", difficulty: "Beginner", timeframe: "Multiple", tags: [],
     videoPath: "", thumbnailPath: null, duration: 0, audioType: "original_video_audio",
+    storageProvider: "cloudflare_r2", videoObjectKey: null, videoFileName: "", videoSizeBytes: null,
+    videoMimeType: "", thumbnailObjectKey: null, captionObjectKey: null, audioObjectKey: null,
+    uploadStatus: "pending", processingStatus: "pending",
     captionsEnabled: true, autoplay: false, published: false, featured: false, sortOrder: 0,
     captions: [], rules: [], checklist: [], placements: ["learn_only"],
   };
@@ -240,11 +243,14 @@ function LessonEditor({ initial, onCancel, onSaved }: { initial?: VideoLesson; o
   ]);
   const videoInput = useRef<HTMLInputElement>(null);
   const thumbInput = useRef<HTMLInputElement>(null);
+  const uploadController = useRef<AbortController | null>(null);
 
   const setStage = (index: number, status: Stage["status"]) => setStages((current) => current.map((stage, stageIndex) => stageIndex === index ? { ...stage, status } : stage));
   const update = <K extends keyof LessonDraft>(key: K, value: LessonDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
 
   const processVideo = async (file: File) => {
+    const controller = new AbortController();
+    uploadController.current = controller;
     setBusy(true); setMessage(null);
     setUploadPercent(0);
     setStages((current) => current.map((stage) => ({ ...stage, status: "waiting" })));
@@ -252,28 +258,42 @@ function LessonEditor({ initial, onCancel, onSaved }: { initial?: VideoLesson; o
     try {
       setStage(0, "active");
       const metadataPromise = getVideoMetadata(file);
-      uploadedPath = await uploadLessonMedia(file, "videos", draft.id, setUploadPercent);
+      const uploaded = await uploadLessonMedia(file, "videos", draft.id, setUploadPercent, controller.signal);
+      uploadedPath = uploaded.objectKey;
       setStage(0, "done");
       const metadata = await metadataPromise;
-      update("videoPath", uploadedPath); update("duration", metadata.duration);
+      setDraft((current) => ({
+        ...current,
+        videoPath: uploaded.objectKey,
+        videoObjectKey: uploaded.objectKey,
+        storageProvider: uploaded.storageProvider,
+        videoFileName: uploaded.fileName,
+        videoSizeBytes: uploaded.size,
+        videoMimeType: uploaded.mimeType,
+        uploadStatus: "uploaded",
+        processingStatus: "processing",
+        duration: metadata.duration,
+      }));
 
       setStage(4, "active");
       if (metadata.thumbnail) {
-        const thumbnailPath = await uploadLessonMedia(metadata.thumbnail, "thumbnails", draft.id);
-        update("thumbnailPath", thumbnailPath);
+        const thumbnail = await uploadLessonMedia(metadata.thumbnail, "thumbnails", draft.id, undefined, controller.signal);
+        setDraft((current) => ({ ...current, thumbnailPath: thumbnail.objectKey, thumbnailObjectKey: thumbnail.objectKey }));
       }
       setStage(4, "done");
 
       setStage(1, "active"); setStage(1, "done");
       setStage(2, "active");
       try {
-        const transcript = await generateLessonTranscript(uploadedPath, draft.title || file.name.replace(/\.[^.]+$/, ""));
+        const transcript = await generateLessonTranscript(uploadedPath, draft.id, draft.title || file.name.replace(/\.[^.]+$/, ""), "cloudflare_r2");
         setStage(2, "done"); setStage(3, "active");
         setDraft((current) => ({
           ...current,
           videoPath: uploadedPath || current.videoPath,
           duration: metadata.duration,
           thumbnailPath: current.thumbnailPath,
+          uploadStatus: "ready",
+          processingStatus: "ready",
           shortDescription: current.shortDescription || transcript.shortDescription || "",
           description: current.description || transcript.description || "",
           tags: current.tags.length ? current.tags : (transcript.tags || []),
@@ -285,21 +305,22 @@ function LessonEditor({ initial, onCancel, onSaved }: { initial?: VideoLesson; o
         setStage(3, "done");
       } catch (cause) {
         setStage(2, "error"); setStage(3, "error");
+        setDraft((current) => ({ ...current, uploadStatus: "uploaded", processingStatus: "failed" }));
         setMessage(`${cause instanceof Error ? cause.message : "Automatic transcription failed."} The original video is uploaded; you can add captions manually and save the draft.`);
       }
     } catch (cause) {
-      if (uploadedPath) await removeLessonMedia(uploadedPath).catch(() => undefined);
+      if (uploadedPath) await removeLessonMedia(uploadedPath, draft.id, "cloudflare_r2").catch(() => undefined);
       setStage(0, "error");
       setMessage(cause instanceof Error ? cause.message : "Video upload failed.");
-    } finally { setBusy(false); }
+    } finally { uploadController.current = null; setBusy(false); }
   };
 
   const uploadThumbnail = async (file: File) => {
     setBusy(true); setMessage(null); setStage(4, "active");
     try {
-      const nextPath = await uploadLessonMedia(file, "thumbnails", draft.id);
-      if (draft.thumbnailPath) await removeLessonMedia(draft.thumbnailPath).catch(() => undefined);
-      update("thumbnailPath", nextPath); setStage(4, "done");
+      const next = await uploadLessonMedia(file, "thumbnails", draft.id);
+      if (draft.thumbnailPath) await removeLessonMedia(draft.thumbnailPath, draft.id, draft.storageProvider).catch(() => undefined);
+      setDraft((current) => ({ ...current, thumbnailPath: next.objectKey, thumbnailObjectKey: next.objectKey, storageProvider: next.storageProvider })); setStage(4, "done");
     } catch (cause) { setStage(4, "error"); setMessage(cause instanceof Error ? cause.message : "Thumbnail upload failed."); }
     finally { setBusy(false); }
   };
@@ -345,7 +366,7 @@ function LessonEditor({ initial, onCancel, onSaved }: { initial?: VideoLesson; o
         </div>
       </div>
 
-      <div className="sticky bottom-[calc(68px+env(safe-area-inset-bottom))] z-30 flex items-center justify-end gap-2 rounded-2xl border border-white/10 bg-[#07101f]/95 p-3 shadow-2xl backdrop-blur-xl"><button className={button} onClick={onCancel} disabled={busy}>Cancel</button><button className={primaryButton} onClick={() => void save()} disabled={busy || !draft.videoPath || !draft.title.trim()}>{busy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Save Lesson</button></div>
+      <div className="sticky bottom-[calc(68px+env(safe-area-inset-bottom))] z-30 flex items-center justify-end gap-2 rounded-2xl border border-white/10 bg-[#07101f]/95 p-3 shadow-2xl backdrop-blur-xl"><button className={button} onClick={() => busy && uploadController.current ? uploadController.current.abort() : onCancel()}>{busy && uploadController.current ? "Cancel upload" : "Cancel"}</button><button className={primaryButton} onClick={() => void save()} disabled={busy || !draft.videoPath || !draft.title.trim()}>{busy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Save Lesson</button></div>
     </div>
   );
 }
@@ -390,7 +411,7 @@ export function VideoLearningHub({ onOpenLesson }: { onOpenLesson: (id: string) 
         {learning.loading ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><LoadingCard /><LoadingCard /><LoadingCard /></div> : filtered.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filtered.map((lesson) => <StrategyCard key={lesson.id} lesson={lesson} progress={learning.progress[lesson.id]} saved={learning.savedIds.includes(lesson.id)} onOpen={() => onOpenLesson(lesson.id)} onSave={() => void learning.toggleSaved(lesson.id)} />)}</div> : <EmptyLearning canManage={learning.canManage} onManage={() => { setEditing(undefined); setView("editor"); }} />}
       </>}
 
-      {!learning.error && view === "manager" && <div className="space-y-3">{managedLessons.length === 0 ? <EmptyLearning canManage onManage={() => { setEditing(undefined); setView("editor"); }} /> : managedLessons.map((lesson) => <div key={lesson.id} className={`${panel} flex flex-col gap-3 p-3 sm:flex-row sm:items-center`}><div className="flex min-w-0 flex-1 items-center gap-3"><div className="flex h-16 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/8 bg-black/20"><Film size={22} className="text-cyan-400/40" /></div><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-sm font-bold text-slate-100">{lesson.title}</h3><span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${lesson.published ? "bg-emerald-400/10 text-emerald-300" : "bg-slate-700/40 text-slate-400"}`}>{lesson.published ? "Published" : "Draft"}</span>{lesson.featured && <span className="rounded-full bg-cyan-400/10 px-2 py-0.5 text-[9px] font-bold text-cyan-300">Featured</span>}</div><p className="mt-1 text-[10px] text-slate-500">{lesson.category} · {lesson.difficulty} · {formatTime(lesson.duration)} · Updated {new Date(lesson.updatedAt).toLocaleDateString()}</p><p className="mt-1 text-[10px] text-slate-600">{lesson.placements.map((value) => DASHBOARD_PLACEMENTS.find((placement) => placement.value === value)?.label).filter(Boolean).join(" · ") || "No placement"}</p></div></div><div className="flex flex-wrap gap-2"><button className={button} onClick={() => onOpenLesson(lesson.id)}><Play size={14} /> View</button><button className={button} onClick={() => { setEditing(lesson); setView("editor"); }}><Pencil size={14} /> Edit</button><button className={button} onClick={() => void duplicateLesson(lesson)}><Copy size={14} /> Duplicate</button><button className={`${button} hover:text-rose-300`} onClick={async () => { if (!confirm(`Delete “${lesson.title}” and its media?`)) return; try { await deleteVideoLesson(lesson); await learning.reload(); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Delete failed."); } }}><Trash2 size={14} /></button></div></div>)}</div>}
+      {!learning.error && view === "manager" && <div className="space-y-3">{managedLessons.length === 0 ? <EmptyLearning canManage onManage={() => { setEditing(undefined); setView("editor"); }} /> : managedLessons.map((lesson) => <div key={lesson.id} className={`${panel} flex flex-col gap-3 p-3 sm:flex-row sm:items-center`}><div className="flex min-w-0 flex-1 items-center gap-3"><div className="flex h-16 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/8 bg-black/20"><Film size={22} className="text-cyan-400/40" /></div><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-sm font-bold text-slate-100">{lesson.title}</h3><span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${lesson.published ? "bg-emerald-400/10 text-emerald-300" : "bg-slate-700/40 text-slate-400"}`}>{lesson.published ? "Published" : "Draft"}</span>{lesson.featured && <span className="rounded-full bg-cyan-400/10 px-2 py-0.5 text-[9px] font-bold text-cyan-300">Featured</span>}<span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${lesson.storageProvider === "cloudflare_r2" ? "bg-blue-400/10 text-blue-300" : "bg-amber-400/10 text-amber-300"}`}>{lesson.storageProvider === "cloudflare_r2" ? `R2 · ${lesson.uploadStatus}` : "Supabase media"}</span></div><p className="mt-1 text-[10px] text-slate-500">{lesson.category} · {lesson.difficulty} · {formatTime(lesson.duration)} · {lesson.videoSizeBytes ? `${(lesson.videoSizeBytes / 1024 / 1024).toFixed(1)} MB · ` : ""}Updated {new Date(lesson.updatedAt).toLocaleDateString()}</p><p className="mt-1 text-[10px] text-slate-600">{lesson.placements.map((value) => DASHBOARD_PLACEMENTS.find((placement) => placement.value === value)?.label).filter(Boolean).join(" · ") || "No placement"}</p></div></div><div className="flex flex-wrap gap-2"><button className={button} onClick={() => onOpenLesson(lesson.id)}><Play size={14} /> View</button><button className={button} onClick={() => { setEditing(lesson); setView("editor"); }}><Pencil size={14} /> Edit</button><button className={button} onClick={() => void duplicateLesson(lesson)}><Copy size={14} /> Duplicate</button><button className={`${button} hover:text-rose-300`} onClick={async () => { if (!confirm(`Delete “${lesson.title}” and its media?`)) return; try { await deleteVideoLesson(lesson); await learning.reload(); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Delete failed."); } }}><Trash2 size={14} /></button></div></div>)}</div>}
     </div>
   );
 }
