@@ -130,16 +130,26 @@ export function calculateRisk(
   if (!account || !(account.balance > 0))
     warnings.push("Select a funded trading account for risk checks");
   if (account) {
-    if (
-      account.dailyPnl <=
-      (-(account.dailyLossBase ?? account.balance) *
+    const dailyLimit =
+      ((account.dailyLossBase ?? account.balance) *
         Math.min(
           account.dailyLossPercent ?? profile.maxDailyLossPercent,
           profile.maxDailyLossPercent,
         )) /
-        100
-    )
+      100;
+    if (account.dailyPnl <= -dailyLimit)
       warnings.push("Account daily loss limit reached");
+    // A plan must fit the remaining daily allowance, not merely pass a check
+    // that today's realized loss has not already reached the limit.
+    if (
+      account.openRiskMoney !== null &&
+      monetaryRisk !== null &&
+      Math.max(0, -account.dailyPnl) + account.openRiskMoney + monetaryRisk >
+        dailyLimit
+    )
+      warnings.push(
+        "Proposed risk plus open exposure exceeds remaining daily loss allowance",
+      );
     if (account.openPositions >= profile.maxOpenPositions)
       warnings.push("Maximum open positions reached");
     if (account.openRiskMoney === null)

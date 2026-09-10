@@ -178,6 +178,37 @@ test("risk uses selected 100K account, not 1K fallback; conservative limits", ()
     false,
   );
 });
+test("proposed loss must fit the account's remaining daily allowance", () => {
+  const result = calculateRisk(
+    100,
+    99,
+    102,
+    "long",
+    {
+      ...account,
+      dailyPnl: -2500,
+      openRiskMoney: 0,
+    },
+    config.risk,
+  );
+  assert.equal(result.allowed, false);
+  assert.ok(
+    result.warnings.some((warning) => warning.includes("remaining daily")),
+  );
+  const withExposure = calculateRisk(
+    100,
+    99,
+    102,
+    "long",
+    {
+      ...account,
+      dailyPnl: -1500,
+      openRiskMoney: 600,
+    },
+    config.risk,
+  );
+  assert.equal(withExposure.allowed, false);
+});
 test("risk blocks unknown open exposure and missing contract conversion", () => {
   assert.equal(
     calculateRisk(
