@@ -200,8 +200,6 @@ export function DashboardVideoSection({ onOpenLesson, onManage }: { onOpenLesson
     return lesson.category === category;
   });
   const newestFirst = useMemo(() => [...published].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [published]);
-  const continueLessons = published.filter((lesson) => (learning.progress[lesson.id]?.percentage || 0) > 0 && !learning.progress[lesson.id]?.completed).sort((a, b) => (learning.progress[b.id]?.lastWatchedAt || "").localeCompare(learning.progress[a.id]?.lastWatchedAt || "")).slice(0, 3);
-
   if (learning.loading) return <section className="space-y-3"><LoadingCard /></section>;
   if (!current) return <section><EmptyLearning canManage={learning.canManage} onManage={onManage} error={learning.error} /></section>;
 
@@ -231,8 +229,6 @@ export function DashboardVideoSection({ onOpenLesson, onManage }: { onOpenLesson
           </div>
         </div>
       </div>
-
-      {continueLessons.length > 0 && <div><div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-black text-slate-100">Continue Learning</h3><span className="text-[10px] text-slate-500">Resume exactly where you stopped</span></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{continueLessons.map((lesson) => <StrategyCard key={lesson.id} lesson={lesson} progress={learning.progress[lesson.id]} saved={learning.savedIds.includes(lesson.id)} onOpen={() => onOpenLesson(lesson.id)} onSave={() => void learning.toggleSaved(lesson.id)} />)}</div></div>}
 
       <div>
         <div className="-mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1">{categories.map((item) => <button key={item} onClick={() => setCategory(item)} className={`${button} whitespace-nowrap ${category === item ? "border-cyan-300/40 bg-cyan-400/10 text-cyan-200" : ""}`}>{item}</button>)}</div>
