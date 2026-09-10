@@ -18,6 +18,7 @@ async function buildAll() {
     entryPoints: {
       index: path.resolve(artifactDir, "src/index.ts"),
       vercel: path.resolve(artifactDir, "src/vercel.ts"),
+      "market-brain-worker": path.resolve(artifactDir, "src/market-brain/worker.ts"),
     },
     platform: "node",
     bundle: true,

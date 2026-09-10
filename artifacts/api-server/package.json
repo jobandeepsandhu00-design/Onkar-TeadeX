@@ -8,6 +8,9 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "scanner:worker": "node --enable-source-maps ./dist/market-brain-worker.mjs",
+    "test:scanner": "tsx --test src/market-brain/*.test.ts",
+    "typecheck:scanner": "tsc -p tsconfig.scanner.json --noEmit",
     "migrate:supabase": "tsx scripts/migrate-to-supabase.ts",
     "migrate:lesson-media-r2": "tsx scripts/migrate-video-lessons-to-r2.ts"
   },

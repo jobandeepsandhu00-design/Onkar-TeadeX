@@ -23,6 +23,8 @@ import { createDefaultTradeSetups, migrateLegacySetupImages, normalizeTradeSetup
 import { SetupLibrary } from "./trade-setups/SetupLibrary";
 import { TradeSetupDashboard } from "./trade-setups/TradeSetupBoard";
 import { DashboardVideoSection, VideoLearningHub, VideoLessonPage } from "./video-lessons";
+import { mergeDashboardSections } from "./market-brain/dashboard-order";
+const MarketBrain = React.lazy(() => import("./market-brain/MarketBrain"));
 
 /* ============================================================
    UTILITIES
@@ -844,6 +846,7 @@ const DEFAULT_SETTINGS = () => ({
     marketSessions:  true,
     accountOverview: true,
     videoLearning: true,
+    marketBrain: true,
     performanceLearning: true,
     todaysFocus:     true,
     propChallenges:  true,
@@ -859,7 +862,7 @@ const DEFAULT_SETTINGS = () => ({
     equityCurve:     true,
     tvChart:         true,
   },
-  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","videoLearning","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
+  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","marketBrain","videoLearning","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -6092,20 +6095,18 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
   const sectionOrder: string[] = (() => {
     const allKeys = DASH_SECTION_META.map((m: any) => m.key);
     const stored = (settings.dashSectionOrder as string[] | undefined);
-    if (!stored || !Array.isArray(stored) || stored.length !== allKeys.length) return allKeys;
+    if (!stored || !Array.isArray(stored)) return allKeys;
     /* Migrate: if stored order exactly matches the old default, use new order */
     const OLD_DEFAULT = ["moolMantar","liveTicker","activeTrades","marketOverview","marketSessions","accountOverview","todaysFocus","propChallenges","thisWeek","riskTools","equityCurve","tvChart","recentTrades","insightsEdge","setupLibrary","marketCalendar","statistics","reference"];
     if (JSON.stringify(stored) === JSON.stringify(OLD_DEFAULT)) return allKeys;
-    return stored;
+    return mergeDashboardSections(stored, allKeys);
   })();
 
   const moveSection = (key: string, dir: -1 | 1) => {
     setData((d: any) => {
       const s = { ...DEFAULT_SETTINGS(), ...(d.settings || {}) };
       const allKeys = DASH_SECTION_META.map((m: any) => m.key);
-      const order = (s.dashSectionOrder && Array.isArray(s.dashSectionOrder) && s.dashSectionOrder.length === allKeys.length)
-        ? [...s.dashSectionOrder]
-        : [...allKeys];
+      const order = mergeDashboardSections(s.dashSectionOrder, allKeys);
       const idx = order.indexOf(key);
       if (idx < 0) return d;
       const newIdx = idx + dir;
@@ -6202,6 +6203,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
     ),
     performanceLearning: <PerformanceLearning data={data} setData={setData} embedded />,
     videoLearning: <DashboardVideoSection onOpenLesson={onOpenLesson} onManage={() => goTo("academy", "Video Lessons")} />,
+    marketBrain: <React.Suspense fallback={<div className="p-6 text-slate-400">Loading ONKAR AI…</div>}><MarketBrain onJournal={() => goTo("journal")} journalTrades={data.trades || []} /></React.Suspense>,
     todaysFocus: (
       <>
         <SessionPlanDashCard data={data} goTo={goTo} />
@@ -13016,6 +13018,7 @@ const DASH_SECTION_META = [
   { key: "liveTicker",      label: "Live Market Ticker",    icon: "📊" },
   { key: "activeTrades",    label: "Active Trades Monitor",  icon: "📡" },
   { key: "accountOverview", label: "Account Overview",       icon: "💰" },
+  { key: "marketBrain",     label: "ONKAR AI Market Brain",    icon: "🧠" },
   { key: "videoLearning",  label: "Featured Strategy Videos", icon: "🎬" },
   { key: "performanceLearning", label: "Performance & Learning", icon: "📊" },
   { key: "setupLibrary",    label: "Trade Setup Board",       icon: "📚" },
@@ -13220,7 +13223,7 @@ function SettingsPanel({ data, setData }) {
                 {(() => {
                   const allKeys = DASH_SECTION_META.map((m) => m.key);
                   const stored = (settings.dashSectionOrder as string[] | undefined);
-                  const order = (stored && Array.isArray(stored) && stored.length === allKeys.length) ? stored : allKeys;
+                  const order = mergeDashboardSections(stored, allKeys);
                   const moveFn = (key: string, dir: -1 | 1) => {
                     const idx = order.indexOf(key);
                     if (idx < 0) return;

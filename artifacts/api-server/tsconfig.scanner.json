@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "tsBuildInfoFile": ".scanner.tsbuildinfo"
+  },
+  "include": ["src/market-brain", "src/routes/market-brain.ts"],
+  "references": [{ "path": "../../lib/api-zod" }]
+}

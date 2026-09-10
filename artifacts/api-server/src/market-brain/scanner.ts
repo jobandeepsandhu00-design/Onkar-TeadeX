@@ -1,0 +1,506 @@
+import { createHash, randomUUID } from "node:crypto";
+import {
+  scannerConfigSchema,
+  strategyVersionSchema,
+  timeframeMs,
+  type Candle,
+  type Timeframe,
+  type CandidateState,
+} from "@workspace/api-zod";
+import { getMarketProvider } from "./providers";
+import {
+  analyzeCandidate,
+  historicalMatches,
+  nextLifecycle,
+} from "./evaluation";
+import { accountContext, journalPnl } from "./journal";
+import {
+  ScannerStore,
+  records,
+  type CandidateRow,
+  type ConfigRow,
+  type VersionRow,
+} from "./store";
+import { newsCheck } from "./news";
+import { GeminiExplanationProvider } from "./ai";
+import { logger } from "../lib/logger";
+
+export const fingerprint = (value: unknown) =>
+  createHash("sha256").update(JSON.stringify(value)).digest("hex");
+export const analysisFingerprint = (candidate: CandidateRow) =>
+  fingerprint([
+    candidate.id,
+    candidate.last_candle_at,
+    candidate.score,
+    candidate.payload.rules.map((r) => [r.id, r.actual, r.passed]),
+    candidate.payload.risk,
+    candidate.state,
+    candidate.plan,
+    candidate.payload.news.status,
+    candidate.payload.news.events,
+    candidate.payload.tradingViewEvidence,
+  ]);
+const terminal = (state: CandidateState) =>
+  ["INVALIDATED", "EXPIRED", "COMPLETED"].includes(state);
+type StoredBar = {
+  open_time: number;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  v: number | null;
+};
+export async function loadCandles(
+  store: ScannerStore,
+  providerName: string,
+  symbol: string,
+  tf: Timeframe,
+  now: number,
+): Promise<Candle[]> {
+  const query = {
+    provider: `eq.${providerName}`,
+    symbol: `eq.${symbol}`,
+    timeframe: `eq.${tf}`,
+  };
+  const stored = await store.request<StoredBar[]>("market_candles", {
+    ...query,
+    order: "open_time.desc",
+    limit: "260",
+  });
+  const bars = stored.reverse().map((c) => ({
+    t: Number(c.open_time),
+    o: c.o,
+    h: c.h,
+    l: c.l,
+    c: c.c,
+    v: c.v,
+  }));
+  const last = bars.at(-1);
+  if (last && last.t + 2 * timeframeMs[tf] > now && bars.length >= 220)
+    return bars;
+  const from =
+    bars.length >= 220 && last
+      ? last.t - timeframeMs[tf]
+      : now - 260 * timeframeMs[tf];
+  const fetched = await getMarketProvider(providerName).getHistoricalBars(
+    symbol,
+    tf,
+    from,
+    now,
+  );
+  if (fetched.length)
+    await store.request(
+      "market_candles",
+      { on_conflict: "provider,symbol,timeframe,open_time" },
+      "POST",
+      fetched.map((c) => ({
+        provider: providerName,
+        symbol,
+        timeframe: tf,
+        open_time: c.t,
+        o: c.o,
+        h: c.h,
+        l: c.l,
+        c: c.c,
+        v: c.v,
+      })),
+      "resolution=merge-duplicates,return=minimal",
+    );
+  return [...new Map([...bars, ...fetched].map((c) => [c.t, c])).values()]
+    .sort((a, b) => a.t - b.t)
+    .slice(-260);
+}
+
+async function explain(
+  store: ScannerStore,
+  candidate: CandidateRow,
+  job: ConfigRow,
+) {
+  const config = job.config;
+  if (
+    !process.env.GEMINI_API_KEY ||
+    candidate.score < config.aiThreshold ||
+    candidate.payload.stale ||
+    !config.maxAiCallsPerDay
+  )
+    return;
+  const key = analysisFingerprint(candidate);
+  const existing = await store.request<Array<{ id: string }>>(
+    "scanner_ai_runs",
+    {
+      user_id: `eq.${job.user_id}`,
+      created_at: `gte.${new Date().toISOString().slice(0, 10)}T00:00:00Z`,
+      select: "id,fingerprint",
+      limit: "51",
+    },
+  );
+  if (existing.length >= config.maxAiCallsPerDay) return;
+  const duplicate = await store.request<Array<{ id: string }>>(
+    "scanner_ai_runs",
+    {
+      user_id: `eq.${job.user_id}`,
+      fingerprint: `eq.${key}`,
+      select: "id",
+      limit: "1",
+    },
+  );
+  if (duplicate.length) return;
+  const start = Date.now();
+  // Durable reservation prevents duplicate token spend after request retries/restarts.
+  const id = await store.rpc<string | null>("reserve_scanner_ai", {
+    p_config: job.id,
+    p_candidate: candidate.id,
+    p_fingerprint: key,
+    p_purpose: "explanation",
+  });
+  if (!id) return;
+  await store.request("scanner_ai_runs", { id: `eq.${id}` }, "PATCH", {
+    tool_calls: [
+      "get_market_context",
+      "evaluate_setup_rules",
+      "calculate_risk",
+      "get_historical_matches",
+      "get_economic_events",
+    ].map((name) => ({
+      name,
+      status: "succeeded",
+      source: "server_calculated",
+    })),
+  });
+  const p = candidate.payload;
+  try {
+    const result = await new GeminiExplanationProvider().explain({
+      symbol: candidate.symbol,
+      strategy: p.strategyName,
+      deterministicScore: candidate.score,
+      state: candidate.state,
+      rules: p.rules,
+      risk: p.risk,
+      bias: p.marketBias,
+      session: p.session,
+      news: p.news,
+      historical: p.historical,
+      warning: p.warnings,
+      tradingViewEvidence: p.tradingViewEvidence,
+      dataAt: p.lastCandleAt,
+      instruction:
+        "Explain only this evidence. Score is rule confluence, not win probability.",
+    });
+    await store.request("scanner_ai_runs", { id: `eq.${id}` }, "PATCH", {
+      status: "succeeded",
+      model: result.model,
+      input_tokens: result.inputTokens,
+      output_tokens: result.outputTokens,
+      latency_ms: Date.now() - start,
+      output: result.output,
+    });
+  } catch {
+    await store.request("scanner_ai_runs", { id: `eq.${id}` }, "PATCH", {
+      status: "failed",
+      latency_ms: Date.now() - start,
+      error:
+        "AI explanation unavailable or invalid. Deterministic analysis remains available.",
+    });
+    logger.warn(
+      { event: "scanner_ai_failure", runId: id },
+      "Scanner explanation failed safely",
+    );
+  }
+}
+
+export async function runScannerJob(store: ScannerStore, job: ConfigRow) {
+  const started = Date.now(),
+    config = scannerConfigSchema.parse(job.config),
+    symbol = config.symbols[job.cursor % config.symbols.length];
+  let advance = false,
+    error: string | null = null;
+  let health: Record<string, unknown> = {
+    status: "offline",
+    checkedAt: new Date(started).toISOString(),
+    symbol,
+    ai: "unconfigured",
+    mcp: "optional",
+    vision: "not_configured",
+    liveExecution: false,
+  };
+  try {
+    // Expiry does not require a working provider. Preserve the last known data timestamp.
+    const expired = await store.request<CandidateRow[]>("setup_candidates", {
+      config_id: `eq.${job.id}`,
+      expires_at: `lte.${new Date(started).toISOString()}`,
+      state: "in.(SCANNING,DEVELOPING,WATCH,READY,TRIGGERED)",
+      limit: "20",
+    });
+    for (const old of expired) {
+      if (Date.now() - started > 100_000)
+        throw new Error("Expiry cleanup continues in the next worker cycle.");
+      await store.rpc("commit_scanner_candidate", {
+        p_config: job.id,
+        p_lease: job.lease_token,
+        p_candidate: {
+          ...old,
+          state: "EXPIRED",
+          payload: { ...old.payload, status: "EXPIRED", stale: true },
+        },
+        p_event: {
+          key: "expiry",
+          kind: "setup_expired",
+          detail: { previous: old.state, state: "EXPIRED" },
+        },
+        p_alert: null,
+      });
+    }
+    const versions = (
+      await store.request<VersionRow[]>("scanner_strategy_versions", {
+        user_id: `eq.${job.user_id}`,
+        id: `in.(${config.strategyVersionIds.join(",") || "00000000-0000-0000-0000-000000000000"})`,
+      })
+    ).filter(
+      (v) =>
+        v.definition.approval === "approved" &&
+        (!v.definition.symbols.length || v.definition.symbols.includes(symbol)),
+    );
+    if (!versions.length)
+      throw new Error(
+        "Approve and activate at least one strategy for this symbol.",
+      );
+    const source = await store.source(job.user_id);
+    const required = new Set<Timeframe>(config.timeframes);
+    for (const v of versions) {
+      const d = strategyVersionSchema.parse(v.definition);
+      required.add(d.timeframe);
+      required.add(d.higherTimeframe);
+      d.rules.forEach((r) => required.add(r.timeframe));
+    }
+    const histories: Partial<Record<Timeframe, Candle[]>> = {};
+    // Bounded resumeable warmup: fetched candles survive if this job exhausts its budget.
+    for (const tf of required) {
+      if (Date.now() - started > 100_000)
+        throw new Error("History warmup continues in the next worker cycle.");
+      histories[tf] = await loadCandles(
+        store,
+        config.provider,
+        symbol,
+        tf,
+        Date.now(),
+      );
+    }
+    const now = Date.now(),
+      news = await newsCheck(symbol, config, now),
+      account = accountContext(source, config, symbol, now);
+    health = {
+      ...health,
+      status: "connected",
+      checkedAt: new Date(now).toISOString(),
+      latencyMs: now - started,
+      news: news.status,
+      newsAt: news.checkedAt,
+      ai: process.env.GEMINI_API_KEY
+        ? "configured_not_checked"
+        : "unconfigured",
+    };
+    const enrichedTrades = records(source.trades).map((t) => ({
+      ...t,
+      netPnl: journalPnl(t, config.risk.valuePerPriceUnit),
+    }));
+    const tradingViewEvidence = await store.request<
+      Array<{ payload: unknown; created_at: string }>
+    >("tradingview_webhook_events", {
+      config_id: `eq.${job.id}`,
+      "payload->>symbol": `eq.${symbol}`,
+      created_at: `gte.${new Date(now - 30 * 60_000).toISOString()}`,
+      order: "created_at.desc",
+      limit: "10",
+    });
+    for (const version of versions) {
+      // Leave headroom under the five-minute lease for one bounded database write
+      // and the finally release. Persisted work is safe to revisit next cycle.
+      if (Date.now() - started > 210_000)
+        throw new Error(
+          "Strategy evaluation continues in the next worker cycle.",
+        );
+      const previous = (
+        await store.request<CandidateRow[]>("setup_candidates", {
+          config_id: `eq.${job.id}`,
+          version_id: `eq.${version.id}`,
+          symbol: `eq.${symbol}`,
+          order: "created_at.desc",
+          limit: "1",
+        })
+      )[0];
+      const old = previous && !terminal(previous.state) ? previous : undefined;
+      // Once a plan exists its direction, like its stop and target, is immutable.
+      const analysis = analyzeCandidate(
+        old?.plan
+          ? { ...version.definition, direction: old.payload.direction }
+          : version.definition,
+        histories,
+        config,
+        account,
+        news,
+        now,
+      );
+      if (analysis.stale) health.status = "degraded";
+      health.lastCandleAt = analysis.lastCandleAt;
+      // A terminal setup is never resurrected on the same detection candle.
+      if (
+        previous &&
+        terminal(previous.state) &&
+        previous.last_candle_at >= analysis.lastCandleAt
+      )
+        continue;
+      if (!old && analysis.score < config.minimumScore) continue;
+      let state: CandidateState = analysis.status,
+        event = old ? "analysis_updated" : "setup_detected";
+      const transitions: Array<{ key: string; kind: string; detail: unknown }> =
+        [];
+      if (old?.plan) {
+        state = old.state;
+        for (const bar of histories[version.definition.timeframe] ?? []) {
+          if (bar.t <= Date.parse(old.last_candle_at)) continue;
+          const next = nextLifecycle(
+            state,
+            bar,
+            old.plan,
+            old.payload.direction,
+            Date.parse(old.expires_at),
+            bar.t + timeframeMs[version.definition.timeframe],
+          );
+          if (next.event) {
+            transitions.push({
+              key: `${bar.t}:${next.event}`,
+              kind: next.event,
+              detail: {
+                previous: state,
+                state: next.state,
+                dataAt: new Date(bar.t).toISOString(),
+              },
+            });
+            state = next.state;
+            event = next.event;
+          }
+          if (terminal(state)) break;
+        }
+        if (
+          !terminal(state) &&
+          state !== "TRIGGERED" &&
+          analysis.status !== "READY"
+        ) {
+          state = analysis.status;
+          event = state !== old.state ? "conditions_changed" : event;
+        }
+      }
+      if (old && now >= Date.parse(old.expires_at) && !terminal(state)) {
+        state = "EXPIRED";
+        event = "setup_expired";
+      }
+      if (state === "READY" && old?.state !== "READY") event = "setup_ready";
+      const candidate: CandidateRow = {
+        id: old?.id ?? randomUUID(),
+        user_id: job.user_id,
+        config_id: job.id,
+        version_id: version.id,
+        symbol,
+        timeframe: version.definition.timeframe,
+        state,
+        score: analysis.score,
+        payload: {
+          ...analysis,
+          status: state,
+          provider: config.provider,
+          strategyName: version.name,
+          scopeAccountId: config.accountId,
+          tradingViewEvidence,
+          historical: historicalMatches(
+            enrichedTrades,
+            version.source_setup_id,
+            symbol,
+            version.definition.timeframe,
+            config.accountId,
+          ),
+        },
+        plan: old?.plan ?? (state === "READY" ? analysis.risk : null),
+        fingerprint:
+          old?.fingerprint ??
+          fingerprint([job.id, version.id, symbol, analysis.lastCandleAt]),
+        last_candle_at: analysis.lastCandleAt,
+        expires_at: old?.expires_at ?? analysis.expiresAt,
+      };
+      const alertKinds = [
+        "setup_ready",
+        "setup_invalidated",
+        "stop_reached",
+        "target_reached",
+        "entry_zone_reached",
+      ];
+      const alert =
+        alertKinds.includes(event) && !analysis.stale
+          ? {
+              kind: event,
+              key: `${candidate.id}:${event}`,
+              message: `${symbol} · ${version.name} · ${event.replaceAll("_", " ")} · rule confluence ${analysis.score}/100. Review risk and news before making any decision.`,
+            }
+          : null;
+      await store.rpc("commit_scanner_candidate", {
+        p_config: job.id,
+        p_lease: job.lease_token,
+        p_candidate: candidate,
+        p_event: [
+          ...transitions,
+          {
+            key: `${analysis.lastCandleAt}:${event}:${analysis.score}`,
+            kind: event,
+            detail: {
+              previous: old?.state ?? null,
+              state,
+              score: analysis.score,
+              dataAt: analysis.lastCandleAt,
+            },
+          },
+        ],
+        p_alert: alert,
+      });
+      if (!terminal(state) && Date.now() - started < 130_000)
+        await explain(store, candidate, { ...job, config });
+      logger.info(
+        { event, candidateId: candidate.id, symbol, score: candidate.score },
+        "Scanner candidate saved",
+      );
+    }
+    advance = true;
+  } catch (e) {
+    error = e instanceof Error ? e.message : "Scanner failed";
+    // All upstream modules sanitize errors; no provider URLs or credentials in logs.
+    logger.warn(
+      { event: "scanner_job_failure", configId: job.id, message: error },
+      "Scanner cycle incomplete",
+    );
+  } finally {
+    const delay = advance
+      ? Math.max(15, config.frequencySeconds / config.symbols.length)
+      : 60;
+    await store.request(
+      "scanner_configs",
+      { id: `eq.${job.id}`, lease_token: `eq.${job.lease_token}` },
+      "PATCH",
+      {
+        cursor: advance ? (job.cursor + 1) % config.symbols.length : job.cursor,
+        lease_until: null,
+        lease_token: null,
+        last_run_at: new Date().toISOString(),
+        last_duration_ms: Date.now() - started,
+        last_error: error,
+        health,
+        next_run_at: new Date(Date.now() + delay * 1000).toISOString(),
+      },
+    );
+  }
+  return { symbol, success: !error, error };
+}
+export async function runNextJob(configId?: string) {
+  const store = ScannerStore.service();
+  const [job] = await store.rpc<ConfigRow[]>("claim_scanner_job", {
+    p_config: configId ?? null,
+  });
+  return job ? runScannerJob(store, job) : { success: true, idle: true };
+}
