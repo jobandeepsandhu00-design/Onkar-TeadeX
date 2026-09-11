@@ -1,5 +1,10 @@
 # Latest review: Dashboard Onkar AI Entry — 2026-09-11
 
+## Follow-up layout correction
+
+- The dashboard display order now always begins with Mool Mantar, followed immediately by the Onkar AI hero.
+- Mool Mantar is intentionally fixed as the first dashboard section; the remaining dashboard sections keep their saved order and existing visibility settings.
+
 ## Captures compared
 
 - Reference: `C:\Users\joban\.codex\codex-remote-attachments\01a07180-c785-7692-9b30-a7c170f1481f\051E2672-B46F-499A-9BAF-9FCC03C45153\1-Photo-1.jpg`

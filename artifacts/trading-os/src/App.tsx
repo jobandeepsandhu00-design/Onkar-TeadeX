@@ -6109,6 +6109,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
     if (JSON.stringify(stored) === JSON.stringify(OLD_DEFAULT)) return allKeys;
     return mergeDashboardSections(stored, allKeys);
   })();
+  const dashboardDisplayOrder = ["moolMantar", ...sectionOrder.filter((key) => key !== "moolMantar")];
 
   const moveSection = (key: string, dir: -1 | 1) => {
     setData((d: any) => {
@@ -6366,9 +6367,8 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
         </div>
       </div>
 
-      <div className="oai"><OnkarAIEntryButton onClick={() => goTo("onkar-ai")} /></div>
       {/* ── ORDERED SECTIONS ── */}
-      {sectionOrder.map((key, i) => {
+      {dashboardDisplayOrder.map((key, i) => {
         const meta = DASH_SECTION_META.find((m: any) => m.key === key);
         if (!meta) return null;
         return (
@@ -6377,14 +6377,17 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
               visible={vis[key]}
               onToggle={!editLayout ? () => toggle(key) : undefined}
               editMode={editLayout}
-              onMoveUp={() => moveSection(key, -1)}
-              onMoveDown={() => moveSection(key, 1)}
+              onMoveUp={key === "moolMantar" ? undefined : () => moveSection(key, -1)}
+              onMoveDown={key === "moolMantar" ? undefined : () => moveSection(key, 1)}
               isFirst={i === 0}
-              isLast={i === sectionOrder.length - 1}
+              isLast={i === dashboardDisplayOrder.length - 1}
             >
               {meta.label}
             </DashSectionLabel>
             {vis[key] !== false && sectionContent[key]}
+            {key === "moolMantar" && (
+              <div className="oai"><OnkarAIEntryButton onClick={() => goTo("onkar-ai")} /></div>
+            )}
           </React.Fragment>
         );
       })}
