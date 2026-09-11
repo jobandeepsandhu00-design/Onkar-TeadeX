@@ -1,6 +1,6 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": { "tsBuildInfoFile": ".scanner.tsbuildinfo" },
-  "include": ["src/market-brain", "src/vite-env.d.ts"],
+  "include": ["src/market-brain", "src/onkar-ai", "src/vite-env.d.ts"],
   "references": [{ "path": "../../lib/api-zod" }]
 }

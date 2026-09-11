@@ -24,7 +24,10 @@ import { SetupLibrary } from "./trade-setups/SetupLibrary";
 import { TradeSetupDashboard } from "./trade-setups/TradeSetupBoard";
 import { DashboardVideoSection, VideoLearningHub, VideoLessonPage } from "./video-lessons";
 import { mergeDashboardSections } from "./market-brain/dashboard-order";
-const MarketBrain = React.lazy(() => import("./market-brain/MarketBrain"));
+import { OnkarAIEntryButton } from "./onkar-ai/ui";
+const OnkarAIRecentSlider = React.lazy(() => import("./onkar-ai/RecentSlider").then(module => ({ default: module.OnkarAIRecentSlider })));
+const OnkarAIWorkspace = React.lazy(() => import("./onkar-ai/OnkarAIWorkspace"));
+import "./onkar-ai/onkar-ai.css";
 
 /* ============================================================
    UTILITIES
@@ -6203,7 +6206,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
     ),
     performanceLearning: <PerformanceLearning data={data} setData={setData} embedded />,
     videoLearning: <DashboardVideoSection onOpenLesson={onOpenLesson} onManage={() => goTo("academy", "Video Lessons")} />,
-    marketBrain: <React.Suspense fallback={<div className="p-6 text-slate-400">Loading ONKAR AI…</div>}><MarketBrain onJournal={() => goTo("journal")} journalTrades={data.trades || []} /></React.Suspense>,
+    marketBrain: <React.Suspense fallback={<div className="p-6 text-slate-400">Loading ONKAR AI…</div>}><OnkarAIRecentSlider onNavigate={(path) => goTo("onkar-ai", path)} /></React.Suspense>,
     todaysFocus: (
       <>
         <SessionPlanDashCard data={data} goTo={goTo} />
@@ -6358,6 +6361,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
         </div>
       </div>
 
+      <div className="oai"><OnkarAIEntryButton onClick={() => goTo("onkar-ai")} /></div>
       {/* ── ORDERED SECTIONS ── */}
       {sectionOrder.map((key, i) => {
         const meta = DASH_SECTION_META.find((m: any) => m.key === key);
@@ -15667,6 +15671,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   const [searchOpen, setSearchOpen] = useState(false);
   const [quickLogOpen, setQuickLogOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [onkarAIPath, setOnkarAIPath] = useState<string | null>(() => /^\/onkar-ai(?:\/|$)/.test(window.location.pathname) ? window.location.pathname : null);
   const routeLessonId = window.location.pathname.match(/^\/learn\/strategy\/([^/]+)\/?$/)?.[1] || null;
   const [videoLessonId, setVideoLessonId] = useState<string | null>(routeLessonId ? decodeURIComponent(routeLessonId) : null);
   const [riskAlert, setRiskAlert] = useState<RiskAlert | null>(null);
@@ -15688,6 +15693,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
 
   useEffect(() => {
     const syncRoute = () => {
+      setOnkarAIPath(/^\/onkar-ai(?:\/|$)/.test(window.location.pathname) ? window.location.pathname : null);
       const match = window.location.pathname.match(/^\/learn\/strategy\/([^/]+)\/?$/);
       setVideoLessonId(match ? decodeURIComponent(match[1]) : null);
     };
@@ -15839,6 +15845,18 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   };
 
   const goTo = (tab, sub) => {
+    if (tab === "onkar-ai") {
+      const path = typeof sub === "string" && /^\/onkar-ai(?:\/|$)/.test(sub) ? sub : "/onkar-ai";
+      window.history.pushState({}, "", path);
+      setOnkarAIPath(path);
+      setVideoLessonId(null);
+      window.scrollTo({ top: 0, behavior: "instant" });
+      return;
+    }
+    if (onkarAIPath) {
+      window.history.pushState({}, "", "/");
+      setOnkarAIPath(null);
+    }
     if (videoLessonId) {
       window.history.pushState({}, "", "/");
       setVideoLessonId(null);
@@ -16120,6 +16138,22 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
     );
   }
 
+  if (onkarAIPath) {
+    const account = (data as any).tradingAccounts?.find((item: any) => item.id === (data as any).activeAccountId);
+    return <>
+      <React.Suspense fallback={<div className="min-h-screen bg-slate-950 p-8 text-blue-200">Opening Onkar AI…</div>}><OnkarAIWorkspace path={onkarAIPath} onNavigate={(path) => goTo("onkar-ai", path)} onExit={(tab) => goTo(tab || "home", undefined)} onLogout={onLogout ? handleLogout : undefined} accountName={account?.alias || account?.accountNumber} journalTrades={(data as any).trades || []} /></React.Suspense>
+      {/* Account safety alerts remain visible inside the dedicated workspace. */}
+      {riskAlert && <RiskAlertOverlay alert={riskAlert} onDismiss={() => {
+        dismissedAtRef.current[riskAlert.accountId] = riskAlert.todayLossAmt;
+        setRiskAlert(null);
+      }} />}
+      {toastQueue.length > 0 && !riskAlert && <NotifToast notif={toastQueue[0]} onDismiss={() => {
+        const shown = toastQueue[0];
+        setToastQueue((q) => q.slice(1));
+        if (shown && shown.key !== "workspaceSave") markNotificationsRead([shown.id]);
+      }} />}
+    </>;
+  }
   return (
     <div className="w-full bg-slate-950" style={{ fontFamily: "'Inter', sans-serif", minHeight: "100dvh" }}>
       {/* Scrollable content — header scrolls with content, only bottom nav is fixed */}
