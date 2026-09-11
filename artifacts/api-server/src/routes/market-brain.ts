@@ -76,16 +76,27 @@ function route(handler: (req: Request, res: Response) => Promise<unknown>) {
   };
 }
 
-function validCronAuthorization(header: string | undefined) {
+async function validCronAuthorization(header: string | undefined) {
   const secret = process.env.CRON_SECRET;
-  if (!secret || secret.length < 32 || !header?.startsWith("Bearer ")) return false;
+  if (!header?.startsWith("Bearer ")) return false;
   const supplied = header.slice(7);
-  const expectedBytes = Buffer.from(secret);
-  const suppliedBytes = Buffer.from(supplied);
-  return (
-    expectedBytes.length === suppliedBytes.length &&
-    timingSafeEqual(expectedBytes, suppliedBytes)
-  );
+  if (secret && secret.length >= 32) {
+    const expectedBytes = Buffer.from(secret);
+    const suppliedBytes = Buffer.from(supplied);
+    if (
+      expectedBytes.length === suppliedBytes.length &&
+      timingSafeEqual(expectedBytes, suppliedBytes)
+    )
+      return true;
+  }
+  try {
+    return await ScannerStore.service().rpc<boolean>(
+      "verify_onkar_scanner_cron_secret",
+      { candidate: supplied },
+    );
+  } catch {
+    return false;
+  }
 }
 
 const cronHandler = route(async (req, res) => {
@@ -98,7 +109,7 @@ const cronHandler = route(async (req, res) => {
     : schedulerSecret
       ? `Bearer ${schedulerSecret}`
       : undefined;
-  if (!validCronAuthorization(authorization))
+  if (!(await validCronAuthorization(authorization)))
     throw new ScannerError("Unauthorized", 401);
   if (process.env.SCANNER_ENABLED !== "true")
     throw new ScannerError("Scanner background processing is disabled", 503);

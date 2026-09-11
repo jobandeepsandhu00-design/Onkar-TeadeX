@@ -43,6 +43,33 @@ $$;
 
 revoke all on function private.invoke_onkar_ai_scanner() from public, anon, authenticated;
 
+-- Lets the API validate a scheduler request against the Vault-held value. Only
+-- the server-side service role can call this function; clients cannot inspect
+-- or verify guesses against the secret.
+create or replace function public.verify_onkar_scanner_cron_secret(candidate text)
+returns boolean
+language sql
+security definer
+set search_path = ''
+as $$
+  select candidate is not null
+    and length(candidate) >= 32
+    and extensions.digest(candidate, 'sha256') = extensions.digest(
+      coalesce((
+        select decrypted_secret
+        from vault.decrypted_secrets
+        where name = 'onkar_scanner_cron_secret'
+        limit 1
+      ), ''),
+      'sha256'
+    );
+$$;
+
+revoke all on function public.verify_onkar_scanner_cron_secret(text)
+  from public, anon, authenticated;
+grant execute on function public.verify_onkar_scanner_cron_secret(text)
+  to service_role;
+
 do $$
 declare existing_job bigint;
 begin
