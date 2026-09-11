@@ -34,7 +34,13 @@ export class ScannerStore {
       throw new ScannerError(
         "Scanner backend needs SUPABASE_SERVICE_ROLE_KEY. Existing journal and videos are unaffected.",
       );
-    return new ScannerStore(url, key);
+    // Supabase's current sb_secret_* keys authenticate through the apikey
+    // header and are not JWTs. Legacy service_role JWTs still require Bearer.
+    return new ScannerStore(
+      url,
+      key,
+      key.startsWith("sb_secret_") ? "" : `Bearer ${key}`,
+    );
   }
   async request<T>(
     table: string,
@@ -50,7 +56,9 @@ export class ScannerStore {
         signal: AbortSignal.timeout(12_000),
         headers: {
           apikey: this.key,
-          Authorization: this.authorization,
+          ...(this.authorization
+            ? { Authorization: this.authorization }
+            : {}),
           "Content-Type": "application/json",
           Prefer: preference ?? "return=representation",
         },
