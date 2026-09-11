@@ -89,7 +89,16 @@ function validCronAuthorization(header: string | undefined) {
 }
 
 const cronHandler = route(async (req, res) => {
-  if (!validCronAuthorization(req.headers.authorization))
+  const schedulerSecret =
+    typeof req.headers["x-onkar-cron-secret"] === "string"
+      ? req.headers["x-onkar-cron-secret"]
+      : req.headers.authorization;
+  const authorization = schedulerSecret?.startsWith("Bearer ")
+    ? schedulerSecret
+    : schedulerSecret
+      ? `Bearer ${schedulerSecret}`
+      : undefined;
+  if (!validCronAuthorization(authorization))
     throw new ScannerError("Unauthorized", 401);
   if (process.env.SCANNER_ENABLED !== "true")
     throw new ScannerError("Scanner background processing is disabled", 503);

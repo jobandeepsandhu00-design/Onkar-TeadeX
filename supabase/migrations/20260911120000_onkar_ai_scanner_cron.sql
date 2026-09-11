@@ -29,7 +29,7 @@ begin
     url := rtrim(base_url, '/') || '/api/market-brain/cron',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || cron_secret
+      'X-Onkar-Cron-Secret', cron_secret
     ),
     body := jsonb_build_object(
       'source', 'supabase_cron',
