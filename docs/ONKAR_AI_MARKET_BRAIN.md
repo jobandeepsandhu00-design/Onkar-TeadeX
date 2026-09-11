@@ -4,7 +4,7 @@
 
 This is an additive, analysis-only production foundation, not unrestricted automated trading and not completion of every advanced capability in the original specification.
 
-Implemented: authenticated API; real Coinbase/Twelve Data candle adapters; UTC candle cache; deterministic indicators, confirmed swings, zones, candle patterns, multi-timeframe rule evaluation, weighted confluence, account-specific risk/news gates; immutable rule versions; leased background worker; candidates, timelines and deduplicated in-app alerts; Gemini structured explanations and private read-only tools; journal comparisons/linking; TradingView webhook evidence; dashboard UI, rule/settings editor, chart/detail view and bounded historical replay.
+Implemented: authenticated API; real Coinbase/Twelve Data candle adapters; UTC candle cache; deterministic indicators, confirmed swings, zones, candle patterns, multi-timeframe rule evaluation, weighted confluence, account-specific risk/news gates; immutable rule versions; leased background worker; candidates, timelines and deduplicated in-app alerts; OpenAI structured explanations and private read-only tools; journal comparisons/linking; TradingView webhook evidence; dashboard UI, rule/settings editor, chart/detail view and bounded historical replay.
 
 **Production scanning is not activated by installing this code.** It requires server credentials, a running worker, an explicit market/account selection and user-approved rules. No production scanner settings, fake candles, sample trades or approved strategies were seeded. Missing provider/news/AI status is displayed honestly.
 
@@ -14,7 +14,7 @@ Implemented: authenticated API; real Coinbase/Twelve Data candle adapters; UTC c
 - Existing Supabase authentication/client, workspace membership and `app_state` journal.
 - Existing Setup Library: scanner versions reference its source IDs; no duplicate strategy library.
 - Existing trading accounts, prop challenges, trades, P&L and review fields.
-- Express API and existing Gemini provider in `artifacts/api-server`.
+- Express API and server-only OpenAI provider in `artifacts/api-server`.
 - Existing calendar source, R2 media system, TradingView dashboard chart and Vercel deployment.
 - Existing dialog primitive and dashboard visibility/reordering. New scanner is inserted after account overview while preserving customized section order.
 
@@ -28,7 +28,7 @@ Important discovery: `sync_trading_state_for_user` deletes/recreates normalized 
 | `artifacts/api-server/src/market-brain/providers.ts` | Interchangeable real-data and optional integration interfaces                                  |
 | `calculations.ts` in that folder                     | EMA/SMA/RSI/MACD/ATR/Bollinger, volume/wicks, confirmed structure/zones/patterns, DST sessions |
 | `evaluation.ts`                                      | Weighted rules, risk gating, lifecycle, exact journal matching                                 |
-| `journal.ts`, `news.ts`, `ai.ts`, `tools.ts`         | Account history, fail-closed calendar, Gemini explanations, controlled read-only tools         |
+| `journal.ts`, `news.ts`, `ai.ts`, `tools.ts`         | Account history, fail-closed calendar, OpenAI explanations, controlled read-only tools         |
 | `store.ts`, `scanner.ts`, `worker.ts`                | Supabase REST boundary, bounded orchestration, independent Node worker                         |
 | `webhook.ts`, `backtest.ts`                          | TradingView authentication/replay-window checks; no-look-ahead replay                          |
 | `artifacts/api-server/src/routes/market-brain.ts`    | Authenticated scanner/configuration/analysis/chat/replay APIs and webhook                      |
@@ -66,10 +66,10 @@ Keep secrets out of frontend variables, Git and chat messages. Configure securel
 | `SUPABASE_SERVICE_ROLE_KEY`     | Required for validated scanner writes   | Required                                                                   |
 | `TWELVE_DATA_API_KEY`           | Provider health checks for Twelve Data  | Required when scanning Twelve Data markets                                 |
 | `MARKET_DATA_API_KEY`           | Optional alias                          | Optional alias                                                             |
-| `GEMINI_API_KEY`                | Existing AI provider; required for chat | Required for automatic AI explanation, optional for deterministic scanning |
-| `SCANNER_AI_MODEL`              | Defaults to `gemini-2.5-flash`          | Same                                                                       |
+| `OPENAI_API_KEY`                | Required for chat and health checks     | Required for automatic AI explanation, optional for deterministic scanning |
+| `OPENAI_MODEL`                  | Defaults to `gpt-5-mini`                 | Same                                                                       |
 | `MARKET_SYMBOL_MAP`             | Optional JSON of exact symbol aliases   | Same                                                                       |
-| `SCANNER_ENABLED`               | Does not start a Vercel worker          | Set `true` only on the deployed worker                                     |
+| `SCANNER_ENABLED`               | Enables authenticated scheduled jobs    | Set `true` on a persistent worker                                          |
 | `ENABLE_LIVE_EXECUTION`         | Keep `false`                            | Keep `false`; there is no order-transmission implementation                |
 | `NODE_ENV`                      | `production`                            | `production`                                                               |
 
@@ -77,7 +77,14 @@ Coinbase public crypto data needs no API key. It is a deliberate provider choice
 
 ## Background deployment
 
-Vercel retains the existing frontend/API. Do **not** start the worker from a request handler or browser effect. Its batches can outlast the current 60-second Vercel function limit.
+Vercel retains the existing frontend/API. The production integration includes a
+bounded `/api/market-brain/cron` endpoint for Supabase Cron. It processes one
+lease-protected job per invocation and stays within the function limit. Apply
+the cron migration and Vault configuration in `ONKAR_AI_PRODUCTION.md`.
+
+For higher-frequency streaming or WebSocket providers, deploy the separate
+persistent Node worker described below. Do not run an unbounded loop from a
+request handler or browser effect.
 
 Deploy a separate persistent Node service from this repository (for example a separate Railway worker service; the repository already has Railway configuration). Do not replace the existing web/API service.
 
@@ -140,7 +147,7 @@ The existing TradingView chart is unchanged. Candidate detail uses stored OHLC c
 
 ## AI and cost boundaries
 
-Only qualified, fresh candidates above the configured threshold receive automatic explanations. The deterministic scanner continues without Gemini. Daily durable reservations cap calls, including questions. Structured JSON is validated with Zod; malformed responses fail safely. Scores and risk are outside the AI response schema. Current explanations are matched to the candidate/evidence fingerprint; changed evidence does not silently reuse an old automatic explanation.
+Only qualified, fresh candidates above the configured threshold receive automatic explanations. The deterministic scanner continues without OpenAI. Daily durable reservations cap calls, including questions. Structured JSON is validated with Zod; malformed responses fail safely. Scores and risk are outside the AI response schema. Current explanations are matched to the candidate/evidence fingerprint; changed evidence does not silently reuse an old automatic explanation.
 
 Read-only tools are fixed and authenticated: market context, active candidates, rules, risk, history, journal statistics, calendar and strategy definitions. No tool accepts raw SQL, arbitrary user IDs, URLs or orders. Tool calls/model/tokens/latency/status are stored. Cost estimates remain null rather than fabricated when no pricing model is configured.
 

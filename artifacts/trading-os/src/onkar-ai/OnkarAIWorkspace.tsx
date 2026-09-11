@@ -53,15 +53,8 @@ import {
   SetupTable,
 } from "./DashboardPanels";
 import {
-  AnalyticsPage,
-  AssistantPage,
-  BacktestingPage,
   JournalPage,
-  MarketCards,
   RiskPage,
-  ScannerPage,
-  SettingsPage,
-  StrategyPage,
 } from "./WorkspacePages";
 import {
   demoSetups,
@@ -196,6 +189,21 @@ export default function OnkarAIWorkspace({
       onNavigate={navigate}
       onJournal={() => onExit("journal")}
     />
+  );
+  const connectedPanel = (initialTab: "Watchlist" | "Rules" | "Settings" | "Connections" | "Journal insights" | "Replay" = "Watchlist") => (
+    <>
+      <div className="oai-note">
+        Connected workspace · authenticated scanner data, stored strategy rules,
+        real health states and worker timestamps.
+      </div>
+      <Suspense fallback={<div className="oai-empty">Loading connected scanner…</div>}>
+        <ConnectedScanner
+          initialTab={initialTab}
+          onJournal={() => onExit("journal")}
+          journalTrades={journalTrades}
+        />
+      </Suspense>
+    </>
   );
   return (
     <div
@@ -540,35 +548,10 @@ export default function OnkarAIWorkspace({
                 </Panel>
               </div>
             </>
-          ) : segment === "scanner" ? (
-            <ScannerPage onSelect={select} />
-          ) : segment === "markets" || segment === "watchlist" ? (
-            <MarketCards
-              saved={saved}
-              onSave={save}
-              onNavigate={navigate}
-              watchlist={segment === "watchlist"}
-            />
+          ) : segment === "scanner" || segment === "markets" || segment === "watchlist" ? (
+            connectedPanel("Watchlist")
           ) : segment === "charts" ? (
-            <>
-              <div className="oai-section-intro">
-                <div className="oai-tabs">
-                  {demoSetups.slice(0, 5).map((s) => (
-                    <button
-                      key={s.id}
-                      className={s.id === selected.id ? "active" : ""}
-                      onClick={() => setSelected(s)}
-                    >
-                      {s.symbol}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="oai-command-grid">
-                <MarketChart setup={selected} expanded />
-                {analysis}
-              </div>
-            </>
+            connectedPanel("Watchlist")
           ) : segment === "setup" && detail ? (
             <>
               <div className="oai-section-intro">
@@ -634,20 +617,17 @@ export default function OnkarAIWorkspace({
               </div>
             </>
           ) : segment === "setups" || segment === "strategies" ? (
-            <StrategyPage
-              onNavigate={navigate}
-              onLibrary={() => onExit("library")}
-            />
+            connectedPanel("Rules")
           ) : segment === "journal" ? (
             <JournalPage onJournal={() => onExit("journal")} />
           ) : segment === "analytics" ? (
-            <AnalyticsPage />
+            connectedPanel("Journal insights")
           ) : segment === "assistant" ? (
-            <AssistantPage onNavigate={navigate} />
+            connectedPanel("Watchlist")
           ) : segment === "risk" ? (
             <RiskPage />
           ) : segment === "backtesting" ? (
-            <BacktestingPage onExisting={() => onExit("backtest")} />
+            connectedPanel("Replay")
           ) : segment === "news" ? (
             <>
               <div className="oai-news-banner">
@@ -664,34 +644,11 @@ export default function OnkarAIWorkspace({
               <SessionPanel />
             </>
           ) : segment === "integrations" ? (
-            <IntegrationsPanel
-              full
-              onConnect={() => navigate("/onkar-ai/connected")}
-            />
+            connectedPanel("Connections")
           ) : segment === "settings" ? (
-            <SettingsPage
-              preferences={preferences}
-              onApply={setPreferences}
-              onConnected={() => navigate("/onkar-ai/connected")}
-            />
+            connectedPanel("Settings")
           ) : segment === "connected" ? (
-            <>
-              <div className="oai-note">
-                Existing connected scanner · this panel uses your authenticated
-                data, not the design fixtures. Its original configuration and
-                functionality are preserved.
-              </div>
-              <Suspense
-                fallback={
-                  <div className="oai-empty">Loading connected scanner…</div>
-                }
-              >
-                <ConnectedScanner
-                  onJournal={() => onExit("journal")}
-                  journalTrades={journalTrades}
-                />
-              </Suspense>
-            </>
+            connectedPanel("Watchlist")
           ) : (
             <Panel>
               <div className="oai-empty">

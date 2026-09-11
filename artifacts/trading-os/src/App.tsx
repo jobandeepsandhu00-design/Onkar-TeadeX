@@ -34,6 +34,15 @@ import "./onkar-ai/onkar-ai.css";
    ============================================================ */
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const cx = (...a) => a.filter(Boolean).join(" ");
+const authenticatedPost = async (path: string, body: unknown) => {
+  const token = await getAccessToken();
+  if (!token) throw new Error("Please sign in again.");
+  return fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+};
 const parseDecimalValue = (value: unknown): number => {
   if (typeof value === "number") return value;
   return parseFloat(String(value ?? "").trim().replace(",", "."));
@@ -6074,13 +6083,9 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
         profitFactor: a.profitFactor, qualityScore: a.qualityScore,
         currency: cur,
       };
-      const res = await fetch("/api/mt-import/ai-chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const res = await authenticatedPost("/api/mt-import/ai-chat", {
           prompt: msg,
           systemPrompt: `You are Onkar's personal AI trading coach inside Onkar TradeX. Be concise (2–4 sentences), direct, and motivating. Current stats: ${JSON.stringify(stats)}.`,
-        }),
       });
       const json = await res.json();
       setAiMessages((m) => [...m, { role: "ai", text: json.response || json.error || "No response." }]);
@@ -6544,7 +6549,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
             </div>
             <div>
               <div className="text-sm font-bold text-slate-100">AI Trading Coach</div>
-              <div className="text-[10px] text-violet-400">Powered by Gemini 2.5 Flash · Free · knows your stats</div>
+              <div className="text-[10px] text-violet-400">Powered by OpenAI · uses your journal context</div>
             </div>
           </div>
           <button onClick={() => setAiOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-500">
@@ -6579,13 +6584,9 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
                         dayPnl: a.dayPnl, weekPnl: a.weekPnl, avgRR: a.avgRR,
                         profitFactor: a.profitFactor, qualityScore: a.qualityScore, currency: cur,
                       };
-                      fetch("/api/mt-import/ai-chat", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
+                      authenticatedPost("/api/mt-import/ai-chat", {
                           prompt: q,
                           systemPrompt: `You are Onkar's personal AI trading coach inside Onkar TradeX. Be concise (2–4 sentences), direct, and motivating. Current stats: ${JSON.stringify(stats)}.`,
-                        }),
                       })
                         .then((r) => r.json())
                         .then((json) => setAiMessages((m) => [...m, { role: "ai", text: json.response || json.error || "No response." }]))
@@ -13540,7 +13541,7 @@ function SettingsPanel({ data, setData }) {
                     <>
                       <div className="rounded-xl bg-violet-500/10 border border-violet-500/20 p-3 text-center mt-3 mb-4">
                         <div className="text-xl font-bold text-violet-400">{enabledCount}<span className="text-slate-500 text-sm font-normal">/{allF.length}</span></div>
-                        <div className="text-[10px] text-slate-500 mt-0.5">✨ Features Active · Powered by Gemini (Free)</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">✨ Features Active · Powered by OpenAI</div>
                       </div>
                       <div className="flex gap-2 mb-4">
                         <button onClick={() => { const p: Record<string,boolean> = {}; allF.forEach((f) => { p[f.id] = true; }); upd({ enabledFeatures: p }); }}
@@ -13554,7 +13555,7 @@ function SettingsPanel({ data, setData }) {
                       </div>
                       <div className="bg-violet-500/5 border border-violet-500/15 rounded-xl px-3 py-2 mb-3 text-[11px] text-violet-400/80 flex items-center gap-2">
                         <span>🤖</span>
-                        <span>All AI features now run on <strong>Gemini 2.5 Flash</strong> — completely free with your API key.</span>
+                        <span>AI features use <strong>OpenAI</strong> through the secure OnkarTradex server.</span>
                       </div>
                       {allF.map((f) => {
                         const on = ef[f.id] === true;
@@ -14092,7 +14093,7 @@ function OwnerPanel({ data, setData }: any) {
                     {allEnabled ? "✨ All Features Active" : `${enabledCount} / ${allF.length} Features Active`}
                   </div>
                   <div className="text-[11px] text-slate-500">
-                    Powered by Gemini 2.5 Flash · Completely Free
+                    Powered by OpenAI
                   </div>
                 </div>
               </div>
@@ -14102,7 +14103,7 @@ function OwnerPanel({ data, setData }: any) {
                     const patch: Record<string,boolean> = {};
                     allF.forEach((f) => { patch[f.id] = true; });
                     setFeaturesMap(patch);
-                    showToast("✨ All " + allF.length + " features enabled — Gemini AI is free!");
+                    showToast("✨ All " + allF.length + " OpenAI features enabled");
                   }}
                   className="py-3.5 rounded-xl font-black text-sm transition active:scale-95 text-white"
                   style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)" }}>
@@ -14124,7 +14125,7 @@ function OwnerPanel({ data, setData }: any) {
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <div className="text-sm font-bold text-slate-200">✨ All Features</div>
-                  <div className="text-[10px] text-slate-500">{enabledCount} of {allF.length} active · Gemini AI (Free)</div>
+                  <div className="text-[10px] text-slate-500">{enabledCount} of {allF.length} active · OpenAI</div>
                 </div>
                 <div className="flex gap-1.5">
                   <button onClick={() => { const p: Record<string,boolean> = {}; allF.forEach((f) => { p[f.id] = true; }); setFeaturesMap(p); showToast("✨ All features enabled"); }}
@@ -14744,7 +14745,7 @@ const FEATURES_CATALOG: FeatureDef[] = [
   { id:"pdfExport",        label:"Export PDF Report",          desc:"Professional monthly report you can print or share",          tier:"free", category:"Reporting",  icon:"📄", alreadyActive:false },
   { id:"drawdownRecovery", label:"Drawdown Recovery Tracker",  desc:"Shows exactly how long each past drawdown lasted",            tier:"free", category:"Risk",       icon:"📉", alreadyActive:true  },
   { id:"propProgress",     label:"Prop Challenge Progress",    desc:"Live tracker vs prop firm daily and total rules",             tier:"free", category:"Prop",       icon:"🏅", alreadyActive:true  },
-  /* ── AI Features — all free via Gemini ── */
+  /* ── AI Features — securely provided by the server-side OpenAI integration ── */
   { id:"aiTradeCoach",     label:"AI Trade Coach",             desc:"Reviews each trade and gives you personal feedback",          tier:"free", category:"Coaching",       icon:"🧠", alreadyActive:false },
   { id:"weeklyAIReview",   label:"Weekly AI Review",           desc:"Full written performance report generated every Sunday",       tier:"free", category:"Coaching",       icon:"📋", alreadyActive:false },
   { id:"mistakeClassifier",label:"Mistake Classifier",         desc:"Auto-tags trades as FOMO, Revenge, Early Exit, Oversize",     tier:"free", category:"Coaching",       icon:"🏷️", alreadyActive:false },
@@ -14852,11 +14853,7 @@ function getHourStats(trades: any[]) {
 
 /* ── AI Feature Panel Helpers ── */
 async function callAI(prompt: string, systemPrompt: string): Promise<string> {
-  const res = await fetch("/api/mt-import/ai-chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, systemPrompt }),
-  });
+  const res = await authenticatedPost("/api/mt-import/ai-chat", { prompt, systemPrompt });
   if (!res.ok) throw new Error("AI request failed");
   const json = await res.json();
   return json.response || "";
@@ -14950,7 +14947,7 @@ function FeatureHubPanel({ data, setData }: { data: any; setData: any }) {
   const closedTrades = (data.trades || []).filter((t: any) => computeTrade(t).result !== null);
   const activeCount = FEATURES_CATALOG.filter((f) => isEnabled(f.id, f)).length;
   const freeEnabled = FEATURES_CATALOG.filter((f) => f.tier === "free" && isEnabled(f.id, f)).length;
-  const paidEnabled = 0; // All features are now free via Gemini
+  const paidEnabled = 0;
 
   const runAI = async (id: string, prompt: string, system: string) => {
     setAiLoading(true);
@@ -15308,7 +15305,7 @@ function FeatureHubPanel({ data, setData }: { data: any; setData: any }) {
           {[
             { label:"Active Features", value:activeCount, color:"text-blue-400" },
             { label:"Enabled",         value:`${freeEnabled}/${FEATURES_CATALOG.length}`, color:"text-emerald-400" },
-            { label:"AI Engine",       value:"Gemini", color:"text-violet-400" },
+            { label:"AI Engine",       value:"OpenAI", color:"text-violet-400" },
           ].map(({label,value,color})=>(
             <div key={label} className="bg-slate-900/60 rounded-xl p-2 text-center">
               <div className={cx("text-sm font-black", color)}>{value}</div>

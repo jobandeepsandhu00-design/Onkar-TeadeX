@@ -22,7 +22,8 @@ import {
   type VersionRow,
 } from "./store";
 import { newsCheck } from "./news";
-import { GeminiExplanationProvider } from "./ai";
+import { OpenAIExplanationProvider } from "./ai";
+import { openAIConfigured } from "../lib/openai";
 import { logger } from "../lib/logger";
 
 export const fingerprint = (value: unknown) =>
@@ -118,7 +119,7 @@ async function explain(
 ) {
   const config = job.config;
   if (
-    !process.env.GEMINI_API_KEY ||
+    !openAIConfigured() ||
     candidate.score < config.aiThreshold ||
     candidate.payload.stale ||
     !config.maxAiCallsPerDay
@@ -169,7 +170,7 @@ async function explain(
   });
   const p = candidate.payload;
   try {
-    const result = await new GeminiExplanationProvider().explain({
+    const result = await new OpenAIExplanationProvider().explain({
       symbol: candidate.symbol,
       strategy: p.strategyName,
       deterministicScore: candidate.score,
@@ -208,10 +209,18 @@ async function explain(
   }
 }
 
-export async function runScannerJob(store: ScannerStore, job: ConfigRow) {
+export async function runScannerJob(
+  store: ScannerStore,
+  job: ConfigRow,
+  options: { budgetMs?: number } = {},
+) {
   const started = Date.now(),
     config = scannerConfigSchema.parse(job.config),
-    symbol = config.symbols[job.cursor % config.symbols.length];
+    symbol = config.symbols[job.cursor % config.symbols.length],
+    budgetMs = Math.max(15_000, options.budgetMs ?? 240_000),
+    warmupBudget = Math.min(100_000, budgetMs * 0.42),
+    evaluationBudget = Math.min(210_000, budgetMs * 0.72),
+    aiBudget = Math.min(130_000, budgetMs * 0.5);
   let advance = false,
     error: string | null = null;
   let health: Record<string, unknown> = {
@@ -232,7 +241,7 @@ export async function runScannerJob(store: ScannerStore, job: ConfigRow) {
       limit: "20",
     });
     for (const old of expired) {
-      if (Date.now() - started > 100_000)
+      if (Date.now() - started > warmupBudget)
         throw new Error("Expiry cleanup continues in the next worker cycle.");
       await store.rpc("commit_scanner_candidate", {
         p_config: job.id,
@@ -275,7 +284,7 @@ export async function runScannerJob(store: ScannerStore, job: ConfigRow) {
     const histories: Partial<Record<Timeframe, Candle[]>> = {};
     // Bounded resumeable warmup: fetched candles survive if this job exhausts its budget.
     for (const tf of required) {
-      if (Date.now() - started > 100_000)
+      if (Date.now() - started > warmupBudget)
         throw new Error("History warmup continues in the next worker cycle.");
       histories[tf] = await loadCandles(
         store,
@@ -295,7 +304,7 @@ export async function runScannerJob(store: ScannerStore, job: ConfigRow) {
       latencyMs: now - started,
       news: news.status,
       newsAt: news.checkedAt,
-      ai: process.env.GEMINI_API_KEY
+      ai: openAIConfigured()
         ? "configured_not_checked"
         : "unconfigured",
     };
@@ -315,7 +324,7 @@ export async function runScannerJob(store: ScannerStore, job: ConfigRow) {
     for (const version of versions) {
       // Leave headroom under the five-minute lease for one bounded database write
       // and the finally release. Persisted work is safe to revisit next cycle.
-      if (Date.now() - started > 210_000)
+      if (Date.now() - started > evaluationBudget)
         throw new Error(
           "Strategy evaluation continues in the next worker cycle.",
         );
@@ -460,7 +469,7 @@ export async function runScannerJob(store: ScannerStore, job: ConfigRow) {
         ],
         p_alert: alert,
       });
-      if (!terminal(state) && Date.now() - started < 130_000)
+      if (!terminal(state) && Date.now() - started < aiBudget)
         await explain(store, candidate, { ...job, config });
       logger.info(
         { event, candidateId: candidate.id, symbol, score: candidate.score },
@@ -497,10 +506,15 @@ export async function runScannerJob(store: ScannerStore, job: ConfigRow) {
   }
   return { symbol, success: !error, error };
 }
-export async function runNextJob(configId?: string) {
+export async function runNextJob(
+  configId?: string,
+  options: { budgetMs?: number } = {},
+) {
   const store = ScannerStore.service();
   const [job] = await store.rpc<ConfigRow[]>("claim_scanner_job", {
     p_config: configId ?? null,
   });
-  return job ? runScannerJob(store, job) : { success: true, idle: true };
+  return job
+    ? runScannerJob(store, job, options)
+    : { success: true, idle: true };
 }

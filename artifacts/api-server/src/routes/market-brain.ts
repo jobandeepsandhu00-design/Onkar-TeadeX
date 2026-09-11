@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import {
   scannerConfigSchema,
   strategyVersionSchema,
@@ -18,14 +18,22 @@ import {
   type CandidateRow,
   type VersionRow,
 } from "../market-brain/store";
-import { fingerprint, analysisFingerprint } from "../market-brain/scanner";
+import {
+  fingerprint,
+  analysisFingerprint,
+  runNextJob,
+} from "../market-brain/scanner";
 import { getMarketProvider } from "../market-brain/providers";
 import { secretHash, verifyWebhook } from "../market-brain/webhook";
 import { journalSummary } from "../market-brain/journal";
 import { accountContext } from "../market-brain/journal";
 import { backtest } from "../market-brain/backtest";
 import { ScannerTools } from "../market-brain/tools";
-import { GeminiExplanationProvider } from "../market-brain/ai";
+import { OpenAIExplanationProvider } from "../market-brain/ai";
+import {
+  openAIConfigured,
+  openAIHealth,
+} from "../lib/openai";
 
 const router: IRouter = Router();
 const requestTimes = new Map<string, number[]>();
@@ -67,6 +75,32 @@ function route(handler: (req: Request, res: Response) => Promise<unknown>) {
     }
   };
 }
+
+function validCronAuthorization(header: string | undefined) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || secret.length < 32 || !header?.startsWith("Bearer ")) return false;
+  const supplied = header.slice(7);
+  const expectedBytes = Buffer.from(secret);
+  const suppliedBytes = Buffer.from(supplied);
+  return (
+    expectedBytes.length === suppliedBytes.length &&
+    timingSafeEqual(expectedBytes, suppliedBytes)
+  );
+}
+
+const cronHandler = route(async (req, res) => {
+  if (!validCronAuthorization(req.headers.authorization))
+    throw new ScannerError("Unauthorized", 401);
+  if (process.env.SCANNER_ENABLED !== "true")
+    throw new ScannerError("Scanner background processing is disabled", 503);
+  const result = await runNextJob(undefined, { budgetMs: 48_000 });
+  res.json({ ok: true, result, checkedAt: new Date().toISOString() });
+});
+
+// Vercel Cron uses GET; Supabase Cron/pg_net uses POST. Both require the same
+// dedicated CRON_SECRET and execute one lease-protected bounded job.
+router.get("/market-brain/cron", cronHandler);
+router.post("/market-brain/cron", cronHandler);
 async function context(req: Request) {
   let identity;
   try {
@@ -172,7 +206,7 @@ router.get(
             ? runs[0].status === "succeeded"
               ? "connected"
               : runs[0].status
-            : process.env.GEMINI_API_KEY
+            : openAIConfigured()
               ? "configured_not_checked"
               : "unconfigured",
         economicCalendar:
@@ -485,6 +519,14 @@ router.get(
     res.json(await getMarketProvider(config.config.provider).healthCheck());
   }),
 );
+router.get(
+  "/market-brain/openai-health",
+  route(async (req, res) => {
+    const { identity } = await context(req);
+    rateLimit(`ai-health:${identity.userId}`, 3);
+    res.json(await openAIHealth(true));
+  }),
+);
 router.post(
   "/market-brain/chat",
   route(async (req, res) => {
@@ -496,9 +538,9 @@ router.post(
         "Choose a candidate and enter a question of 4–800 characters.",
         400,
       );
-    if (!process.env.GEMINI_API_KEY)
+    if (!openAIConfigured())
       throw new ScannerError(
-        "AI explanations need GEMINI_API_KEY on the server.",
+        "AI explanations need OPENAI_API_KEY on the server.",
       );
     const toolset = new ScannerTools(user, config),
       id = parsed.data.candidateId;
@@ -530,7 +572,7 @@ router.post(
       );
     const start = Date.now();
     try {
-      const result = await new GeminiExplanationProvider().explain({
+      const result = await new OpenAIExplanationProvider().explain({
         userQuestion: parsed.data.question,
         evidence,
       });

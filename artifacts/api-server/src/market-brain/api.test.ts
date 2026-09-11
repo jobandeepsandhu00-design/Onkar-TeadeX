@@ -21,6 +21,8 @@ test("all private scanner APIs reject anonymous requests", async () => {
       ["POST", "/market-brain/webhook-key"],
       ["POST", "/market-brain/chat"],
       ["POST", "/market-brain/backtest"],
+      ["GET", "/market-brain/cron"],
+      ["POST", "/market-brain/cron"],
     ]) {
       const response = await fetch(url + path, { method });
       assert.equal(response.status, 401, `${method} ${path}`);

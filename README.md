@@ -81,7 +81,10 @@ gh repo create src-trading-os --public --push
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key |
 | `SESSION_SECRET` | Long random value used only by the temporary legacy read service |
 | `DATABASE_URL` | Legacy PostgreSQL connection used only during the rollback window |
-| `GEMINI_API_KEY` | Gemini key for the AI import assistant |
+| `OPENAI_API_KEY` | Server-only OpenAI key for AI analysis and imports |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only scanner database key |
+| `SCANNER_ENABLED` | Set to `true` to allow scheduled scanner jobs |
+| `CRON_SECRET` | Long random secret shared with the scheduler |
 | `TWELVE_DATA_API_KEY` | Optional Twelve Data key for live backtest candles |
 | `NODE_ENV` | `production` |
 
@@ -95,6 +98,9 @@ gh repo create src-trading-os --public --push
    `{"status":"ok"}` and then add the production URL to Supabase Auth's allowed
    redirect URLs.
 
+For continuous Onkar AI setup, including Supabase Cron, see
+[`docs/ONKAR_AI_PRODUCTION.md`](docs/ONKAR_AI_PRODUCTION.md).
+
 ---
 
 ## Environment variables reference
@@ -106,7 +112,7 @@ gh repo create src-trading-os --public --push
 | `DATABASE_URL` | ✅ | PostgreSQL connection string |
 | `SESSION_SECRET` | ✅ | JWT signing secret (long random string) |
 | `PORT` | — | Default 5000 (set automatically by Railway) |
-| `GEMINI_API_KEY` | For AI import | Server-only Gemini credential |
+| `OPENAI_API_KEY` | For AI analysis/imports | Server-only OpenAI credential |
 | `TWELVE_DATA_API_KEY` | No | Server-only market data credential |
 
 ### Frontend (`artifacts/trading-os/.env`)

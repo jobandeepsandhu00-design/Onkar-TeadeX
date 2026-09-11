@@ -1,144 +1,72 @@
 import { Router, type IRouter } from "express";
-import { GoogleGenAI } from "@google/genai";
 import { logger } from "../lib/logger";
+import { getOpenAI, openAIModel } from "../lib/openai";
+import { requireSupabaseUser } from "../lib/supabase-auth";
 
 const router: IRouter = Router();
-
-function getAI() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY not configured on server");
-  return new GoogleGenAI({ apiKey });
-}
-
-const SYSTEM_PROMPT = `You are a MetaTrader 4/5 trade data extractor. The user will upload a screenshot of their MetaTrader terminal — this may be the "Trade" tab (open positions), the "History" tab (closed trades), or the "Account History" report.
-
-Extract ALL visible trades/positions from the screenshot and return them as a JSON array.
-
-For each trade return an object with these fields (use null for any field you cannot determine):
-{
-  "symbol": string,          // e.g. "EURUSD", "XAUUSD", "GBPUSD"
-  "type": string,            // "buy" or "sell"
-  "lots": number,            // lot size e.g. 0.10
-  "openPrice": number,       // entry/open price
-  "closePrice": number|null, // exit/close price (null if still open)
-  "openTime": string|null,   // ISO-style or MT4 format e.g. "2024.01.15 09:30"
-  "closeTime": string|null,  // close time or null if open
-  "profit": number|null,     // P&L in account currency (negative for loss)
-  "sl": number|null,         // stop loss price
-  "tp": number|null,         // take profit price
-  "commission": number|null, // commission charged
-  "swap": number|null,       // swap/overnight fee
-  "ticket": string|null,     // order ticket/ID number
-  "comment": string|null     // any comment shown
-}
-
-Rules:
-- Return ONLY valid JSON array, no explanation, no markdown code fences
-- If the image shows no trades, return []
-- For "buy limit", "buy stop" etc treat type as "buy"
-- For "sell limit", "sell stop" etc treat type as "sell"
-- Extract every row you can see, even partial ones`;
+const MAX_IMAGE_BASE64_CHARS = 14_000_000;
+const tradeProperties = {
+  symbol: { type: ["string", "null"] }, type: { type: ["string", "null"], enum: ["buy", "sell", null] },
+  lots: { type: ["number", "null"] }, openPrice: { type: ["number", "null"] }, closePrice: { type: ["number", "null"] },
+  openTime: { type: ["string", "null"] }, closeTime: { type: ["string", "null"] }, profit: { type: ["number", "null"] },
+  sl: { type: ["number", "null"] }, tp: { type: ["number", "null"] }, commission: { type: ["number", "null"] },
+  swap: { type: ["number", "null"] }, ticket: { type: ["string", "null"] }, comment: { type: ["string", "null"] },
+} as const;
 
 router.post("/mt-import/ocr", async (req, res): Promise<void> => {
   const { image, mimeType } = req.body as { image?: string; mimeType?: string };
-
-  if (!image || typeof image !== "string") {
-    res.status(400).json({ error: "Missing image (base64 string)" });
-    return;
-  }
-
-  let ai: GoogleGenAI;
-  try {
-    ai = getAI();
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-    return;
-  }
-
-  const imageType = (mimeType || "image/png");
+  if (!image || typeof image !== "string") { res.status(400).json({ error: "Missing image (base64 string)" }); return; }
+  if (image.length > MAX_IMAGE_BASE64_CHARS) { res.status(413).json({ error: "The screenshot is too large. Please upload an image under 10 MB." }); return; }
+  const imageType = mimeType || "image/png";
+  if (!new Set(["image/png", "image/jpeg", "image/webp"]).has(imageType)) { res.status(400).json({ error: "Unsupported screenshot type." }); return; }
 
   try {
-    req.log.info("MT import OCR request received");
-
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              inlineData: {
-                mimeType: imageType,
-                data: image,
-              },
-            },
-            {
-              text: SYSTEM_PROMPT + "\n\nExtract all trades visible in this MetaTrader screenshot and return as a JSON array.",
-            },
-          ],
-        },
-      ],
-      config: { maxOutputTokens: 8192 },
+    await requireSupabaseUser(req.headers.authorization);
+    const response = await getOpenAI().responses.create({
+      model: openAIModel(),
+      instructions: "Extract every visible MetaTrader 4/5 open or historical trade row. Use null for unknown values. Treat pending buys as buy and pending sells as sell. Never invent rows.",
+      input: [{ role: "user", content: [
+        { type: "input_text", text: "Extract all visible MetaTrader trades from this screenshot." },
+        { type: "input_image", image_url: `data:${imageType};base64,${image}`, detail: "high" },
+      ] }],
+      max_output_tokens: 5000,
+      text: { format: { type: "json_schema", name: "metatrader_trades", strict: true, schema: {
+        type: "object", additionalProperties: false, required: ["trades"], properties: { trades: { type: "array", items: {
+          type: "object", additionalProperties: false, required: Object.keys(tradeProperties), properties: tradeProperties,
+        } } },
+      } } },
     });
-
-    const raw = response.text ?? "[]";
-
-    let trades: unknown[];
-    try {
-      const cleaned = raw.replace(/```json|```/g, "").trim();
-      trades = JSON.parse(cleaned);
-      if (!Array.isArray(trades)) trades = [];
-    } catch {
-      req.log.warn({ raw }, "Failed to parse OCR JSON response");
-      trades = [];
-    }
-
-    req.log.info({ count: trades.length }, "MT import OCR complete");
+    const parsed = JSON.parse(response.output_text || "{\"trades\":[]}") as { trades?: unknown[] };
+    const trades = Array.isArray(parsed.trades) ? parsed.trades : [];
+    req.log.info({ count: trades.length, model: openAIModel() }, "OpenAI MT import OCR complete");
     res.json({ trades });
-  } catch (err: any) {
-    logger.error({ err: err.message }, "MT import OCR error");
-    res.status(500).json({ error: err.message || "OCR failed" });
+  } catch (cause) {
+    const internal = cause instanceof Error ? cause.message : "OCR failed";
+    logger.error({ err: internal }, "MT import OCR error");
+    const status = /Authentication|session/i.test(internal) ? 401 : 500;
+    res.status(status).json({ error: status === 401 ? internal : "Screenshot analysis failed. Please retry." });
   }
 });
 
 router.post("/mt-import/ai-chat", async (req, res): Promise<void> => {
   const { prompt, systemPrompt } = req.body as { prompt?: string; systemPrompt?: string };
-
-  if (!prompt || typeof prompt !== "string") {
-    res.status(400).json({ error: "Missing prompt" });
-    return;
-  }
-
-  let ai: GoogleGenAI;
+  if (!prompt || typeof prompt !== "string") { res.status(400).json({ error: "Missing prompt" }); return; }
+  if (prompt.length > 60_000 || (systemPrompt?.length || 0) > 8_000) { res.status(413).json({ error: "The AI request is too large." }); return; }
   try {
-    ai = getAI();
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-    return;
-  }
-
-  try {
-    req.log.info("AI chat request received");
-
-    const sysInstruction = systemPrompt || "You are a professional forex trading coach. Be concise and specific.";
-
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        { role: "user", parts: [{ text: prompt }] },
-      ],
-      config: {
-        maxOutputTokens: 8192,
-        systemInstruction: sysInstruction,
-      },
+    await requireSupabaseUser(req.headers.authorization);
+    const response = await getOpenAI().responses.create({
+      model: openAIModel(),
+      instructions: systemPrompt || "You are a professional trading journal coach. Be concise, educational, evidence-based, and never guarantee an outcome.",
+      input: prompt,
+      max_output_tokens: 4000,
     });
-
-    const text = response.text ?? "";
-    req.log.info("AI chat response generated");
-    res.json({ response: text });
-  } catch (err: any) {
-    logger.error({ err: err.message }, "AI chat error");
-    res.status(500).json({ error: err.message || "AI request failed" });
+    req.log.info({ model: openAIModel() }, "OpenAI coaching response generated");
+    res.json({ response: response.output_text || "" });
+  } catch (cause) {
+    const internal = cause instanceof Error ? cause.message : "AI request failed";
+    logger.error({ err: internal }, "OpenAI coaching error");
+    const status = /Authentication|session/i.test(internal) ? 401 : 500;
+    res.status(status).json({ error: status === 401 ? internal : "AI analysis failed. Please retry." });
   }
 });
 

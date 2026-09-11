@@ -14,7 +14,7 @@ import { CandidateDetail } from "./CandidateDetail";
 import { ScannerReplay } from "./ScannerReplay";
 import "./market-brain.css";
 
-type Tab =
+export type MarketBrainTab =
   | "Watchlist"
   | "Rules"
   | "Settings"
@@ -24,12 +24,14 @@ type Tab =
 export default function MarketBrain({
   onJournal,
   journalTrades = [],
+  initialTab = "Watchlist",
 }: {
   onJournal: () => void;
   journalTrades?: Array<{ id: string; symbol?: string; date?: string }>;
+  initialTab?: MarketBrainTab;
 }) {
   const [snapshot, setSnapshot] = useState<ScannerSnapshot | null>(null),
-    [tab, setTab] = useState<Tab>("Watchlist"),
+    [tab, setTab] = useState<MarketBrainTab>(initialTab),
     [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -63,6 +65,9 @@ export default function MarketBrain({
       if (!controller.signal.aborted) setLoading(false);
     }
   }, []);
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -152,7 +157,7 @@ export default function MarketBrain({
             "Connections",
             "Journal insights",
             "Replay",
-          ] as Tab[]
+          ] as MarketBrainTab[]
         ).map((t) => (
           <button key={t} aria-pressed={t === tab} onClick={() => setTab(t)}>
             {t}
@@ -418,6 +423,22 @@ export default function MarketBrain({
                   }}
                 >
                   Run real market-provider health check
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const health = await brainRequest<{
+                        status: string;
+                        model: string;
+                        message: string;
+                      }>("/openai-health");
+                      setNotice(`${health.status}: ${health.message} (${health.model})`);
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "OpenAI health check failed");
+                    }
+                  }}
+                >
+                  Verify OpenAI connection
                 </button>
                 <p>
                   Last scanner run:{" "}
