@@ -1,3 +1,23 @@
+# Latest review: Dashboard Onkar AI Entry — 2026-09-11
+
+## Captures compared
+
+- Reference: `C:\Users\joban\.codex\codex-remote-attachments\01a07180-c785-7692-9b30-a7c170f1481f\051E2672-B46F-499A-9BAF-9FCC03C45153\1-Photo-1.jpg`
+- Implementation: captured from the local Vite dashboard component preview in the Codex in-app browser on 2026-09-11.
+
+## Result
+
+- Hero hierarchy matches the reference: blue cyber-human, luminous globe, centered ONKAR AI title, concise benefit line, compact intelligence metrics, and a high-emphasis launch CTA.
+- The existing dark OnkarTradex visual system is preserved.
+- Bottom navigation now contains a dedicated Onkar AI destination with an electric-blue glow and a Lucide brain icon.
+- Hero CTA and bottom navigation both use the existing `goTo("onkar-ai")` route.
+- Scanner TypeScript check and production Vite build passed.
+- Repository-wide legacy TypeScript errors remain in unrelated pre-existing application code.
+
+final result: passed
+
+---
+
 # Latest review: Onkar AI UI — 2026-09-11
 
 ## Evidence and comparison target

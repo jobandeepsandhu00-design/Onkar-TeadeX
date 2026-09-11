@@ -15529,6 +15529,7 @@ const NAV_ITEMS = [
   { key: "home",      label: "Home",     icon: Home          },
   { key: "journal",   label: "Journal",  icon: BookOpen      },
   { key: "backtest",  label: "Backtest", icon: BarChart3     },
+  { key: "onkar-ai",  label: "Onkar AI", icon: Brain         },
   { key: "library",   label: "Library",  icon: Layers        },
   { key: "more",      label: "More",     icon: MoreHorizontal },
 ];
@@ -16232,7 +16233,8 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
               const isActive = activeTab === item.key;
               return (
                 <button key={item.key} onClick={() => goTo(item.key, undefined)}
-                  className="flex flex-col items-center justify-center gap-1 py-2.5">
+                  aria-label={item.key === "onkar-ai" ? "Launch Onkar AI" : item.label}
+                  className={cx("flex flex-col items-center justify-center gap-1 py-2.5", item.key === "onkar-ai" && "otx-bottom-ai")}>
                   <Icon size={19} style={{ color: isActive ? "var(--otx-accent,#f59e0b)" : undefined }} className={isActive ? "" : "text-slate-500"} />
                   <span className={cx("text-[10px] font-medium", isActive ? "" : "text-slate-500")}
                     style={{ color: isActive ? "var(--otx-accent,#f59e0b)" : undefined }}>{item.label}</span>
