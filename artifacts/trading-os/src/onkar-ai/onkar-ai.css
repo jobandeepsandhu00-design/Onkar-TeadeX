@@ -4508,6 +4508,24 @@
   overflow: visible;
   transform-style: preserve-3d;
 }
+.oai-agent3d,
+.oai-agent3d-fill {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.oai-agent3d-canvas,
+.oai-agent3d-poster {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.oai-agent3d-poster {
+  object-fit: cover;
+  object-position: center 27%;
+}
 .oai-robot-avatar img {
   animation: none !important;
   user-select: none;

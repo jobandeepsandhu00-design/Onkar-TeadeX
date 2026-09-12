@@ -10,11 +10,16 @@ import {
 import { motion, useInView, useReducedMotion } from "framer-motion";
 import type { AgentId } from "./agent-data";
 import { AgentMotionLayer, type AgentVisualState } from "./motion";
+import { Agent3D } from "./3d/Agent3D";
+import { getAgent3DModel } from "./3d/modelManifest";
+import type { Agent3DState } from "./3d/types";
 
 export type AgentAvatarState =
   | AgentVisualState
+  | "listening"
   | "monitoring"
   | "speaking"
+  | "warning"
   | "offline";
 
 export type AgentAvatarAsset =
@@ -331,8 +336,16 @@ export function AgentScanLayer({ agentId, state, detail }: { agentId: AgentId; s
 
 function resolveMotionState(state: AgentAvatarState): AgentVisualState {
   if (state === "monitoring") return "active";
+  if (state === "listening") return "active";
   if (state === "speaking") return "active";
+  if (state === "warning") return "alert";
   if (state === "offline") return "disabled";
+  return state;
+}
+
+function resolve3DState(state: AgentAvatarState): Agent3DState {
+  if (state === "disabled") return "offline";
+  if (state === "monitoring" || state === "active") return "idle";
   return state;
 }
 
@@ -375,6 +388,10 @@ export const AnimatedAgentAvatar = memo(function AnimatedAgentAvatar({
   const visible = useInView(rootRef, { amount: 0.16, margin: "0px" });
   const resolvedState: AgentAvatarState = isSpeaking ? "speaking" : state;
   const source = asset?.kind === "layered-raster" ? asset.src : asset?.fallbackSrc ?? image ?? "";
+  const registeredModel = getAgent3DModel(agentType);
+  const model3d = asset?.kind === "gltf"
+    ? { agentId: agentType, modelSrc: asset.src, posterSrc: asset.fallbackSrc }
+    : registeredModel;
   const geometry = { ...DEFAULT_GEOMETRY, ...GEOMETRY[agentType] };
   const geometryStyle = {
     "--robot-eye-top": geometry.eyeTop,
@@ -406,23 +423,36 @@ export const AnimatedAgentAvatar = memo(function AnimatedAgentAvatar({
       data-selected={isSelected ? "true" : "false"}
       data-visible={visible ? "true" : "false"}
       data-paused={!animated ? "true" : "false"}
-      data-renderer={asset && asset.kind !== "layered-raster" ? "layered-raster-fallback" : "layered-raster"}
+      data-renderer={model3d ? "gltf" : asset && asset.kind !== "layered-raster" ? "layered-raster-fallback" : "layered-raster"}
       data-future-asset={asset?.kind ?? "none"}
       data-gaze="center"
       data-blinking="false"
       role="img"
       aria-label={alt}
     >
-      <span className="oai-robot-stage">
-        <img className="oai-robot-base" src={source} alt="" width="720" height="720" loading={loading} decoding="async" draggable={false} />
-        <RobotBodyLayer src={source} alt={alt} animateBody={animated} quality={quality} />
-        <RobotHeadLayer src={source} animateHead={animated} state={resolvedState} quality={quality} />
-        <RobotEyeLayer agentId={agentId} />
-        <RobotMouthLayer expressive={EXPRESSIVE_AGENTS.has(agentType)} />
-        <AgentGlowLayer />
-        <AgentScanLayer agentId={agentId} state={resolveMotionState(resolvedState)} detail={quality === "featured"} />
-        <span className="oai-robot-speaking-wave" aria-hidden="true"><i /><i /><i /><i /><i /></span>
-      </span>
+      {model3d ? (
+        <Agent3D
+          className="oai-agent3d-fill"
+          agent={agentType}
+          state={resolve3DState(resolvedState)}
+          quality={quality === "featured" ? "full" : "preview"}
+          model={model3d}
+          posterSrc={model3d.posterSrc || source}
+          reducedMotion={reduce}
+          audioElement={audioElement}
+        />
+      ) : (
+        <span className="oai-robot-stage">
+          <img className="oai-robot-base" src={source} alt="" width="720" height="720" loading={loading} decoding="async" draggable={false} />
+          <RobotBodyLayer src={source} alt={alt} animateBody={animated} quality={quality} />
+          <RobotHeadLayer src={source} animateHead={animated} state={resolvedState} quality={quality} />
+          <RobotEyeLayer agentId={agentId} />
+          <RobotMouthLayer expressive={EXPRESSIVE_AGENTS.has(agentType)} />
+          <AgentGlowLayer />
+          <AgentScanLayer agentId={agentId} state={resolveMotionState(resolvedState)} detail={quality === "featured"} />
+          <span className="oai-robot-speaking-wave" aria-hidden="true"><i /><i /><i /><i /><i /></span>
+        </span>
+      )}
       {children}
     </div>
   );
