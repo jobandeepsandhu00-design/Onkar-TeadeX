@@ -99,7 +99,7 @@ async function validCronAuthorization(header: string | undefined) {
   }
 }
 
-const cronHandler = route(async (req, res) => {
+async function requireCronAuthorization(req: Request) {
   const schedulerSecret =
     typeof req.headers["x-onkar-cron-secret"] === "string"
       ? req.headers["x-onkar-cron-secret"]
@@ -111,6 +111,10 @@ const cronHandler = route(async (req, res) => {
       : undefined;
   if (!(await validCronAuthorization(authorization)))
     throw new ScannerError("Unauthorized", 401);
+}
+
+const cronHandler = route(async (req, res) => {
+  await requireCronAuthorization(req);
   if (process.env.SCANNER_ENABLED !== "true")
     throw new ScannerError("Scanner background processing is disabled", 503);
   const result = await runNextJob(undefined, { budgetMs: 48_000 });
@@ -121,6 +125,13 @@ const cronHandler = route(async (req, res) => {
 // dedicated CRON_SECRET and execute one lease-protected bounded job.
 router.get("/market-brain/cron", cronHandler);
 router.post("/market-brain/cron", cronHandler);
+router.post(
+  "/market-brain/provider-health/cron",
+  route(async (req, res) => {
+    await requireCronAuthorization(req);
+    res.json(await getMarketProvider("twelvedata").healthCheck());
+  }),
+);
 async function context(req: Request) {
   let identity;
   try {
