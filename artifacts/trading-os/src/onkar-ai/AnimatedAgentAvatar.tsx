@@ -51,16 +51,16 @@ const DEFAULT_GEOMETRY: AvatarGeometry = {
 };
 
 const GEOMETRY: Partial<Record<AgentId, Partial<AvatarGeometry>>> = {
-  master: { eyeTop: "28.3%", eyeLeft: "37.2%", eyeRight: "37.2%", eyeWidth: "9.2%", chestY: "67.4%" },
-  trend: { eyeTop: "29.4%", eyeLeft: "33.4%", eyeRight: "33.4%", eyeWidth: "14.2%", eyeHeight: "2.2%" },
-  zone: { eyeTop: "29.2%", eyeLeft: "37.6%", eyeRight: "37.6%", eyeWidth: "9.1%" },
-  setup: { eyeTop: "29%", eyeLeft: "37.5%", eyeRight: "37.5%", eyeWidth: "9%" },
-  risk: { eyeTop: "29.5%", eyeLeft: "36.7%", eyeRight: "36.7%", eyeWidth: "9.8%" },
-  news: { eyeTop: "29.6%", eyeLeft: "38%", eyeRight: "38%", eyeWidth: "8.5%" },
-  backtest: { eyeTop: "29.4%", eyeLeft: "37.2%", eyeRight: "37.2%", eyeWidth: "9.2%" },
-  journal: { eyeTop: "27.2%", eyeLeft: "37.7%", eyeRight: "37.7%", eyeWidth: "8.2%", headX: "51%", headY: "29%" },
-  insight: { eyeTop: "25.8%", eyeLeft: "38.1%", eyeRight: "38.1%", eyeWidth: "7.8%", headX: "50.5%", headY: "28%" },
-  execution: { eyeTop: "29.3%", eyeLeft: "35.5%", eyeRight: "35.5%", eyeWidth: "11%", eyeHeight: "2.2%" },
+  master: { eyeTop: "28.7%", eyeLeft: "39%", eyeRight: "37.1%", eyeWidth: "7.5%", chestY: "66.7%" },
+  trend: { eyeTop: "29.1%", eyeLeft: "33%", eyeRight: "31.5%", eyeWidth: "16.5%", eyeHeight: "2.1%" },
+  zone: { eyeTop: "28.5%", eyeLeft: "43.7%", eyeRight: "31.1%", eyeWidth: "8.2%", chestX: "60%", chestY: "72.5%" },
+  setup: { eyeTop: "27.5%", eyeLeft: "45.1%", eyeRight: "28.7%", eyeWidth: "8.1%", chestX: "61.5%", chestY: "65.5%" },
+  risk: { eyeTop: "27.6%", eyeLeft: "42.4%", eyeRight: "30.8%", eyeWidth: "9.1%", chestX: "61%", chestY: "70.4%" },
+  news: { eyeTop: "28.3%", eyeLeft: "44.1%", eyeRight: "32.1%", eyeWidth: "7.7%", headX: "54%", chestX: "61%", chestY: "68%" },
+  backtest: { eyeTop: "27.2%", eyeLeft: "43.5%", eyeRight: "31.8%", eyeWidth: "8.3%", headX: "54%", chestX: "61%", chestY: "70%" },
+  journal: { eyeTop: "29.3%", eyeLeft: "38.6%", eyeRight: "36.8%", eyeWidth: "8.5%", headX: "51%", headY: "30%", chestX: "59.5%", chestY: "69%" },
+  insight: { eyeTop: "29.2%", eyeLeft: "45.2%", eyeRight: "35.5%", eyeWidth: "6.7%", headX: "53%", headY: "29%", chestX: "52%", chestY: "70%" },
+  execution: { eyeTop: "27.3%", eyeLeft: "42.7%", eyeRight: "31.1%", eyeWidth: "9.3%", eyeHeight: "2.1%", chestX: "57.5%", chestY: "70%" },
 };
 
 const EXPRESSIVE_AGENTS = new Set<AgentId>(["insight", "journal"]);
@@ -139,6 +139,26 @@ function useAgentExpressionController({
   }, [reducedMotion, rootRef, state, visible]);
 }
 
+function useAvatarStageLayout(rootRef: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+    const update = () => {
+      const { width, height } = root.getBoundingClientRect();
+      const size = Math.max(width, height);
+      const x = (width - size) / 2;
+      const y = width > height ? (height - size) * 0.27 : 0;
+      root.style.setProperty("--robot-stage-size", `${size}px`);
+      root.style.setProperty("--robot-stage-x", `${x}px`);
+      root.style.setProperty("--robot-stage-y", `${y}px`);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [rootRef]);
+}
+
 type AudioGraph = {
   context: AudioContext;
   analyser: AnalyserNode;
@@ -204,12 +224,24 @@ export function useAudioReactiveLevel(
   }, [audioElement, enabled, targetRef]);
 }
 
-export function RobotBodyLayer({ src, alt, animateBody }: { src: string; alt: string; animateBody: boolean }) {
+export function RobotBodyLayer({
+  src,
+  alt,
+  animateBody,
+  quality,
+}: {
+  src: string;
+  alt: string;
+  animateBody: boolean;
+  quality: "featured" | "card";
+}) {
+  const lift = quality === "featured" ? -1.4 : -1;
+  const breath = quality === "featured" ? 1.01 : 1.008;
   return (
     <motion.span
       className="oai-robot-body-layer"
       aria-hidden="true"
-      animate={animateBody ? { scaleY: [1, 1.003, 1], y: [0, -0.45, 0] } : undefined}
+      animate={animateBody ? { scaleY: [1, breath, 1], y: [0, lift, 0] } : undefined}
       transition={{ duration: 5.8, repeat: Infinity, ease: "easeInOut" }}
     >
       <img src={src} alt="" draggable={false} />
@@ -220,15 +252,27 @@ export function RobotBodyLayer({ src, alt, animateBody }: { src: string; alt: st
   );
 }
 
-export function RobotHeadLayer({ src, animateHead, state }: { src: string; animateHead: boolean; state: AgentAvatarState }) {
+export function RobotHeadLayer({
+  src,
+  animateHead,
+  state,
+  quality,
+}: {
+  src: string;
+  animateHead: boolean;
+  state: AgentAvatarState;
+  quality: "featured" | "card";
+}) {
+  const turn = quality === "featured" ? 2.6 : 1.9;
+  const nod = quality === "featured" ? 1.15 : 0.8;
   const animation = useMemo(() => {
     if (!animateHead) return undefined;
-    if (state === "scanning") return { rotateY: [-1.5, 0, 1.5, 0], rotateX: [0, -0.35, 0, 0] };
-    if (state === "thinking") return { rotateY: [0, -0.6, 0.4, 0], rotateX: [0, 0.9, 0.9, 0] };
-    if (state === "speaking") return { rotateY: [-0.45, 0.5, -0.25], rotateX: [0, -0.25, 0.2] };
-    if (state === "alert") return { rotateY: [0, -0.8, 0.8, 0], rotateX: [0, -0.4, 0] };
-    return { rotateY: [-1.1, 0.9, -0.35, -1.1], rotateX: [0, 0.45, -0.2, 0] };
-  }, [animateHead, state]);
+    if (state === "scanning") return { rotateY: [-turn, 0, turn, 0], rotateX: [0, -nod * 0.45, 0, 0], x: [-1, 0, 1, 0] };
+    if (state === "thinking") return { rotateY: [0, -turn * 0.5, turn * 0.3, 0], rotateX: [0, nod, nod, 0], y: [0, 1, 1, 0] };
+    if (state === "speaking") return { rotateY: [-turn * 0.35, turn * 0.42, -turn * 0.2], rotateX: [0, -nod * 0.35, nod * 0.25], y: [0, -0.7, 0] };
+    if (state === "alert") return { rotateY: [0, -turn * 0.65, turn * 0.65, 0], rotateX: [0, -nod * 0.5, 0] };
+    return { rotateY: [-turn * 0.78, turn * 0.62, -turn * 0.25, -turn * 0.78], rotateX: [0, nod * 0.55, -nod * 0.28, 0], x: [-0.6, 0.5, 0, -0.6] };
+  }, [animateHead, nod, state, turn]);
 
   return (
     <motion.span
@@ -347,6 +391,7 @@ export const AnimatedAgentAvatar = memo(function AnimatedAgentAvatar({
   } as CSSProperties;
 
   useAgentExpressionController({ rootRef, state: resolvedState, visible, reducedMotion: reduce });
+  useAvatarStageLayout(rootRef);
   useAudioReactiveLevel(audioElement, rootRef as RefObject<HTMLElement | null>, visible && !reduce && resolvedState === "speaking");
 
   const animated = visible && !reduce && resolvedState !== "offline" && resolvedState !== "disabled";
@@ -368,14 +413,16 @@ export const AnimatedAgentAvatar = memo(function AnimatedAgentAvatar({
       role="img"
       aria-label={alt}
     >
-      <img className="oai-robot-base" src={source} alt="" width="720" height="720" loading={loading} decoding="async" draggable={false} />
-      <RobotBodyLayer src={source} alt={alt} animateBody={animated} />
-      <RobotHeadLayer src={source} animateHead={animated} state={resolvedState} />
-      <RobotEyeLayer agentId={agentId} />
-      <RobotMouthLayer expressive={EXPRESSIVE_AGENTS.has(agentType)} />
-      <AgentGlowLayer />
-      <AgentScanLayer agentId={agentId} state={resolveMotionState(resolvedState)} detail={quality === "featured"} />
-      <span className="oai-robot-speaking-wave" aria-hidden="true"><i /><i /><i /><i /><i /></span>
+      <span className="oai-robot-stage">
+        <img className="oai-robot-base" src={source} alt="" width="720" height="720" loading={loading} decoding="async" draggable={false} />
+        <RobotBodyLayer src={source} alt={alt} animateBody={animated} quality={quality} />
+        <RobotHeadLayer src={source} animateHead={animated} state={resolvedState} quality={quality} />
+        <RobotEyeLayer agentId={agentId} />
+        <RobotMouthLayer expressive={EXPRESSIVE_AGENTS.has(agentType)} />
+        <AgentGlowLayer />
+        <AgentScanLayer agentId={agentId} state={resolveMotionState(resolvedState)} detail={quality === "featured"} />
+        <span className="oai-robot-speaking-wave" aria-hidden="true"><i /><i /><i /><i /><i /></span>
+      </span>
       {children}
     </div>
   );

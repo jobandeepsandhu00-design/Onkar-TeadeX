@@ -4483,6 +4483,9 @@
    clipped character layers provide independent head, face, chest and body motion. */
 .oai-robot-avatar {
   --robot-audio-level: 0;
+  --robot-stage-size: 100%;
+  --robot-stage-x: 0px;
+  --robot-stage-y: 0px;
   position: relative;
   display: block;
   overflow: hidden;
@@ -4490,16 +4493,30 @@
   perspective: 850px;
   transform-style: preserve-3d;
   contain: layout paint style;
+  background: #030914;
+}
+.oai-robot-avatar.oai-agent-portrait {
+  position: absolute;
+}
+.oai-robot-stage {
+  position: absolute;
+  z-index: 0;
+  left: var(--robot-stage-x);
+  top: var(--robot-stage-y);
+  width: var(--robot-stage-size);
+  height: var(--robot-stage-size);
+  overflow: visible;
+  transform-style: preserve-3d;
 }
 .oai-robot-avatar img {
   animation: none !important;
   user-select: none;
   -webkit-user-drag: none;
 }
-.oai-home-agent:hover .oai-home-agent-visual > .oai-robot-base,
-.oai-home-agent:focus-visible .oai-home-agent-visual > .oai-robot-base {
-  transform: scale(1.008);
-  filter: saturate(.86) contrast(1.04) brightness(.82);
+.oai-home-agent:hover .oai-home-agent-visual .oai-robot-base,
+.oai-home-agent:focus-visible .oai-home-agent-visual .oai-robot-base {
+  transform: scale(1.012);
+  filter: saturate(.74) contrast(1.08) brightness(.48) blur(1.2px);
 }
 .oai-robot-base,
 .oai-robot-head-layer,
@@ -4517,14 +4534,16 @@
 .oai-robot-base {
   z-index: 0;
   object-fit: cover;
-  object-position: 50% 27%;
-  filter: saturate(.86) contrast(1.04) brightness(.82);
-  transform: scale(1.008);
+  object-position: center;
+  opacity: .28;
+  filter: saturate(.74) contrast(1.08) brightness(.48) blur(1.2px);
+  transform: scale(1.012);
 }
 .oai-robot-body-layer {
   z-index: 1;
   overflow: hidden;
-  clip-path: polygon(0 43%, 100% 43%, 100% 100%, 0 100%);
+  clip-path: polygon(0 38%, 100% 38%, 100% 100%, 0 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 7%, #000 100%);
   transform-origin: 50% 74%;
   will-change: transform;
 }
@@ -4538,8 +4557,8 @@
 .oai-robot-body-layer img,
 .oai-robot-head-layer img {
   object-fit: cover;
-  object-position: 50% 27%;
-  filter: saturate(1.1) contrast(1.055) brightness(1.025);
+  object-position: center;
+  filter: saturate(1.14) contrast(1.06) brightness(1.045);
 }
 .oai-robot-shoulder {
   position: absolute;
@@ -4581,8 +4600,8 @@
   transition: transform 115ms ease-in, opacity 115ms ease-in;
   animation: oai-robot-eye-energy 4.8s ease-in-out infinite;
 }
-.oai-robot-avatar[data-gaze="left"] .oai-robot-eye { translate: -1.5px 0; }
-.oai-robot-avatar[data-gaze="right"] .oai-robot-eye { translate: 1.5px 0; }
+.oai-robot-avatar[data-gaze="right"] .oai-robot-eye { translate: 2.5px 0; }
+.oai-robot-avatar[data-gaze="left"] .oai-robot-eye { translate: -2.5px 0; }
 .oai-robot-avatar[data-blinking="true"] .oai-robot-eye { background: #01050af2; }
 .oai-robot-avatar[data-blinking="true"] .oai-robot-eye b { transform: scaleY(.04); opacity: .08; transition-timing-function: ease-out; }
 .oai-robot-avatar[data-state="scanning"] .oai-robot-eye b,
@@ -4829,6 +4848,8 @@
   .oai-robot-avatar[data-quality="card"] .oai-robot-master-nodes { opacity: .58; }
   .oai-robot-avatar[data-quality="card"] .oai-robot-thinking-sweep { left: 22%; right: 22%; }
   .oai-robot-mouth { gap: 1px; }
+  .oai-robot-avatar[data-quality="card"] .oai-robot-eye { min-height: 2.5px; }
+  .oai-robot-avatar[data-quality="featured"] .oai-robot-eye { min-height: 3px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4837,7 +4858,7 @@
   .oai-robot-avatar *,
   .oai-robot-avatar::before,
   .oai-robot-avatar::after { animation: none !important; transition-duration: .01ms !important; }
-  .oai-robot-base { filter: saturate(.96) contrast(1.03) brightness(.9); }
+  .oai-robot-base { opacity: .42; filter: saturate(.9) contrast(1.03) brightness(.72); }
   .oai-robot-eye b { opacity: .7; }
   .oai-robot-chest-core { opacity: .58; }
 }
