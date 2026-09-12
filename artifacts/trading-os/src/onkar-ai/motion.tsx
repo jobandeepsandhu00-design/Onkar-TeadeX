@@ -14,8 +14,10 @@ export type AgentVisualState =
   | "active"
   | "scanning"
   | "thinking"
+  | "speaking"
   | "alert"
   | "success"
+  | "offline"
   | "disabled";
 
 export type AgentMotionId =
@@ -59,9 +61,6 @@ export const AgentMotionLayer = memo(function AgentMotionLayer({
     >
       <span className="oai-agent-aura" />
       <span className="oai-agent-platform" />
-      <span className="oai-agent-eye oai-agent-eye-left" />
-      <span className="oai-agent-eye oai-agent-eye-right" />
-      <span className="oai-agent-visor-sweep" />
       <span className="oai-agent-ring oai-agent-ring-one" />
       <span className="oai-agent-ring oai-agent-ring-two" />
       <span className="oai-agent-energy-lines">

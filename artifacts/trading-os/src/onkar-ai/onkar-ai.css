@@ -4478,3 +4478,366 @@
 @media (prefers-reduced-motion: reduce) {
   .oai-home-master-portrait > img, .oai-home-agent-visual > img, .oai-home-master-orbit, .oai-home-connected i { animation: none !important; }
 }
+
+/* Layered raster robot rig. The source portraits remain honest flat JPGs;
+   clipped character layers provide independent head, face, chest and body motion. */
+.oai-robot-avatar {
+  --robot-audio-level: 0;
+  position: relative;
+  display: block;
+  overflow: hidden;
+  isolation: isolate;
+  perspective: 850px;
+  transform-style: preserve-3d;
+  contain: layout paint style;
+}
+.oai-robot-avatar img {
+  animation: none !important;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.oai-home-agent:hover .oai-home-agent-visual > .oai-robot-base,
+.oai-home-agent:focus-visible .oai-home-agent-visual > .oai-robot-base {
+  transform: scale(1.008);
+  filter: saturate(.86) contrast(1.04) brightness(.82);
+}
+.oai-robot-base,
+.oai-robot-head-layer,
+.oai-robot-body-layer,
+.oai-robot-head-layer img,
+.oai-robot-body-layer img,
+.oai-robot-eye-layer,
+.oai-robot-glow-layer,
+.oai-robot-scan-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.oai-robot-base {
+  z-index: 0;
+  object-fit: cover;
+  object-position: 50% 27%;
+  filter: saturate(.86) contrast(1.04) brightness(.82);
+  transform: scale(1.008);
+}
+.oai-robot-body-layer {
+  z-index: 1;
+  overflow: hidden;
+  clip-path: polygon(0 43%, 100% 43%, 100% 100%, 0 100%);
+  transform-origin: 50% 74%;
+  will-change: transform;
+}
+.oai-robot-head-layer {
+  z-index: 2;
+  overflow: hidden;
+  clip-path: ellipse(var(--robot-head-rx) var(--robot-head-ry) at var(--robot-head-x) var(--robot-head-y));
+  transform-origin: var(--robot-head-x) 48%;
+  will-change: transform;
+}
+.oai-robot-body-layer img,
+.oai-robot-head-layer img {
+  object-fit: cover;
+  object-position: 50% 27%;
+  filter: saturate(1.1) contrast(1.055) brightness(1.025);
+}
+.oai-robot-shoulder {
+  position: absolute;
+  z-index: 2;
+  top: 51%;
+  width: 20%;
+  height: 12%;
+  border-radius: 50%;
+  border-top: 1px solid color-mix(in srgb, var(--agent-primary) 70%, transparent);
+  opacity: .36;
+  filter: drop-shadow(0 0 5px var(--agent-primary));
+  animation: oai-robot-shoulder-breathe 5.8s ease-in-out infinite;
+}
+.oai-robot-shoulder-left { left: 5%; transform: rotate(10deg); }
+.oai-robot-shoulder-right { right: 5%; transform: rotate(-10deg); animation-delay: -2.9s; }
+.oai-robot-eye-layer { z-index: 5; pointer-events: none; }
+.oai-robot-eye {
+  position: absolute;
+  top: var(--robot-eye-top);
+  width: var(--robot-eye-width);
+  height: var(--robot-eye-height);
+  min-height: 2px;
+  overflow: hidden;
+  border-radius: 65% 45%;
+  background: transparent;
+  transform-origin: center;
+  transition: translate 420ms cubic-bezier(.2,.7,.2,1), filter 220ms ease;
+}
+.oai-robot-eye-left { left: var(--robot-eye-left); rotate: 5deg; }
+.oai-robot-eye-right { right: var(--robot-eye-right); rotate: -5deg; }
+.oai-robot-eye b {
+  position: absolute;
+  inset: 12% 8%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, var(--agent-secondary) 28%, #fff 50%, var(--agent-primary) 72%, transparent);
+  box-shadow: 0 0 5px var(--agent-primary), 0 0 12px var(--agent-primary);
+  opacity: .78;
+  transform-origin: center;
+  transition: transform 115ms ease-in, opacity 115ms ease-in;
+  animation: oai-robot-eye-energy 4.8s ease-in-out infinite;
+}
+.oai-robot-avatar[data-gaze="left"] .oai-robot-eye { translate: -1.5px 0; }
+.oai-robot-avatar[data-gaze="right"] .oai-robot-eye { translate: 1.5px 0; }
+.oai-robot-avatar[data-blinking="true"] .oai-robot-eye { background: #01050af2; }
+.oai-robot-avatar[data-blinking="true"] .oai-robot-eye b { transform: scaleY(.04); opacity: .08; transition-timing-function: ease-out; }
+.oai-robot-avatar[data-state="scanning"] .oai-robot-eye b,
+.oai-robot-avatar[data-state="active"] .oai-robot-eye b,
+.oai-robot-avatar[data-state="speaking"] .oai-robot-eye b { opacity: 1; filter: brightness(1.28); }
+.oai-robot-avatar[data-state="alert"] .oai-robot-eye b { opacity: 1; filter: brightness(1.5) saturate(1.25); }
+.oai-robot-avatar[data-state="offline"] .oai-robot-eye,
+.oai-robot-avatar[data-state="disabled"] .oai-robot-eye { opacity: .22; filter: grayscale(1); }
+.oai-robot-thinking-sweep {
+  position: absolute;
+  z-index: 2;
+  left: 27%;
+  right: 27%;
+  top: 21%;
+  height: 22%;
+  border-radius: 50%;
+  background: linear-gradient(180deg, transparent 18%, color-mix(in srgb, var(--agent-primary) 55%, transparent), transparent 70%);
+  opacity: 0;
+  transform: translateY(-60%);
+}
+.oai-robot-avatar[data-state="thinking"] .oai-robot-thinking-sweep,
+.oai-robot-avatar[data-state="scanning"] .oai-robot-thinking-sweep {
+  animation: oai-robot-face-sweep 3.8s ease-in-out infinite;
+}
+.oai-robot-mouth {
+  position: absolute;
+  z-index: 6;
+  left: 44%;
+  top: 38.8%;
+  width: 12%;
+  height: 2.8%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  opacity: .12;
+  transform: perspective(60px) rotateX(28deg);
+}
+.oai-robot-mouth i,
+.oai-robot-speaking-wave i {
+  width: 1.5px;
+  height: 32%;
+  border-radius: 2px;
+  background: var(--agent-secondary);
+  box-shadow: 0 0 4px var(--agent-primary);
+}
+.oai-robot-avatar[data-state="speaking"] .oai-robot-mouth { opacity: .86; }
+.oai-robot-avatar[data-state="speaking"] .oai-robot-mouth i { animation: oai-robot-talk .62s ease-in-out infinite alternate; }
+.oai-robot-mouth i:nth-child(2) { animation-delay: -.18s !important; }
+.oai-robot-mouth i:nth-child(3) { animation-delay: -.41s !important; }
+.oai-robot-mouth i:nth-child(4) { animation-delay: -.27s !important; }
+.oai-robot-mouth i:nth-child(5) { animation-delay: -.5s !important; }
+.oai-robot-glow-layer { z-index: 4; pointer-events: none; }
+.oai-robot-chest-core,
+.oai-robot-chest-ring {
+  position: absolute;
+  left: var(--robot-chest-x);
+  top: var(--robot-chest-y);
+  translate: -50% -50%;
+  border-radius: 50%;
+}
+.oai-robot-chest-core {
+  width: 4.8%;
+  aspect-ratio: 1;
+  background: #eafdff;
+  box-shadow: 0 0 5px #fff, 0 0 14px var(--agent-primary), 0 0 30px var(--agent-primary);
+  opacity: .72;
+  animation: oai-robot-core-breathe 3.6s ease-in-out infinite;
+}
+.oai-robot-chest-ring {
+  width: 11%;
+  aspect-ratio: 1;
+  border: 1px solid color-mix(in srgb, var(--agent-secondary) 68%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--agent-primary) 42%, transparent), inset 0 0 8px color-mix(in srgb, var(--agent-primary) 24%, transparent);
+  opacity: .5;
+  animation: oai-robot-core-ring 5.4s linear infinite;
+}
+.oai-robot-platform-light {
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  bottom: 4%;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--agent-primary);
+  filter: blur(7px);
+  opacity: .28;
+  animation: oai-platform-pulse 3.2s ease-in-out infinite;
+}
+.oai-robot-scan-layer { z-index: 3; pointer-events: none; }
+.oai-robot-scan-layer .oai-agent-motion { z-index: 0; }
+.oai-robot-face-grid {
+  position: absolute;
+  left: 27%;
+  right: 27%;
+  top: 16%;
+  height: 30%;
+  border-radius: 44% 44% 37% 37%;
+  opacity: .12;
+  background-image: linear-gradient(#74c7ff21 1px, transparent 1px), linear-gradient(90deg, #74c7ff21 1px, transparent 1px);
+  background-size: 7px 7px;
+  mask-image: radial-gradient(ellipse, #000, transparent 72%);
+}
+.oai-robot-scan-beam {
+  position: absolute;
+  z-index: 4;
+  left: 22%;
+  right: 22%;
+  top: 13%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--agent-secondary), transparent);
+  box-shadow: 0 0 8px var(--agent-primary);
+  opacity: 0;
+}
+.oai-robot-avatar[data-state="scanning"] .oai-robot-scan-beam,
+.oai-robot-avatar[data-state="thinking"] .oai-robot-scan-beam {
+  animation: oai-robot-scan-beam 3.4s ease-in-out infinite;
+}
+.oai-robot-master-nodes {
+  position: absolute;
+  inset: 4%;
+  border-radius: 50%;
+  animation: oai-agent-orbit 16s linear infinite;
+}
+.oai-robot-master-nodes i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--agent-secondary);
+  box-shadow: 0 0 7px var(--agent-primary);
+  transform: rotate(calc(var(--node-index, 0) * 40deg)) translateY(-42%);
+}
+.oai-robot-master-nodes i:nth-child(1) { transform: rotate(0deg) translateY(-3900%); }
+.oai-robot-master-nodes i:nth-child(2) { transform: rotate(40deg) translateY(-3900%); }
+.oai-robot-master-nodes i:nth-child(3) { transform: rotate(80deg) translateY(-3900%); }
+.oai-robot-master-nodes i:nth-child(4) { transform: rotate(120deg) translateY(-3900%); }
+.oai-robot-master-nodes i:nth-child(5) { transform: rotate(160deg) translateY(-3900%); }
+.oai-robot-master-nodes i:nth-child(6) { transform: rotate(200deg) translateY(-3900%); }
+.oai-robot-master-nodes i:nth-child(7) { transform: rotate(240deg) translateY(-3900%); }
+.oai-robot-master-nodes i:nth-child(8) { transform: rotate(280deg) translateY(-3900%); }
+.oai-robot-master-nodes i:nth-child(9) { transform: rotate(320deg) translateY(-3900%); }
+.oai-robot-news-ticker {
+  position: absolute;
+  left: 8%;
+  bottom: 11%;
+  color: var(--agent-secondary);
+  font-size: clamp(4px, .52vw, 7px);
+  font-weight: 850;
+  letter-spacing: .16em;
+  white-space: nowrap;
+  opacity: .55;
+  animation: oai-robot-ticker 5.4s linear infinite;
+}
+.oai-robot-route-nodes { position: absolute; left: 12%; right: 12%; bottom: 12%; height: 1px; background: color-mix(in srgb, var(--agent-primary) 44%, transparent); }
+.oai-robot-route-nodes i { position: absolute; top: -2px; width: 5px; height: 5px; border-radius: 50%; background: var(--agent-secondary); box-shadow: 0 0 7px var(--agent-primary); animation: oai-robot-route 2.2s ease-in-out infinite; }
+.oai-robot-route-nodes i:nth-child(2) { animation-delay: -.55s; }
+.oai-robot-route-nodes i:nth-child(3) { animation-delay: -1.1s; }
+.oai-robot-route-nodes i:nth-child(4) { animation-delay: -1.65s; }
+.oai-robot-replay-track { position: absolute; left: 11%; right: 11%; bottom: 12%; height: 2px; background: #836aff42; }
+.oai-robot-replay-track i { position: absolute; top: -2px; width: 6px; height: 6px; border-radius: 50%; background: var(--agent-primary); box-shadow: 0 0 9px var(--agent-primary); animation: oai-robot-replay 3.6s ease-in-out infinite; }
+.oai-robot-speaking-wave {
+  position: absolute;
+  z-index: 7;
+  display: none;
+  align-items: center;
+  gap: 2px;
+  right: 7%;
+  top: 48%;
+  width: 28px;
+  height: 18px;
+}
+.oai-robot-avatar[data-state="speaking"] .oai-robot-speaking-wave { display: flex; }
+.oai-robot-avatar[data-state="speaking"] .oai-robot-speaking-wave i {
+  animation: oai-robot-talk .62s ease-in-out infinite alternate;
+}
+.oai-robot-speaking-wave i:nth-child(2) { animation-delay: -.2s !important; }
+.oai-robot-speaking-wave i:nth-child(3) { animation-delay: -.4s !important; }
+.oai-robot-speaking-wave i:nth-child(4) { animation-delay: -.1s !important; }
+.oai-robot-speaking-wave i:nth-child(5) { animation-delay: -.3s !important; }
+.oai-robot-avatar[data-agent="trend"] .oai-robot-eye,
+.oai-robot-avatar[data-agent="execution"] .oai-robot-eye { border-radius: 20% 70%; }
+.oai-robot-avatar[data-agent="trend"] .oai-agent-signal-path { opacity: .72; }
+.oai-robot-avatar[data-agent="zone"] .oai-agent-zone-scan { inset: 11% 6% auto; }
+.oai-robot-avatar[data-agent="risk"] .oai-agent-motif { filter: drop-shadow(0 0 8px #38e78b); }
+.oai-robot-avatar[data-agent="journal"] .oai-robot-chest-core { animation-duration: 5.6s; }
+.oai-robot-avatar[data-agent="insight"][data-state="success"] .oai-robot-eye { rotate: 0deg; border-radius: 50% 50% 70% 70%; }
+.oai-robot-avatar[data-agent="execution"] .oai-robot-route-nodes { opacity: .88; }
+.oai-robot-avatar[data-state="offline"],
+.oai-robot-avatar[data-state="disabled"] { filter: grayscale(.7) brightness(.66); }
+.oai-robot-avatar[data-selected="true"] .oai-robot-chest-ring { opacity: .88; filter: brightness(1.25); }
+.oai-robot-avatar[data-paused="true"] *,
+.oai-robot-avatar[data-visible="false"] * { animation-play-state: paused !important; }
+
+@keyframes oai-robot-eye-energy {
+  0%, 100% { opacity: .58; transform: scaleX(.86); }
+  50% { opacity: 1; transform: scaleX(1.05); }
+}
+@keyframes oai-robot-shoulder-breathe {
+  0%, 100% { translate: 0 0; opacity: .2; }
+  50% { translate: 0 -1px; opacity: .48; }
+}
+@keyframes oai-robot-core-breathe {
+  0%, 100% { transform: scale(.82); opacity: .48; }
+  50% { transform: scale(1.14); opacity: .92; }
+}
+@keyframes oai-robot-core-ring { to { rotate: 360deg; } }
+@keyframes oai-robot-face-sweep {
+  0%, 15% { opacity: 0; transform: translateY(-60%); }
+  42% { opacity: .45; }
+  72%, 100% { opacity: 0; transform: translateY(72%); }
+}
+@keyframes oai-robot-scan-beam {
+  0%, 10% { top: 15%; opacity: 0; }
+  35% { opacity: .8; }
+  80%, 100% { top: 46%; opacity: 0; }
+}
+@keyframes oai-robot-talk {
+  from { transform: scaleY(.35); opacity: .48; }
+  to { transform: scaleY(calc(1 + var(--robot-audio-level))); opacity: 1; }
+}
+@keyframes oai-robot-ticker {
+  0% { transform: translateX(55%); opacity: 0; }
+  12%, 78% { opacity: .62; }
+  100% { transform: translateX(-62%); opacity: 0; }
+}
+@keyframes oai-robot-route {
+  0% { left: 0; opacity: 0; }
+  24%, 72% { opacity: 1; }
+  100% { left: calc(100% - 5px); opacity: 0; }
+}
+@keyframes oai-robot-replay {
+  0%, 8% { left: 0; opacity: .2; }
+  72% { opacity: 1; }
+  100% { left: calc(100% - 6px); opacity: .2; }
+}
+
+@media (max-width: 650px) {
+  .oai-robot-avatar[data-quality="card"] .oai-agent-ring-two,
+  .oai-robot-avatar[data-quality="card"] .oai-robot-face-grid,
+  .oai-robot-avatar[data-quality="card"] .oai-robot-shoulder { display: none; }
+  .oai-robot-avatar[data-quality="card"] .oai-robot-master-nodes { opacity: .58; }
+  .oai-robot-avatar[data-quality="card"] .oai-robot-thinking-sweep { left: 22%; right: 22%; }
+  .oai-robot-mouth { gap: 1px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oai-robot-head-layer,
+  .oai-robot-body-layer { transform: none !important; }
+  .oai-robot-avatar *,
+  .oai-robot-avatar::before,
+  .oai-robot-avatar::after { animation: none !important; transition-duration: .01ms !important; }
+  .oai-robot-base { filter: saturate(.96) contrast(1.03) brightness(.9); }
+  .oai-robot-eye b { opacity: .7; }
+  .oai-robot-chest-core { opacity: .58; }
+}

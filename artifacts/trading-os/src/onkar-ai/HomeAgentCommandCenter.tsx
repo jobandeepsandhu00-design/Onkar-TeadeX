@@ -15,7 +15,7 @@ import {
   type AgentId,
   type AgentRuntimeSnapshot,
 } from "./agent-data";
-import { AgentMotionLayer } from "./motion";
+import { AnimatedAgentAvatar, type AgentAvatarState } from "./AnimatedAgentAvatar";
 
 type ConnectionState = "connected" | "preview" | "offline";
 
@@ -60,12 +60,17 @@ const HomeAgentCard = memo(function HomeAgentCard({
   const connected = connectionState === "connected" && Boolean(runtime);
   const primary = runtime?.primaryMetric || agent.primaryMetric;
   const secondary = runtime?.secondaryMetric || agent.secondaryMetric;
+  const avatarState: AgentAvatarState = connected
+    ? runtime?.state ?? agent.visualState
+    : connectionState === "offline"
+      ? "offline"
+      : "idle";
 
   return (
     <motion.button
       type="button"
       className={`oai-home-agent oai-agent-${agent.id}`}
-      data-state={connected ? agent.visualState : connectionState === "offline" ? "disabled" : "idle"}
+      data-state={avatarState}
       onClick={() => onNavigate(agent.destination)}
       aria-label={`Open ${agent.name} in Onkar AI`}
       initial={reduceMotion ? false : { opacity: 0.76, y: 8 }}
@@ -74,21 +79,17 @@ const HomeAgentCard = memo(function HomeAgentCard({
       whileHover={reduceMotion ? undefined : { y: -3, rotateX: 1.2, rotateY: -1.5 }}
       whileTap={reduceMotion ? undefined : { scale: 0.975 }}
     >
-      <span className="oai-home-agent-visual">
-        <img
-          src={agent.image}
-          alt={`${agent.name} robotic avatar`}
-          width="720"
-          height="720"
-          loading={index > 2 ? "lazy" : "eager"}
-          decoding="async"
-        />
-        <AgentMotionLayer
-          agent={agent.id}
-          state={connected ? agent.visualState : connectionState === "offline" ? "disabled" : "idle"}
-        />
+      <AnimatedAgentAvatar
+        className="oai-home-agent-visual"
+        agentId={agent.id}
+        state={avatarState}
+        image={agent.image}
+        alt={`${agent.name} robotic avatar`}
+        quality="card"
+        loading={index > 2 ? "lazy" : "eager"}
+      >
         <span className="oai-home-agent-icon"><Icon size={13} /></span>
-      </span>
+      </AnimatedAgentAvatar>
       <span className="oai-home-agent-copy">
         <span className="oai-home-agent-heading">
           <strong>{agent.name}</strong>
@@ -114,6 +115,11 @@ export function OnkarAIAgentCommandCenter({
   const master = AGENT_DEFINITIONS[0];
   const specialists = AGENT_DEFINITIONS.slice(1);
   const connected = connectionState === "connected" && Boolean(runtime.master);
+  const masterState: AgentAvatarState = connected
+    ? runtime.master?.state ?? master.visualState
+    : connectionState === "offline"
+      ? "offline"
+      : "idle";
   const statusCopy = connected
     ? "Agent runtime connected"
     : connectionState === "offline"
@@ -141,22 +147,22 @@ export function OnkarAIAgentCommandCenter({
 
       <motion.article
         className="oai-home-master"
-        data-state={connected ? master.visualState : connectionState === "offline" ? "disabled" : "idle"}
+        data-state={masterState}
         initial={reduceMotion ? false : { opacity: 0.8, y: 10 }}
         animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
         transition={{ duration: 0.48, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className="oai-home-master-portrait">
-          <img
-            src={master.image}
-            alt="Master AI robotic supervisor"
-            width="720"
-            height="720"
-            decoding="async"
-          />
-          <AgentMotionLayer agent="master" state={connected ? master.visualState : "idle"} detail />
+        <AnimatedAgentAvatar
+          className="oai-home-master-portrait"
+          agentId="master"
+          state={masterState}
+          image={master.image}
+          alt="Master AI robotic supervisor"
+          quality="featured"
+          loading="eager"
+        >
           <span className="oai-home-master-orbit" aria-hidden="true" />
-        </div>
+        </AnimatedAgentAvatar>
         <div className="oai-home-master-copy">
           <span className="oai-home-master-kicker"><Sparkles size={12} /> MASTER AI</span>
           <h3>Supervisor · Coordinates All Agents</h3>

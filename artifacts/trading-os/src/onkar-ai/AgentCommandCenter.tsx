@@ -12,10 +12,8 @@ import {
   DialogTitle,
 } from "../components/ui/dialog";
 import { AIButton, DemoLabel } from "./ui";
-import {
-  AgentMotionLayer,
-  AmbientCommandField,
-} from "./motion";
+import { AmbientCommandField } from "./motion";
+import { AnimatedAgentAvatar } from "./AnimatedAgentAvatar";
 import { AGENT_DEFINITIONS, type AgentDefinition } from "./agent-data";
 
 type Props = {
@@ -75,7 +73,7 @@ export function AgentCommandCenter({ onNavigate }: Props) {
               key={agent.id}
               className={`oai-agent-card oai-agent-${agent.id}`}
               style={motionStyle}
-              data-state={agent.visualState}
+              data-state="idle"
               aria-pressed={selected?.id === agent.id}
               onClick={() => setSelected(agent)}
               initial={reduceMotion ? false : { opacity: 0.78, y: 10 }}
@@ -84,16 +82,22 @@ export function AgentCommandCenter({ onNavigate }: Props) {
               whileHover={reduceMotion ? undefined : { y: -6, scale: 1.012 }}
               whileTap={reduceMotion ? undefined : { scale: 0.985 }}
             >
-              <span className="oai-agent-portrait">
-                <img src={agent.image} alt={`${agent.name} robotic avatar`} loading="lazy" />
-                <AgentMotionLayer agent={agent.id} state={agent.visualState} />
+              <AnimatedAgentAvatar
+                className="oai-agent-portrait"
+                agentId={agent.id}
+                state="idle"
+                isSelected={selected?.id === agent.id}
+                image={agent.image}
+                alt={`${agent.name} robotic avatar`}
+                loading="lazy"
+              >
                 <span className="oai-agent-face-scan" aria-hidden="true" />
                 <span className="oai-agent-orbit" aria-hidden="true" />
-              </span>
+              </AnimatedAgentAvatar>
               <span className="oai-agent-card-content">
                 <span className="oai-agent-card-topline">
                   <span className="oai-agent-icon"><Icon size={15} /></span>
-                  <span className="oai-agent-status"><i />{agent.status}</span>
+                  <span className="oai-agent-status"><i />Preview</span>
                 </span>
                 <strong>{agent.name}</strong>
                 <small>{agent.role}</small>
@@ -120,12 +124,19 @@ export function AgentCommandCenter({ onNavigate }: Props) {
         <DialogContent className={`oai-agent-dialog ${selected ? `oai-agent-${selected.id}` : ""}`}>
           {selected && (
             <div className="oai-agent-detail">
-              <div className="oai-agent-detail-visual">
-                <img src={selected.image} alt={`${selected.name} full robotic portrait`} />
-                <AgentMotionLayer agent={selected.id} state={selected.visualState} detail />
+              <AnimatedAgentAvatar
+                className="oai-agent-detail-visual"
+                agentId={selected.id}
+                state="idle"
+                isSelected
+                image={selected.image}
+                alt={`${selected.name} full robotic portrait`}
+                quality="featured"
+                loading="eager"
+              >
                 <span className="oai-agent-face-scan" aria-hidden="true" />
-                <div className="oai-agent-detail-status"><i />{selected.status}</div>
-              </div>
+                <div className="oai-agent-detail-status"><i />Preview</div>
+              </AnimatedAgentAvatar>
               <div className="oai-agent-detail-copy">
                 <DialogTitle>{selected.name}</DialogTitle>
                 <DialogDescription>{selected.role}</DialogDescription>

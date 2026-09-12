@@ -46,6 +46,7 @@ export type AgentRuntimeState =
   | "active"
   | "scanning"
   | "thinking"
+  | "speaking"
   | "monitoring"
   | "alert"
   | "success"
