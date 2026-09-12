@@ -24,8 +24,8 @@ import { SetupLibrary } from "./trade-setups/SetupLibrary";
 import { TradeSetupDashboard } from "./trade-setups/TradeSetupBoard";
 import { DashboardVideoSection, VideoLearningHub, VideoLessonPage } from "./video-lessons";
 import { mergeDashboardSections } from "./market-brain/dashboard-order";
-import { OnkarAIEntryButton } from "./onkar-ai/ui";
 const OnkarAIRecentSlider = React.lazy(() => import("./onkar-ai/RecentSlider").then(module => ({ default: module.OnkarAIRecentSlider })));
+const OnkarAIAgentCommandCenter = React.lazy(() => import("./onkar-ai/HomeAgentCommandCenter").then(module => ({ default: module.OnkarAIAgentCommandCenter })));
 const OnkarAIWorkspace = React.lazy(() => import("./onkar-ai/OnkarAIWorkspace"));
 import "./onkar-ai/onkar-ai.css";
 
@@ -6386,7 +6386,11 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
             </DashSectionLabel>
             {vis[key] !== false && sectionContent[key]}
             {key === "moolMantar" && (
-              <div className="oai"><OnkarAIEntryButton onClick={() => goTo("onkar-ai")} /></div>
+              <div className="oai">
+                <React.Suspense fallback={<div className="oai-home-command oai-home-loading">Preparing Onkar AI agents…</div>}>
+                  <OnkarAIAgentCommandCenter onNavigate={(path) => goTo("onkar-ai", path)} />
+                </React.Suspense>
+              </div>
             )}
           </React.Fragment>
         );

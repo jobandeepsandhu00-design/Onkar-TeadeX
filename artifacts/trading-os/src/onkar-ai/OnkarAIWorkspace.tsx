@@ -56,6 +56,8 @@ import {
   JournalPage,
   RiskPage,
 } from "./WorkspacePages";
+import { AgentCommandCenter } from "./AgentCommandCenter";
+import { AnimatedMetricValue, MotionReveal } from "./motion";
 import {
   demoSetups,
   price,
@@ -376,7 +378,7 @@ export default function OnkarAIWorkspace({
               </div>
               <p>
                 {segment === "dashboard"
-                  ? "Less noise. More context. A clearer view of every opportunity."
+                  ? "Ten specialist agents. One disciplined AI trading command center."
                   : "One connected workspace for markets, strategy and your trading process."}
               </p>
             </div>
@@ -389,12 +391,16 @@ export default function OnkarAIWorkspace({
                 </AIButton>
                 <button
                   className="oai-text-button"
-                  onClick={() => navigate("/onkar-ai/connected")}
+                  onClick={() =>
+                    document
+                      .getElementById("agent-network-title")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                  }
                 >
-                  Open connected system <ArrowRight size={15} />
+                  Meet the agents <ArrowRight size={15} />
                 </button>
                 <span className="oai-muted">
-                  Sample data · no background scan running here
+                  Animated interface preview · connected health stays separate
                 </span>
               </div>
             )}
@@ -445,23 +451,25 @@ export default function OnkarAIWorkspace({
                     ShieldCheck,
                     "blue",
                   ],
-                ].map(([title, value, hint, Icon, tone]) => {
+                ].map(([title, value, hint, Icon, tone], index) => {
                   const MetricIcon = Icon as typeof Globe2;
                   return (
-                    <div
+                    <MotionReveal
                       className={`oai-kpi oai-accent-${tone}`}
                       key={String(title)}
+                      delay={index * 0.055}
                     >
                       <div>
                         <span>{String(title)}</span>
                         <MetricIcon size={17} />
                       </div>
-                      <strong>{String(value)}</strong>
+                      <strong><AnimatedMetricValue value={String(value)} /></strong>
                       <small>{String(hint)}</small>
-                    </div>
+                    </MotionReveal>
                   );
                 })}
               </div>
+              <AgentCommandCenter onNavigate={navigate} />
               <div className="oai-dashboard-command">
                 <Panel
                   title="Top AI Setups"

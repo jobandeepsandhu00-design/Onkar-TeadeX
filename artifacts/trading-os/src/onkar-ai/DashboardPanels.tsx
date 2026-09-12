@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -120,6 +121,7 @@ export function SetupAnalysis({
   saved: boolean;
   onJournal: () => void;
 }) {
+  const reduceMotion = useReducedMotion();
   const checks = [
     "Higher-timeframe bias aligned",
     "Price at a key demand / supply zone",
@@ -148,15 +150,26 @@ export function SetupAnalysis({
         <span>Rule confluence</span>
         <strong>{setup.rules} / 10</strong>
         <div>
-          <i style={{ width: `${setup.rules * 10}%` }} />
+          <motion.i
+            key={`${setup.id}-${setup.rules}`}
+            initial={reduceMotion ? false : { width: 0 }}
+            animate={{ width: `${setup.rules * 10}%` }}
+            transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+          />
         </div>
       </div>
       <ul className="oai-checklist">
         {checks.map((rule, i) => (
-          <li key={rule} className={i < setup.rules - 3 ? "passed" : "missing"}>
+          <motion.li
+            key={rule}
+            className={i < setup.rules - 3 ? "passed" : "missing"}
+            initial={reduceMotion ? false : { opacity: 0.45, x: -7 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.32, delay: reduceMotion ? 0 : i * 0.055 }}
+          >
             {i < setup.rules - 3 ? <Check size={15} /> : <Clock3 size={15} />}
             <span>{rule}</span>
-          </li>
+          </motion.li>
         ))}
       </ul>
       <div className="oai-analysis-stats">
@@ -398,6 +411,7 @@ export function AlertsPanel({
 }: {
   onNavigate: (path: string) => void;
 }) {
+  const reduceMotion = useReducedMotion();
   return (
     <Panel
       title="Recent Alerts"
@@ -433,15 +447,23 @@ export function AlertsPanel({
             setupPath("aud-invalid"),
             "red",
           ],
-        ].map(([title, detail, time, path, tone]) => (
-          <button key={title} onClick={() => onNavigate(path)}>
+        ].map(([title, detail, time, path, tone], index) => (
+          <motion.button
+            key={title}
+            onClick={() => onNavigate(path)}
+            initial={reduceMotion ? false : { opacity: 0.6, x: 7 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.34, delay: reduceMotion ? 0 : index * 0.06 }}
+            whileHover={reduceMotion ? undefined : { x: 3 }}
+            whileTap={reduceMotion ? undefined : { scale: 0.99 }}
+          >
             <span className={`oai-dot oai-${tone}`} />
             <span>
               <strong>{title}</strong>
               <small>{detail}</small>
             </span>
             <time>{time}</time>
-          </button>
+          </motion.button>
         ))}
       </div>
     </Panel>

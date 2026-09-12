@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Activity, ArrowUpRight, BarChart3, Bell, BrainCircuit, ChevronRight, Target } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -84,6 +84,7 @@ export function AIScoreBadge({
     <span
       title="Sample rule confluence score, not a win probability"
       className={`oai-score ${large ? "oai-score-large" : ""} ${score >= 80 ? "oai-green" : score >= 65 ? "oai-blue" : "oai-gold"}`}
+      style={large ? ({ "--oai-score": score } as CSSProperties) : undefined}
     >
       {score}
       <small>/100</small>

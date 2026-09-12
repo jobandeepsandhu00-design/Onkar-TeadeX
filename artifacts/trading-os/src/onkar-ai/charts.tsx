@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   Area,
   AreaChart,
@@ -87,6 +88,7 @@ export function MarketChart({
   const [timeframe, setTimeframe] = useState("15m");
   const [zones, setZones] = useState(true);
   const [grid, setGrid] = useState(true);
+  const reduceMotion = useReducedMotion();
   return (
     <Panel
       className={`oai-market-chart ${expanded ? "oai-chart-expanded" : ""}`}
@@ -149,7 +151,13 @@ export function MarketChart({
           </button>
         </div>
       </div>
-      <div className="oai-chart-canvas">
+      <motion.div
+        className="oai-chart-canvas"
+        key={`${setup.id}-${timeframe}-${zones}-${grid}`}
+        initial={reduceMotion ? false : { opacity: 0.62, scale: 0.994 }}
+        animate={reduceMotion ? undefined : { opacity: 1, scale: 1 }}
+        transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+      >
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             barGap="-100%"
@@ -277,7 +285,8 @@ export function MarketChart({
             />
           </ComposedChart>
         </ResponsiveContainer>
-      </div>
+        <span className="oai-chart-radar" aria-hidden="true" />
+      </motion.div>
       <footer className="oai-chart-footer">
         <span>
           <span className="oai-dot" />
