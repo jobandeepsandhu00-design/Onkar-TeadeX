@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -25,6 +25,11 @@ import {
 import { SetupTable } from "./DashboardPanels";
 import { masterAIRequest } from "../market-brain/api";
 import type { MasterAIResponse } from "@workspace/api-zod";
+import { agentRuntime } from "./agent-runtime";
+import { agentVoice } from "./agent-voice";
+import { useAgentAnimationState } from "./useAgentAnimationState";
+import { AnimatedAgentAvatar } from "./AnimatedAgentAvatar";
+import { AgentVoiceControls } from "./AgentVoiceControls";
 type Navigate = (path: string) => void;
 export function ScannerPage({
   onSelect,
@@ -424,6 +429,15 @@ export function AnalyticsPage() {
   );
 }
 export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
+  const [speaker, setSpeaker] = useState<"master" | "insight">("master");
+  const animation = useAgentAnimationState(speaker);
+  const request = useRef<{ token: string; abort: AbortController } | null>(null);
+  const [events, setEvents] = useState<{ agent: string; state: string; timestamp: string }[]>([]);
+  useEffect(() => () => {
+    if (request.current) { request.current.abort.abort(); agentRuntime.fail(request.current.token, "Request cancelled"); request.current = null; }
+    agentRuntime.listen("master", false);
+    agentRuntime.listen("insight", false);
+  }, []);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -438,23 +452,36 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
     "Why did my last trade lose?",
   ];
   const send = async (input: string) => {
-    if (!input.trim() || loading) return;
+    if (input.trim().length < 3 || request.current) return;
+    const token = crypto.randomUUID(), abort = new AbortController();
+    request.current = { token, abort };
+    agentVoice.stop();
+    agentRuntime.begin(token);
+    setEvents([]);
     const q = input.trim();
     setMessages((m) => [...m, { role: "user", text: q }]);
     setQuestion("");
     setError("");
     setLoading(true);
-    window.dispatchEvent(new CustomEvent("onkar-ai-agent-state", { detail: { master: "thinking", insight: "thinking" } }));
     try {
-      const result = await masterAIRequest({ question: q, deepAnalysis: false });
+      const result = await masterAIRequest({ question: q, deepAnalysis: false }, AbortSignal.any([abort.signal, AbortSignal.timeout(55_000)]), (event) => {
+        if (abort.signal.aborted) return;
+        agentRuntime.event(token, event.agent, event.state);
+        setEvents((items) => [...items.slice(-39), event]);
+      });
+      if (abort.signal.aborted) return;
       setLastRun(result);
       setMessages((m) => [...m, { role: "assistant", text: result.answer }]);
-      window.dispatchEvent(new CustomEvent("onkar-ai-agent-state", { detail: result.animationStates }));
+      // Uncalled agents remain Preview; a returned report is not a permanent live connection.
+      for (const agent of result.agents) agentRuntime.event(token, agent.agent, agent.status === "complete" ? "success" : agent.status === "unavailable" ? "unavailable" : "warning");
+      agentRuntime.finish(token);
+      agentVoice.speak(speaker, result.answer, true);
     } catch (cause) {
+      if (abort.signal.aborted) return;
       setError(cause instanceof Error ? cause.message : "Master AI is temporarily unavailable.");
-      window.dispatchEvent(new CustomEvent("onkar-ai-agent-state", { detail: { master: "offline", insight: "offline" } }));
+      agentRuntime.fail(token, "Analysis unavailable");
     } finally {
-      setLoading(false);
+      if (request.current?.token === token) { request.current = null; setLoading(false); }
     }
   };
   return (
@@ -471,7 +498,8 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
         </div>
         <button
           className="oai-text-button oai-panel-link"
-          onClick={() => setMessages([])}
+          disabled={loading}
+          onClick={() => { agentVoice.stop(); setMessages([]); setLastRun(null); setEvents([]); }}
         >
           Clear conversation
         </button>
@@ -487,6 +515,10 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
         kicker="AUTHENTICATED · EVIDENCE-BASED"
         className="oai-chat-panel"
       >
+        <div className={`oai-assistant-agent-presence oai-agent-${speaker}`}>
+          <AnimatedAgentAvatar agentId={speaker} image={`/onkar-ai/agents/${speaker}.jpg`} alt={`${speaker} AI animated robot`} quality="preview" />
+          <div><label>Response voice <select aria-label="Response agent" disabled={loading} value={speaker} onChange={(event) => { agentVoice.stop(); agentRuntime.listen(speaker, false); setSpeaker(event.target.value as "master" | "insight"); }}><option value="master">Master AI</option><option value="insight">Insight AI</option></select></label><small>{animation.statusLabel}</small><small>Voice starts only when requested or auto-speak is enabled.</small></div>
+        </div>
         <div className="oai-chat-messages" aria-live="polite">
           {!messages.length ? (
             <div className="oai-chat-welcome">
@@ -521,17 +553,23 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
           <input
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
+            onFocus={() => agentRuntime.listen(speaker, true)}
+            onBlur={() => agentRuntime.listen(speaker, false)}
             maxLength={1000}
             aria-label="Ask Onkar AI"
             placeholder="Ask about your trading…"
           />
           <button
-            disabled={!question.trim() || loading}
+            disabled={question.trim().length < 3 || loading}
             aria-label="Ask Master AI"
           >
             <Send size={19} />
           </button>
         </form>
+        <AgentVoiceControls agent={speaker} text={lastRun?.answer ?? ""} label="Read response aloud" />
+        {loading && events.length > 0 && <div className="oai-command-log" aria-label="Live operational events">
+          {events.slice(-5).map((event, index) => <div key={`${event.timestamp}-${index}`}><time>{new Date(event.timestamp).toLocaleTimeString()}</time><strong>{event.agent} AI</strong><span>{event.state}</span></div>)}
+        </div>}
         {lastRun && (
           <details className="oai-command-log">
             <summary>Command log · {lastRun.agents.length} agent results · {lastRun.dataStatus}</summary>

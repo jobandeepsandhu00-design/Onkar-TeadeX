@@ -60,3 +60,18 @@ export const masterAIResponseSchema = z.object({
   animationStates: z.record(onkarAgentIdSchema, onkarAgentStateSchema),
 }).strict();
 export type MasterAIResponse = z.infer<typeof masterAIResponseSchema>;
+
+/** Operational UI events only. Never include private model reasoning or raw tool payloads. */
+export const agentProgressEventSchema = z.object({
+  type: z.literal("agent-state"),
+  runId: z.string().uuid(),
+  agent: onkarAgentIdSchema,
+  state: onkarAgentStateSchema,
+  timestamp: z.string().datetime(),
+}).strict();
+export type AgentProgressEvent = z.infer<typeof agentProgressEventSchema>;
+export const masterStreamEventSchema = z.discriminatedUnion("type", [
+  agentProgressEventSchema,
+  z.object({ type: z.literal("result"), data: masterAIResponseSchema }).strict(),
+  z.object({ type: z.literal("error"), error: z.string().max(300) }).strict(),
+]);

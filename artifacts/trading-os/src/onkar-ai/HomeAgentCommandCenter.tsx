@@ -1,5 +1,5 @@
 import { type CSSProperties, memo } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   ArrowRight,
   BrainCircuit,
@@ -16,6 +16,8 @@ import {
   type AgentRuntimeSnapshot,
 } from "./agent-data";
 import { AnimatedAgentAvatar, type AgentAvatarState } from "./AnimatedAgentAvatar";
+import { useAgentAnimationState, useReducedMotionPreference } from "./useAgentAnimationState";
+import { AgentVoiceControls } from "./AgentVoiceControls";
 
 type ConnectionState = "connected" | "preview" | "offline";
 
@@ -55,7 +57,8 @@ const HomeAgentCard = memo(function HomeAgentCard({
   onNavigate: (path: string) => void;
   index: number;
 }) {
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = useReducedMotionPreference();
+  const animation = useAgentAnimationState(agent.id);
   const Icon = agent.icon;
   const connected = connectionState === "connected" && Boolean(runtime);
   const primary = runtime?.primaryMetric || agent.primaryMetric;
@@ -93,7 +96,7 @@ const HomeAgentCard = memo(function HomeAgentCard({
       <span className="oai-home-agent-copy">
         <span className="oai-home-agent-heading">
           <strong>{agent.name}</strong>
-          <i><b />{stateLabel(agent, connectionState, runtime)}</i>
+          <i><b />{animation.confirmed || animation.isSpeaking || animation.isWorking ? animation.statusLabel : stateLabel(agent, connectionState, runtime)}</i>
         </span>
         <small>{agent.role}</small>
         <span className="oai-home-agent-metrics">
@@ -111,7 +114,8 @@ export function OnkarAIAgentCommandCenter({
   connectionState = "preview",
   runtime = {},
 }: Props) {
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = useReducedMotionPreference();
+  const animation = useAgentAnimationState("master");
   const master = AGENT_DEFINITIONS[0];
   const specialists = AGENT_DEFINITIONS.slice(1);
   const connected = connectionState === "connected" && Boolean(runtime.master);
@@ -142,7 +146,7 @@ export function OnkarAIAgentCommandCenter({
       <div className="oai-home-data-notice">
         <RadioTower size={13} />
         <span>{statusCopy}</span>
-        <b>{connected ? "10 / 10 online" : "No live status claimed"}</b>
+        <b>{connected ? "Per-agent status below" : "No live status claimed"}</b>
       </div>
 
       <motion.article
@@ -167,14 +171,15 @@ export function OnkarAIAgentCommandCenter({
           <span className="oai-home-master-kicker"><Sparkles size={12} /> MASTER AI</span>
           <h3>Supervisor · Coordinates All Agents</h3>
           <div className="oai-home-master-grid">
-            <span><small>Status</small><strong>{connected ? runtime.master?.statusLabel : "Preview"}</strong></span>
+            <span><small>Status</small><strong>{animation.confirmed || animation.isSpeaking || animation.isWorking ? animation.statusLabel : connected ? runtime.master?.statusLabel : "Preview"}</strong></span>
             <span><small>Market</small><strong>{runtime.master?.primaryMetric || "XAUUSD sample"}</strong></span>
             <span><small>Mission</small><strong>{runtime.master?.currentTask || "Evaluating example setups"}</strong></span>
-            <span><small>Specialists</small><strong>{connected ? "9 / 9 online" : "9 available"}</strong></span>
+            <span><small>Specialists</small><strong>9 available roles</strong></span>
           </div>
           <button type="button" onClick={() => onNavigate(master.destination)}>
             Open Master AI <ArrowRight size={14} />
           </button>
+          <AgentVoiceControls agent="master" text="I am Master AI. I coordinate the Onkar AI specialists. Open my workspace to ask about your recorded trades, strategy rules, and available market evidence." label="Hear Master AI" />
         </div>
       </motion.article>
 
@@ -201,7 +206,7 @@ export function OnkarAIAgentCommandCenter({
         <section className="oai-home-activity" aria-labelledby="oai-home-activity-title">
           <header>
             <div><Clock3 size={13} /><h3 id="oai-home-activity-title">Agent Activity</h3></div>
-            <span>{connected ? "LIVE" : "SAMPLE"}</span>
+            <span>SAMPLE</span>
           </header>
           <div>
             {sampleActivity.slice(0, 3).map(([agent, activity, time]) => (
@@ -214,7 +219,7 @@ export function OnkarAIAgentCommandCenter({
 
         <section className="oai-home-conclusion" aria-labelledby="oai-home-conclusion-title">
           <header><BrainCircuit size={14} /><h3 id="oai-home-conclusion-title">Master AI Conclusion</h3></header>
-          <span className="oai-home-conclusion-label">{connected ? "VERIFIED OUTPUT" : "EXAMPLE OUTPUT"}</span>
+          <span className="oai-home-conclusion-label">EXAMPLE OUTPUT</span>
           <div className="oai-home-conclusion-main">
             <div><strong>XAUUSD</strong><span>SRC Support Rejection</span></div>
             <b>91<small>/100</small></b>

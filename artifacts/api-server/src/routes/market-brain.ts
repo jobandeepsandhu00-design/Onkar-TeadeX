@@ -575,7 +575,24 @@ router.post(
         parsed.error.issues.map((issue) => issue.message).slice(0, 3).join("; "),
         400,
       );
-    res.json(await runMasterAI({ identity, user, config, input: parsed.data }));
+    if (!req.accepts("text/event-stream") || !req.get("accept")?.includes("text/event-stream")) {
+      res.json(await runMasterAI({ identity, user, config, input: parsed.data }));
+      return;
+    }
+    // Same authenticated endpoint, with optional operational progress for robot animation.
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-store, no-transform");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+    const write = (event: unknown) => {
+      if (!res.destroyed && !res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+    try {
+      const result = await runMasterAI({ identity, user, config, input: parsed.data, onProgress: write });
+      write({ type: "result", data: result });
+    } catch {
+      write({ type: "error", error: "Analysis could not finish. Please retry." });
+    } finally { res.end(); }
   }),
 );
 router.post(

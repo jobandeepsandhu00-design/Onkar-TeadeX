@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { agentResultSchema, type AgentResult, type MasterAIRequest, type MasterAIResponse, type OnkarAgentId, type OnkarAgentState } from "@workspace/api-zod";
+import { agentResultSchema, type AgentProgressEvent, type AgentResult, type MasterAIRequest, type MasterAIResponse, type OnkarAgentId, type OnkarAgentState } from "@workspace/api-zod";
 import { openAIConfigured } from "../lib/openai";
 import { journalSummary } from "../market-brain/journal";
 import { ScannerStore, records, type CandidateRow, type ConfigRow, type VersionRow } from "../market-brain/store";
@@ -48,8 +48,10 @@ function deterministicAnswer(intent: string, evidence: Record<string, unknown>) 
   return "Verified OnkarTradex data was retrieved, but the AI explanation is temporarily unavailable. No market facts or statistics were invented.";
 }
 
-export async function runMasterAI(args: { identity: Identity; user: ScannerStore; config?: ConfigRow; input: MasterAIRequest }): Promise<MasterAIResponse> {
+export async function runMasterAI(args: { identity: Identity; user: ScannerStore; config?: ConfigRow; input: MasterAIRequest; onProgress?: (event: AgentProgressEvent) => void }): Promise<MasterAIResponse> {
   const runId = randomUUID(), started = Date.now(), plan = planMasterRequest(args.input.question);
+  const progress = (agent: OnkarAgentId, state: OnkarAgentState) => args.onProgress?.({ type: "agent-state", runId, agent, state, timestamp: now() });
+  progress("master", "thinking");
   const logs: Log[] = [{ timestamp: now(), source: "USER", target: "MASTER AI", action: args.input.question, status: "received", durationMs: 0, summary: "Authenticated request received." }];
   const [source, candidates, versions] = await Promise.all([
     args.user.source(args.identity.userId),
@@ -70,8 +72,11 @@ export async function runMasterAI(args: { identity: Identity; user: ScannerStore
     approvedStrategies: versions.filter((row) => row.definition.approval === "approved").map((row) => ({ id: row.id, sourceSetupId: row.source_setup_id, name: row.name, definition: row.definition })).slice(0, 20),
     library: records(source.setups).map((row) => ({ id: row.id, name: row.name, description: row.description, direction: row.direction, timeframe: row.timeframe, rules: row.rules })).slice(0, 30) };
   const results: AgentResult[] = [];
+  progress("master", "delegating");
   for (const agent of plan.agents.filter((id) => id !== "insight")) {
     const stamp = Date.now(); let result: AgentResult;
+    // These operations retrieve/evaluate recorded evidence, not a new live market scan.
+    progress(agent, "reviewing");
     if (agent === "journal") result = envelope(agent, { statistics: compactJournal, lastTrade: lastTrade ? compactTrade(lastTrade) : null, similarTrades: compactSimilar }, ["app_state.trades"]);
     else if (agent === "trend") result = candidate ? envelope(agent, { bias: candidate.payload.marketBias, symbol: candidate.symbol, timeframe: candidate.timeframe }, ["setup_candidates", "market_candles"], [], candidate.payload.stale ? ["Market evidence is stale."] : []) : envelope(agent, {}, [], ["live market candidate"]);
     else if (agent === "zone") result = candidate ? envelope(agent, { entryZone: candidate.payload.entryZone, invalidation: candidate.payload.invalidation, targets: candidate.payload.targets }, ["setup_candidates", "market_candles"]) : envelope(agent, {}, [], ["live market candidate"]);
@@ -82,22 +87,28 @@ export async function runMasterAI(args: { identity: Identity; user: ScannerStore
     else if (agent === "execution") result = envelope(agent, { executionEnabled: false }, ["system configuration"], ["broker execution telemetry"]);
     else result = envelope(agent, {}, [], ["required evidence"]);
     results.push(result); logs.push({ timestamp: now(), source: agentRegistry[agent].name, target: "MASTER AI", action: agentRegistry[agent].description, status: result.status, durationMs: Date.now() - stamp, summary: result.missingData.length ? `Missing: ${result.missingData.join(", ")}` : "Structured evidence returned." });
+    progress(agent, result.status === "complete" ? "success" : result.status === "unavailable" ? "unavailable" : "warning");
   }
   let answer = "", model: string | null = null, inputTokens = 0, outputTokens = 0;
   if (openAIConfigured()) try {
+    progress("master", "synthesizing");
+    progress("insight", "thinking");
     logs.push({ timestamp: now(), source: "MASTER AI", target: "INSIGHT AI", action: "Synthesize verified evidence", status: "started", durationMs: 0, summary: "No private reasoning is logged." });
     const response = await synthesizeMasterAnswer({ ...data, specialistResults: results }, args.input.deepAnalysis);
     answer = response.output.answer; model = response.model; inputTokens = response.inputTokens; outputTokens = response.outputTokens;
     results.push(envelope("insight", { explanationGenerated: true }, ["verified specialist results"]));
+    progress("insight", "success");
   } catch {
     answer = deterministicAnswer(plan.intent, data); results.push(envelope("insight", {}, [], ["OpenAI explanation"], ["AI explanation temporarily unavailable."]));
+    progress("insight", "unavailable");
   } else {
     answer = deterministicAnswer(plan.intent, data); results.push(envelope("insight", {}, [], ["OpenAI explanation"]));
+    progress("insight", "unavailable");
   }
   logs.push({ timestamp: now(), source: "MASTER AI", target: "USER", action: "Synthesis completed", status: "complete", durationMs: Date.now() - started, summary: "Evidence-based response prepared." });
   const animationStates = Object.fromEntries(Object.keys(agentRegistry).map((id) => [id, "idle"])) as Record<OnkarAgentId, OnkarAgentState>;
-  for (const result of results) animationStates[result.agent] = result.status === "error" ? "warning" : result.status === "unavailable" ? "unavailable" : "success";
-  animationStates.master = "speaking";
+  for (const result of results) animationStates[result.agent] = result.status === "error" || result.status === "partial" ? "warning" : result.status === "unavailable" ? "unavailable" : "success";
+  animationStates.master = "idle"; // Speaking is controlled by actual text/audio playback in the client.
   const response: MasterAIResponse = { runId, intent: plan.intent, answer, dataStatus: results.some((row) => row.dataStatus === "verified") ? (results.some((row) => row.dataStatus !== "verified") ? "partial" : "verified") : "unavailable", agents: results, commandLog: logs, usage: { model, inputTokens, outputTokens }, animationStates };
   try {
     const service = ScannerStore.service();
@@ -105,5 +116,6 @@ export async function runMasterAI(args: { identity: Identity; user: ScannerStore
     await service.request("onkar_agent_results", {}, "POST", results.map((result) => ({ run_id: runId, user_id: args.identity.userId, agent: result.agent, status: result.status, data_status: result.dataStatus, sources: result.source, result: result.result, warnings: result.warnings, missing_data: result.missingData })), "return=minimal");
     await persistLearningEvidence(service, args.identity.userId, source);
   } catch { /* A missing migration must not hide deterministic analysis. */ }
+  progress("master", "idle");
   return response;
 }

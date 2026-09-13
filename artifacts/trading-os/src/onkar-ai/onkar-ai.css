@@ -4510,8 +4510,7 @@
   .oai-home-master-portrait > img, .oai-home-agent-visual > img, .oai-home-master-orbit, .oai-home-connected i { animation: none !important; }
 }
 
-/* Layered raster robot rig. The source portraits remain honest flat JPGs;
-   clipped character layers provide independent head, face, chest and body motion. */
+/* Layered 2D illusion, NOT a skeleton rig. Original JPG identity is retained. */
 .oai-robot-avatar {
   --robot-audio-level: 0;
   --robot-stage-size: 100%;
@@ -4848,9 +4847,61 @@
 .oai-robot-avatar[data-visible="false"] * { animation-play-state: paused !important; }
 
 @keyframes oai-robot-eye-energy {
-  0%, 100% { opacity: .58; transform: scaleX(.86); }
-  50% { opacity: 1; transform: scaleX(1.05); }
+  0%, 100% { opacity: .58; }
+  50% { opacity: 1; }
 }
+
+/* Aligned character layers. Eye shutter and glow never compete for transform. */
+.oai-robot-avatar .oai-robot-base,
+.oai-home-agent:hover .oai-home-agent-visual .oai-robot-base,
+.oai-home-agent:focus-visible .oai-home-agent-visual .oai-robot-base {
+  opacity: 1; filter: none; transform: none;
+}
+.oai-robot-avatar .oai-robot-head-layer { clip-path: var(--robot-head-clip); transform-origin: 53% 47%; }
+.oai-robot-avatar .oai-robot-head-layer img,
+.oai-robot-avatar .oai-robot-body-layer img { filter: none; transform: none; object-position: center; }
+.oai-robot-avatar .oai-robot-body-layer { clip-path: inset(49% 0 0); mask-image: linear-gradient(transparent 47%, #000 60%); }
+.oai-robot-eye-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 5; overflow: visible; pointer-events: none; }
+.oai-eye-aperture { transform: scaleY(1); transition: transform 130ms ease-in-out; transform-box: view-box; }
+.oai-robot-avatar[data-blinking="true"] .oai-eye-aperture { transform: scaleY(.025); }
+.oai-eye-luminance { fill: var(--agent-primary); opacity: .09; animation: oai-aligned-eye-light 5.6s ease-in-out infinite; }
+.oai-robot-avatar[data-gaze="left"] .oai-eye-luminance { translate: -1.2px 0; }
+.oai-robot-avatar[data-gaze="right"] .oai-eye-luminance { translate: 1.2px 0; }
+.oai-robot-avatar[data-state="scanning"] .oai-eye-luminance,
+.oai-robot-avatar[data-state="speaking"] .oai-eye-luminance { animation-duration: 1.4s; }
+.oai-robot-avatar[data-state="warning"] .oai-eye-luminance { fill: #eeb652; }
+.oai-robot-avatar[data-state="alert"] .oai-eye-luminance { fill: #f07969; }
+.oai-robot-avatar .oai-robot-chest-core,
+.oai-robot-avatar .oai-robot-chest-ring { left: var(--robot-core-x); top: var(--robot-core-y); }
+.oai-robot-avatar .oai-robot-chest-core { width: 3%; background: radial-gradient(#f5ffff80, var(--agent-primary), transparent 72%); box-shadow: 0 0 12px var(--agent-primary); animation-duration: var(--robot-breath-duration); }
+.oai-robot-avatar .oai-robot-chest-ring { width: 7%; opacity: .2; }
+.oai-robot-avatar[data-state="speaking"] .oai-robot-chest-core { animation-duration: .75s; }
+.oai-robot-avatar[data-state="success"] .oai-robot-chest-ring { animation: oai-confirm-once 1.3s ease-out both; }
+.oai-robot-avatar .oai-robot-speaking-wave { top: 45%; right: 15%; }
+.oai-robot-avatar[data-state="idle"] .oai-robot-news-ticker,
+.oai-robot-avatar[data-state="idle"] .oai-robot-route-nodes,
+.oai-robot-avatar[data-state="idle"] .oai-robot-replay-track { opacity: .18; animation-play-state: paused; }
+.oai-robot-avatar[data-paused="true"] *, .oai-robot-avatar[data-visible="false"] * { animation-play-state: paused !important; will-change: auto; }
+.oai-robot-avatar[data-reduced-motion="true"] *,
+.oai-robot-avatar[data-animation-tier="thumbnail"] * { animation: none !important; transition: none !important; }
+.oai-robot-avatar[data-reduced-motion="true"] .oai-robot-head-layer,
+.oai-robot-avatar[data-reduced-motion="true"] .oai-robot-body-layer { transform: none !important; }
+.oai-robot-avatar[data-reduced-motion="true"] .oai-eye-aperture { transform: none !important; }
+.oai-voice-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 12px; color: #a6b9d2; font-size: 12px; }
+.oai-voice-controls button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; }
+.oai-voice-controls button:disabled { opacity: .5; cursor: default; }
+.oai-voice-controls summary { cursor: pointer; padding: 8px 0; }
+.oai-voice-controls details { flex-basis: 100%; }
+.oai-voice-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 12px; padding: 12px; border: 1px solid #253850; border-radius: 10px; }
+.oai-voice-settings label { display: flex; align-items: center; gap: 8px; }
+.oai-voice-settings input { accent-color: #49c9ff; max-width: 130px; }
+.oai-voice-settings select { background: #0a172a; color: #d9eaff; border: 1px solid #30455d; border-radius: 6px; padding: 5px; }
+.oai-voice-settings small { grid-column: 1 / -1; }
+.oai-assistant-agent-presence { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.oai-assistant-agent-presence .oai-robot-avatar { flex: 0 0 96px; width: 96px; height: 106px; border-radius: 14px; border: 1px solid #2e5587; }
+.oai-assistant-agent-presence small { display: block; color: #9daec5; margin-top: 6px; }
+@keyframes oai-aligned-eye-light { 0%,100% { opacity: .025; } 50% { opacity: .24; } }
+@keyframes oai-confirm-once { 0% { scale: .8; opacity: .8; } 100% { scale: 1.5; opacity: 0; } }
 @keyframes oai-robot-shoulder-breathe {
   0%, 100% { translate: 0 0; opacity: .2; }
   50% { translate: 0 -1px; opacity: .48; }

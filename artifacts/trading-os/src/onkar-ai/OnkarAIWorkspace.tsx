@@ -58,6 +58,7 @@ import {
   RiskPage,
 } from "./WorkspacePages";
 import { AgentCommandCenter } from "./AgentCommandCenter";
+import { AgentWorkspacePresence } from "./AgentWorkspacePresence";
 import { AnimatedMetricValue, MotionReveal } from "./motion";
 import {
   demoSetups,
@@ -406,6 +407,7 @@ export default function OnkarAIWorkspace({
               </div>
             )}
           </section>
+          <AgentWorkspacePresence section={segment} />
           {segment === "dashboard" ? (
             <>
               <div className="oai-kpi-grid">

@@ -6,13 +6,16 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useId,
 } from "react";
-import { motion, useInView, useReducedMotion } from "framer-motion";
+import { motion, useInView } from "framer-motion";
 import type { AgentId } from "./agent-data";
 import { AgentMotionLayer, type AgentVisualState } from "./motion";
 import { Agent3D } from "./3d/Agent3D";
 import { getAgent3DModel } from "./3d/modelManifest";
 import type { Agent3DState } from "./3d/types";
+import { ROBOT_PROFILES } from "./robot-profiles";
+import { useAgentAnimationState, useDocumentVisible, useReducedMotionPreference } from "./useAgentAnimationState";
 
 export type AgentAvatarState =
   | AgentVisualState
@@ -68,7 +71,8 @@ const GEOMETRY: Partial<Record<AgentId, Partial<AvatarGeometry>>> = {
   execution: { eyeTop: "27.3%", eyeLeft: "42.7%", eyeRight: "31.1%", eyeWidth: "9.3%", eyeHeight: "2.1%", chestX: "57.5%", chestY: "70%" },
 };
 
-const EXPRESSIVE_AGENTS = new Set<AgentId>(["insight", "journal"]);
+// Current expressive portraits have painted mouths, not articulated faces.
+// Use the adjacent speech waveform until a real face rig is registered.
 
 function randomBetween(min: number, max: number) {
   return min + Math.random() * (max - min);
@@ -92,7 +96,7 @@ function useAgentExpressionController({
     let timeout = 0;
     let cancelled = false;
     const schedule = () => {
-      const delay = randomBetween(state === "scanning" ? 2800 : 3200, state === "scanning" ? 5200 : 7000);
+      const delay = randomBetween(3000, 7000);
       timeout = window.setTimeout(() => {
         if (cancelled) return;
         const closeTime = randomBetween(100, 180);
@@ -111,7 +115,7 @@ function useAgentExpressionController({
               schedule();
             }, randomBetween(100, 160));
           }, randomBetween(120, 210));
-        }, closeTime);
+        }, closeTime + 45);
       }, delay);
     };
     schedule();
@@ -240,16 +244,16 @@ export function RobotBodyLayer({
   animateBody: boolean;
   quality: "featured" | "card";
 }) {
-  const lift = quality === "featured" ? -1.4 : -1;
-  const breath = quality === "featured" ? 1.01 : 1.008;
+  const lift = quality === "featured" ? -0.45 : -0.2;
+  const breath = 1.003;
   return (
     <motion.span
       className="oai-robot-body-layer"
       aria-hidden="true"
-      animate={animateBody ? { scaleY: [1, breath, 1], y: [0, lift, 0] } : undefined}
+      animate={animateBody ? { scaleY: [1, breath, 1], y: [0, lift, 0] } : { scaleY: 1, y: 0 }}
       transition={{ duration: 5.8, repeat: Infinity, ease: "easeInOut" }}
     >
-      <img src={src} alt="" draggable={false} />
+      <img src={src} alt="" loading="lazy" decoding="async" draggable={false} />
       <i className="oai-robot-shoulder oai-robot-shoulder-left" />
       <i className="oai-robot-shoulder oai-robot-shoulder-right" />
       <span className="sr-only">{alt}</span>
@@ -262,16 +266,18 @@ export function RobotHeadLayer({
   animateHead,
   state,
   quality,
+  children,
 }: {
   src: string;
   animateHead: boolean;
   state: AgentAvatarState;
   quality: "featured" | "card";
+  children?: ReactNode;
 }) {
-  const turn = quality === "featured" ? 2.6 : 1.9;
-  const nod = quality === "featured" ? 1.15 : 0.8;
+  const turn = quality === "featured" ? 1.5 : 0.8;
+  const nod = quality === "featured" ? 0.7 : 0.4;
   const animation = useMemo(() => {
-    if (!animateHead) return undefined;
+    if (!animateHead) return { rotateX: 0, rotateY: 0, x: 0, y: 0 };
     if (state === "scanning") return { rotateY: [-turn, 0, turn, 0], rotateX: [0, -nod * 0.45, 0, 0], x: [-1, 0, 1, 0] };
     if (state === "thinking") return { rotateY: [0, -turn * 0.5, turn * 0.3, 0], rotateX: [0, nod, nod, 0], y: [0, 1, 1, 0] };
     if (state === "speaking") return { rotateY: [-turn * 0.35, turn * 0.42, -turn * 0.2], rotateX: [0, -nod * 0.35, nod * 0.25], y: [0, -0.7, 0] };
@@ -286,18 +292,27 @@ export function RobotHeadLayer({
       animate={animation}
       transition={{ duration: state === "scanning" ? 5.2 : state === "speaking" ? 2.6 : 7.4, repeat: Infinity, ease: "easeInOut" }}
     >
-      <img src={src} alt="" draggable={false} />
+      <img src={src} alt="" loading="lazy" decoding="async" draggable={false} />
+      {children}
     </motion.span>
   );
 }
 
-export function RobotEyeLayer({ agentId }: { agentId: AgentId }) {
+export function RobotEyeLayer({ agentId, src }: { agentId: AgentId; src: string }) {
+  const id = useId().replace(/:/g, "");
   return (
-    <span className="oai-robot-eye-layer" data-eye-profile={agentId} aria-hidden="true">
-      <i className="oai-robot-eye oai-robot-eye-left"><b /></i>
-      <i className="oai-robot-eye oai-robot-eye-right"><b /></i>
-      <span className="oai-robot-thinking-sweep" />
-    </span>
+    <svg className="oai-robot-eye-svg" viewBox="0 0 720 720" aria-hidden="true" data-eye-profile={agentId}>
+      {ROBOT_PROFILES[agentId].eyes.map((eye, index) => <g key={index}>
+        <defs><clipPath id={`${id}-eye-${index}`}><path d={eye.path} /></clipPath></defs>
+        <g clipPath={`url(#${id}-eye-${index})`}>
+          <path d={eye.path} fill="#071019" />
+          <g className="oai-eye-aperture" style={{ transformOrigin: `${eye.center[0]}px ${eye.center[1]}px` }}>
+            <image href={src} width="720" height="720" />
+            <path className="oai-eye-luminance" d={eye.path} />
+          </g>
+        </g>
+      </g>)}
+    </svg>
   );
 }
 
@@ -352,14 +367,15 @@ function resolve3DState(state: AgentAvatarState): Agent3DState {
 type AnimatedAgentAvatarProps = {
   agentId: AgentId;
   agentType?: AgentId;
-  state: AgentAvatarState;
+  state?: AgentAvatarState;
   isSpeaking?: boolean;
   isSelected?: boolean;
   reducedMotion?: boolean;
   image?: string;
   asset?: AgentAvatarAsset;
   alt: string;
-  quality?: "featured" | "card";
+  quality?: "featured" | "card" | "thumbnail" | "preview" | "full";
+  visible?: boolean;
   loading?: "eager" | "lazy";
   className?: string;
   audioElement?: HTMLMediaElement | null;
@@ -381,12 +397,17 @@ export const AnimatedAgentAvatar = memo(function AnimatedAgentAvatar({
   className = "",
   audioElement,
   children,
+  visible: suppliedVisible = true,
 }: AnimatedAgentAvatarProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const systemReducedMotion = useReducedMotion();
-  const reduce = reducedMotion ?? Boolean(systemReducedMotion);
-  const visible = useInView(rootRef, { amount: 0.16, margin: "0px" });
-  const resolvedState: AgentAvatarState = isSpeaking ? "speaking" : state;
+  const systemReducedMotion = useReducedMotionPreference();
+  const reduce = Boolean(reducedMotion || systemReducedMotion);
+  const inView = useInView(rootRef, { amount: 0.16, margin: "0px" });
+  const documentVisible = useDocumentVisible();
+  const visible = inView && documentVisible && suppliedVisible;
+  const runtime = useAgentAnimationState(agentId);
+  const resolvedState: AgentAvatarState = runtime.isSpeaking || isSpeaking ? "speaking" : runtime.confirmed || runtime.state === "listening" || runtime.isWorking ? runtime.state : state ?? "idle";
+  const renderQuality = quality === "full" || quality === "featured" ? "featured" : "card";
   const source = asset?.kind === "layered-raster" ? asset.src : asset?.fallbackSrc ?? image ?? "";
   const registeredModel = getAgent3DModel(agentType);
   const model3d = asset?.kind === "gltf"
@@ -405,13 +426,17 @@ export const AnimatedAgentAvatar = memo(function AnimatedAgentAvatar({
     "--robot-head-ry": geometry.headRadiusY,
     "--robot-chest-x": geometry.chestX,
     "--robot-chest-y": geometry.chestY,
+    "--robot-head-clip": ROBOT_PROFILES[agentType].head,
+    "--robot-core-x": `${ROBOT_PROFILES[agentType].chest[0] / 7.2}%`,
+    "--robot-core-y": `${ROBOT_PROFILES[agentType].chest[1] / 7.2}%`,
+    "--robot-breath-duration": `${ROBOT_PROFILES[agentType].breath}s`,
   } as CSSProperties;
 
-  useAgentExpressionController({ rootRef, state: resolvedState, visible, reducedMotion: reduce });
+  useAgentExpressionController({ rootRef, state: resolvedState, visible: visible && quality !== "thumbnail", reducedMotion: reduce });
   useAvatarStageLayout(rootRef);
   useAudioReactiveLevel(audioElement, rootRef as RefObject<HTMLElement | null>, visible && !reduce && resolvedState === "speaking");
 
-  const animated = visible && !reduce && resolvedState !== "offline" && resolvedState !== "disabled";
+  const animated = visible && !reduce && quality !== "thumbnail" && resolvedState !== "offline" && resolvedState !== "disabled";
   return (
     <div
       ref={rootRef}
@@ -419,7 +444,9 @@ export const AnimatedAgentAvatar = memo(function AnimatedAgentAvatar({
       style={geometryStyle}
       data-agent={agentType}
       data-state={resolvedState}
-      data-quality={quality}
+      data-quality={renderQuality}
+      data-reduced-motion={reduce ? "true" : "false"}
+      data-animation-tier={quality}
       data-selected={isSelected ? "true" : "false"}
       data-visible={visible ? "true" : "false"}
       data-paused={!animated ? "true" : "false"}
@@ -430,12 +457,12 @@ export const AnimatedAgentAvatar = memo(function AnimatedAgentAvatar({
       role="img"
       aria-label={alt}
     >
-      {model3d ? (
+      {model3d && quality !== "thumbnail" ? (
         <Agent3D
           className="oai-agent3d-fill"
           agent={agentType}
           state={resolve3DState(resolvedState)}
-          quality={quality === "featured" ? "full" : "preview"}
+          quality={renderQuality === "featured" ? "full" : "preview"}
           model={model3d}
           posterSrc={model3d.posterSrc || source}
           reducedMotion={reduce}
@@ -444,12 +471,13 @@ export const AnimatedAgentAvatar = memo(function AnimatedAgentAvatar({
       ) : (
         <span className="oai-robot-stage">
           <img className="oai-robot-base" src={source} alt="" width="720" height="720" loading={loading} decoding="async" draggable={false} />
-          <RobotBodyLayer src={source} alt={alt} animateBody={animated} quality={quality} />
-          <RobotHeadLayer src={source} animateHead={animated} state={resolvedState} quality={quality} />
-          <RobotEyeLayer agentId={agentId} />
-          <RobotMouthLayer expressive={EXPRESSIVE_AGENTS.has(agentType)} />
+          <RobotBodyLayer src={source} alt={alt} animateBody={animated} quality={renderQuality} />
+          <RobotHeadLayer src={source} animateHead={animated} state={resolvedState} quality={renderQuality}>
+            <RobotEyeLayer agentId={agentType} src={source} />
+            <span className="oai-robot-thinking-sweep" />
+          </RobotHeadLayer>
           <AgentGlowLayer />
-          <AgentScanLayer agentId={agentId} state={resolveMotionState(resolvedState)} detail={quality === "featured"} />
+          <AgentScanLayer agentId={agentId} state={resolveMotionState(resolvedState)} detail={renderQuality === "featured"} />
           <span className="oai-robot-speaking-wave" aria-hidden="true"><i /><i /><i /><i /><i /></span>
         </span>
       )}

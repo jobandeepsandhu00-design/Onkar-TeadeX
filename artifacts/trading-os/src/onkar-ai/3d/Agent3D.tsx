@@ -6,7 +6,8 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from "react";
-import { useInView, useReducedMotion } from "framer-motion";
+import { useInView } from "framer-motion";
+import { useDocumentVisible, useReducedMotionPreference } from "../useAgentAnimationState";
 import { useRef } from "react";
 import { getAgent3DModel } from "./modelManifest";
 import type { Agent3DFallbackReason, Agent3DProps } from "./types";
@@ -52,12 +53,13 @@ export function Agent3D({
   onFallback,
 }: Agent3DProps) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const systemReducedMotion = useReducedMotion();
-  const reduce = reducedMotion ?? Boolean(systemReducedMotion);
+  const systemReducedMotion = useReducedMotionPreference();
+  const documentVisible = useDocumentVisible();
+  const reduce = Boolean(reducedMotion || systemReducedMotion);
   const inView = useInView(hostRef, { amount: 0.15, margin: "120px" });
   const webgl = useWebGLSupport();
   const model = suppliedModel ?? getAgent3DModel(agent);
-  const budgetGranted = use3DRendererBudget(Boolean(model) && inView && webgl === "supported" && quality !== "thumbnail");
+  const budgetGranted = use3DRendererBudget(Boolean(model) && documentVisible && inView && webgl === "supported" && quality !== "thumbnail");
 
   const poster = (
     <img
@@ -74,7 +76,7 @@ export function Agent3D({
   if (quality === "thumbnail") reason = "thumbnail";
   else if (!model) reason = "model-unavailable";
   else if (webgl === "unsupported") reason = "webgl-unavailable";
-  else if (!inView) reason = "offscreen";
+  else if (!inView || !documentVisible) reason = "offscreen";
   else if (webgl === "supported" && !budgetGranted) reason = "renderer-budget";
 
   useEffect(() => {

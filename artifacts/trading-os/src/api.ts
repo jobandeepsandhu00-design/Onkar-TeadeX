@@ -80,6 +80,7 @@ export async function register(email: string, password: string) {
 }
 
 export async function logout() {
+  window.dispatchEvent(new Event("onkar-session-ended"));
   const { error } = await supabase.auth.signOut({ scope: "local" });
   for (const store of [localStorage, sessionStorage]) {
     const authKeys = Array.from({ length: store.length }, (_, index) => store.key(index))
