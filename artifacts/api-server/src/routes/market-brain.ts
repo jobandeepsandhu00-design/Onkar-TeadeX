@@ -5,6 +5,7 @@ import {
   strategyVersionSchema,
   scannerChatSchema,
   backtestRequestSchema,
+  masterAIRequestSchema,
   timeframeMs,
   type Candle,
   type Timeframe,
@@ -34,6 +35,8 @@ import {
   openAIConfigured,
   openAIHealth,
 } from "../lib/openai";
+import { runMasterAI } from "../onkar-ai/orchestrator";
+import { runNextLearningJob } from "../onkar-ai/learning-worker";
 
 const router: IRouter = Router();
 const requestTimes = new Map<string, number[]>();
@@ -117,8 +120,11 @@ const cronHandler = route(async (req, res) => {
   await requireCronAuthorization(req);
   if (process.env.SCANNER_ENABLED !== "true")
     throw new ScannerError("Scanner background processing is disabled", 503);
-  const result = await runNextJob(undefined, { budgetMs: 48_000 });
-  res.json({ ok: true, result, checkedAt: new Date().toISOString() });
+  const [result, learning] = await Promise.all([
+    runNextJob(undefined, { budgetMs: 48_000 }),
+    runNextLearningJob(),
+  ]);
+  res.json({ ok: true, result, learning, checkedAt: new Date().toISOString() });
 });
 
 // Vercel Cron uses GET; Supabase Cron/pg_net uses POST. Both require the same
@@ -556,6 +562,20 @@ router.get(
     const { identity } = await context(req);
     rateLimit(`ai-health:${identity.userId}`, 3);
     res.json(await openAIHealth(true));
+  }),
+);
+router.post(
+  "/onkar-ai/master",
+  route(async (req, res) => {
+    const { identity, user, config } = await context(req);
+    rateLimit(`master:${identity.userId}`, 12);
+    const parsed = masterAIRequestSchema.safeParse(req.body);
+    if (!parsed.success)
+      throw new ScannerError(
+        parsed.error.issues.map((issue) => issue.message).slice(0, 3).join("; "),
+        400,
+      );
+    res.json(await runMasterAI({ identity, user, config, input: parsed.data }));
   }),
 );
 router.post(

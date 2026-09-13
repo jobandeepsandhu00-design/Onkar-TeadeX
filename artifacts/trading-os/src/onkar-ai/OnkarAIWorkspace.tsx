@@ -53,6 +53,7 @@ import {
   SetupTable,
 } from "./DashboardPanels";
 import {
+  AssistantPage,
   JournalPage,
   RiskPage,
 } from "./WorkspacePages";
@@ -631,7 +632,7 @@ export default function OnkarAIWorkspace({
           ) : segment === "analytics" ? (
             connectedPanel("Journal insights")
           ) : segment === "assistant" ? (
-            connectedPanel("Watchlist")
+            <AssistantPage onNavigate={navigate} />
           ) : segment === "risk" ? (
             <RiskPage />
           ) : segment === "backtesting" ? (

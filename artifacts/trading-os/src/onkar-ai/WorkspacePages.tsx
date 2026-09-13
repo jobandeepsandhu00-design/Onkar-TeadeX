@@ -23,6 +23,8 @@ import {
   type SetupPreview,
 } from "./demo-data";
 import { SetupTable } from "./DashboardPanels";
+import { masterAIRequest } from "../market-brain/api";
+import type { MasterAIResponse } from "@workspace/api-zod";
 type Navigate = (path: string) => void;
 export function ScannerPage({
   onSelect,
@@ -423,29 +425,37 @@ export function AnalyticsPage() {
 }
 export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
   const [question, setQuestion] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [lastRun, setLastRun] = useState<MasterAIResponse | null>(null);
   const [messages, setMessages] = useState<
     { role: "user" | "assistant"; text: string }[]
   >([]);
   const prompts = [
-    "Find the strongest example setup",
-    "Why is XAUUSD ranked first?",
-    "What confirmation is missing?",
-    "Compare the sample losing trades",
+    "Analyze my trading performance",
+    "What is my biggest recorded mistake?",
+    "Which setup works best for me?",
+    "Why did my last trade lose?",
   ];
-  const send = (input: string) => {
-    if (!input.trim()) return;
+  const send = async (input: string) => {
+    if (!input.trim() || loading) return;
     const q = input.trim();
-    const answer = /los|trade/i.test(q)
-      ? "In this sample, EURUSD entered before confirmation and GBPUSD had insufficient range. Those are example notes, not findings from your account. Open the connected scanner or your journal to inspect real history."
-      : /missing|confirmation/i.test(q)
-        ? "The developing EURUSD example is waiting for a completed confirmation candle. News status and live prices are unverified in this design preview."
-        : "XAUUSD leads this illustrative list at 91/100 rule confluence. The example combines higher-timeframe alignment, a demand zone and rejection confirmation. This is a scripted UI response—not an AI call, trade signal or win probability.";
-    setMessages((m) => [
-      ...m,
-      { role: "user", text: q },
-      { role: "assistant", text: answer },
-    ]);
+    setMessages((m) => [...m, { role: "user", text: q }]);
     setQuestion("");
+    setError("");
+    setLoading(true);
+    window.dispatchEvent(new CustomEvent("onkar-ai-agent-state", { detail: { master: "thinking", insight: "thinking" } }));
+    try {
+      const result = await masterAIRequest({ question: q, deepAnalysis: false });
+      setLastRun(result);
+      setMessages((m) => [...m, { role: "assistant", text: result.answer }]);
+      window.dispatchEvent(new CustomEvent("onkar-ai-agent-state", { detail: result.animationStates }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Master AI is temporarily unavailable.");
+      window.dispatchEvent(new CustomEvent("onkar-ai-agent-state", { detail: { master: "offline", insight: "offline" } }));
+    } finally {
+      setLoading(false);
+    }
   };
   return (
     <div className="oai-assistant-layout">
@@ -463,7 +473,7 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
           className="oai-text-button oai-panel-link"
           onClick={() => setMessages([])}
         >
-          Clear preview conversation
+          Clear conversation
         </button>
         <button
           className="oai-text-button oai-panel-link"
@@ -474,7 +484,7 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
       </Panel>
       <Panel
         title="Your market thinking partner"
-        kicker="SCRIPTED DESIGN PREVIEW"
+        kicker="AUTHENTICATED · EVIDENCE-BASED"
         className="oai-chat-panel"
       >
         <div className="oai-chat-messages" aria-live="polite">
@@ -483,21 +493,23 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
               <Sparkles size={35} />
               <h3>Clarity starts with a better question.</h3>
               <p>
-                Explore setup context, missing conditions and lessons from your
-                journal.
+                Ask about your real journal, approved strategies and available
+                scanner evidence.
               </p>
-              <small>No AI request is made in this preview.</small>
+              <small>Master AI never invents missing market or journal data.</small>
             </div>
           ) : (
             messages.map((m, i) => (
               <div key={i} className={`oai-chat-message ${m.role}`}>
                 <small>
-                  {m.role === "user" ? "You" : "Onkar AI · sample response"}
+                  {m.role === "user" ? "You" : "Master AI"}
                 </small>
                 <p>{m.text}</p>
               </div>
             ))
           )}
+          {loading && <div className="oai-chat-message assistant"><small>Master AI · thinking</small><p>Retrieving the minimum relevant evidence…</p></div>}
+          {error && <div className="oai-note" role="alert">{error}</div>}
         </div>
         <form
           onSubmit={(e) => {
@@ -511,15 +523,23 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
             onChange={(e) => setQuestion(e.target.value)}
             maxLength={1000}
             aria-label="Ask Onkar AI"
-            placeholder="Ask about the sample setups…"
+            placeholder="Ask about your trading…"
           />
           <button
-            disabled={!question.trim()}
-            aria-label="Send preview question"
+            disabled={!question.trim() || loading}
+            aria-label="Ask Master AI"
           >
             <Send size={19} />
           </button>
         </form>
+        {lastRun && (
+          <details className="oai-command-log">
+            <summary>Command log · {lastRun.agents.length} agent results · {lastRun.dataStatus}</summary>
+            {lastRun.commandLog.map((entry, index) => (
+              <div key={`${entry.timestamp}-${index}`}><time>{new Date(entry.timestamp).toLocaleTimeString()}</time><strong>{entry.source} → {entry.target}</strong><span>{entry.summary}</span></div>
+            ))}
+          </details>
+        )}
       </Panel>
     </div>
   );

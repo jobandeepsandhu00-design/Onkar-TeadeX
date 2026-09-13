@@ -1,4 +1,4 @@
-import { type CSSProperties, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
@@ -13,8 +13,8 @@ import {
 } from "../components/ui/dialog";
 import { AIButton, DemoLabel } from "./ui";
 import { AmbientCommandField } from "./motion";
-import { AnimatedAgentAvatar } from "./AnimatedAgentAvatar";
-import { AGENT_DEFINITIONS, type AgentDefinition } from "./agent-data";
+import { AnimatedAgentAvatar, type AgentAvatarState } from "./AnimatedAgentAvatar";
+import { AGENT_DEFINITIONS, type AgentDefinition, type AgentId } from "./agent-data";
 
 type Props = {
   onNavigate: (path: string) => void;
@@ -22,7 +22,22 @@ type Props = {
 
 export function AgentCommandCenter({ onNavigate }: Props) {
   const [selected, setSelected] = useState<AgentDefinition | null>(null);
+  const [runtime, setRuntime] = useState<Partial<Record<AgentId, AgentAvatarState>>>({});
   const reduceMotion = useReducedMotion();
+  useEffect(() => {
+    const normalize = (value: string): AgentAvatarState => {
+      if (["scanning", "thinking", "speaking", "alert", "success", "offline", "idle", "active", "monitoring", "warning"].includes(value)) return value as AgentAvatarState;
+      if (["mapping", "simulating"].includes(value)) return "scanning";
+      if (["matching", "validating", "reviewing", "learning", "delegating", "synthesizing"].includes(value)) return "thinking";
+      return "offline";
+    };
+    const receive = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, string>>).detail || {};
+      setRuntime(Object.fromEntries(Object.entries(detail).map(([key, value]) => [key, normalize(value)])) as Partial<Record<AgentId, AgentAvatarState>>);
+    };
+    window.addEventListener("onkar-ai-agent-state", receive);
+    return () => window.removeEventListener("onkar-ai-agent-state", receive);
+  }, []);
 
   return (
     <section className="oai-agent-command" aria-labelledby="agent-network-title">
@@ -73,7 +88,7 @@ export function AgentCommandCenter({ onNavigate }: Props) {
               key={agent.id}
               className={`oai-agent-card oai-agent-${agent.id}`}
               style={motionStyle}
-              data-state="idle"
+              data-state={runtime[agent.id] || "idle"}
               aria-pressed={selected?.id === agent.id}
               onClick={() => setSelected(agent)}
               initial={reduceMotion ? false : { opacity: 0.78, y: 10 }}
@@ -85,7 +100,7 @@ export function AgentCommandCenter({ onNavigate }: Props) {
               <AnimatedAgentAvatar
                 className="oai-agent-portrait"
                 agentId={agent.id}
-                state="idle"
+                state={runtime[agent.id] || "idle"}
                 isSelected={selected?.id === agent.id}
                 image={agent.image}
                 alt={`${agent.name} robotic avatar`}
@@ -97,7 +112,7 @@ export function AgentCommandCenter({ onNavigate }: Props) {
               <span className="oai-agent-card-content">
                 <span className="oai-agent-card-topline">
                   <span className="oai-agent-icon"><Icon size={15} /></span>
-                  <span className="oai-agent-status"><i />Preview</span>
+                  <span className="oai-agent-status"><i />{runtime[agent.id] ? runtime[agent.id] : "Preview"}</span>
                 </span>
                 <strong>{agent.name}</strong>
                 <small>{agent.role}</small>
@@ -127,7 +142,7 @@ export function AgentCommandCenter({ onNavigate }: Props) {
               <AnimatedAgentAvatar
                 className="oai-agent-detail-visual"
                 agentId={selected.id}
-                state="idle"
+                state={runtime[selected.id] || "idle"}
                 isSelected
                 image={selected.image}
                 alt={`${selected.name} full robotic portrait`}
@@ -135,7 +150,7 @@ export function AgentCommandCenter({ onNavigate }: Props) {
                 loading="eager"
               >
                 <span className="oai-agent-face-scan" aria-hidden="true" />
-                <div className="oai-agent-detail-status"><i />Preview</div>
+                <div className="oai-agent-detail-status"><i />{runtime[selected.id] || "Preview"}</div>
               </AnimatedAgentAvatar>
               <div className="oai-agent-detail-copy">
                 <DialogTitle>{selected.name}</DialogTitle>

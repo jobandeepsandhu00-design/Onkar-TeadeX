@@ -1841,6 +1841,37 @@
   padding: 10px;
   color: white;
 }
+
+.oai-command-log {
+  margin: 12px 16px 16px;
+  border: 1px solid rgba(76, 132, 196, 0.25);
+  border-radius: 14px;
+  background: rgba(3, 12, 27, 0.72);
+  overflow: hidden;
+}
+.oai-command-log summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  color: #a9c9ed;
+  font-size: 11px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.oai-command-log > div {
+  display: grid;
+  grid-template-columns: 74px minmax(120px, .8fr) 1.5fr;
+  gap: 10px;
+  padding: 9px 14px;
+  border-top: 1px solid rgba(76, 132, 196, 0.12);
+  font-size: 11px;
+}
+.oai-command-log time { color: #5d83aa; }
+.oai-command-log strong { color: #78c8ff; }
+.oai-command-log span { color: #8ca4bd; }
+@media (max-width: 640px) {
+  .oai-command-log > div { grid-template-columns: 62px 1fr; }
+  .oai-command-log span { grid-column: 2; }
+}
 .oai-prompt-list {
   padding: 15px;
   display: flex;

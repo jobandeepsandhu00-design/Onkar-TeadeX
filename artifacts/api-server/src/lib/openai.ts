@@ -9,6 +9,14 @@ export const openAIConfigured = () =>
   Boolean(process.env.OPENAI_API_KEY?.trim() && !process.env.OPENAI_API_KEY.startsWith("your_"));
 
 export const openAIModel = () => process.env.OPENAI_MODEL || "gpt-5-mini";
+export type OnkarModelRole = "master" | "insight" | "journal";
+export const onkarAIModel = (role: OnkarModelRole) =>
+  process.env[`${role.toUpperCase()}_AI_MODEL`] || openAIModel();
+export const onkarReasoningEffort = (deep = false): "low" | "medium" | "high" => {
+  if (deep) return "high";
+  const configured = process.env.AI_REASONING_LEVEL;
+  return configured === "medium" || configured === "high" ? configured : "low";
+};
 
 export function getOpenAI() {
   if (!openAIConfigured())
@@ -57,19 +65,24 @@ export async function structuredResponse<T>({
   input,
   schema,
   maxOutputTokens = 2400,
+  model: requestedModel,
+  reasoningEffort,
 }: {
   name: string;
   instructions: string;
   input: string;
   schema: Record<string, unknown>;
   maxOutputTokens?: number;
+  model?: string;
+  reasoningEffort?: "low" | "medium" | "high";
 }) {
-  const model = openAIModel();
+  const model = requestedModel || openAIModel();
   const response = await getOpenAI().responses.create({
     model,
     instructions,
     input,
     max_output_tokens: maxOutputTokens,
+    ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
     text: {
       format: {
         type: "json_schema",
