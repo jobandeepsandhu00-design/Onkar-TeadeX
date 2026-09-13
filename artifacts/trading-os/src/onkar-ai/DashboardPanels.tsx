@@ -33,11 +33,13 @@ export function SetupTable({
   onSelect,
   selectedId,
   compact = false,
+  emptyMessage = "No verified setup candidates yet.",
 }: {
   setups?: SetupPreview[];
   onSelect: (s: SetupPreview) => void;
   selectedId?: string;
   compact?: boolean;
+  emptyMessage?: string;
 }) {
   return (
     <div className="oai-table-wrap">
@@ -101,8 +103,8 @@ export function SetupTable({
       {!setups.length && (
         <div className="oai-empty">
           <Radar size={30} />
-          <h3>No matching markets</h3>
-          <p>Try another symbol, asset class or score filter.</p>
+          <h3>No setup evidence to show</h3>
+          <p>{emptyMessage}</p>
         </div>
       )}
     </div>
@@ -122,18 +124,34 @@ export function SetupAnalysis({
   onJournal: () => void;
 }) {
   const reduceMotion = useReducedMotion();
-  const checks = [
-    "Higher-timeframe bias aligned",
-    "Price at a key demand / supply zone",
-    "Confirmation candle formed",
-    "Volume above average",
-    "Open range sufficient",
-    "Risk / reward meets plan",
-  ];
+  const verified = setup.source === "verified";
+  const checks = verified
+    ? [
+        ...(setup.conditionsMatched ?? []).map((label) => ({
+          label,
+          passed: true,
+        })),
+        ...(setup.conditionsMissing ?? []).map((label) => ({
+          label,
+          passed: false,
+        })),
+      ]
+    : [
+        "Higher-timeframe bias aligned",
+        "Price at a key demand / supply zone",
+        "Confirmation candle formed",
+        "Volume above average",
+        "Open range sufficient",
+        "Risk / reward meets plan",
+      ].map((label, index) => ({ label, passed: index < setup.rules - 3 }));
+  const totalRules = setup.totalRules ?? 10;
+  const matchPercent = totalRules ? (setup.rules / totalRules) * 100 : 0;
   return (
     <Panel
       title="AI Setup Analysis"
-      kicker="EXPLAINABLE INTELLIGENCE"
+      kicker={
+        verified ? "VERIFIED SCANNER EVIDENCE" : "EXPLAINABLE INTELLIGENCE"
+      }
       className="oai-analysis"
     >
       <div className="oai-analysis-top">
@@ -148,39 +166,55 @@ export function SetupAnalysis({
       </div>
       <div className="oai-match">
         <span>Rule confluence</span>
-        <strong>{setup.rules} / 10</strong>
+        <strong>
+          {setup.rules} / {totalRules}
+        </strong>
         <div>
           <motion.i
             key={`${setup.id}-${setup.rules}`}
             initial={reduceMotion ? false : { width: 0 }}
-            animate={{ width: `${setup.rules * 10}%` }}
+            animate={{ width: `${Math.min(100, matchPercent)}%` }}
             transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
           />
         </div>
       </div>
       <ul className="oai-checklist">
-        {checks.map((rule, i) => (
+        {checks.slice(0, 12).map((rule, i) => (
           <motion.li
-            key={rule}
-            className={i < setup.rules - 3 ? "passed" : "missing"}
+            key={`${rule.label}-${i}`}
+            className={rule.passed ? "passed" : "missing"}
             initial={reduceMotion ? false : { opacity: 0.45, x: -7 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.32, delay: reduceMotion ? 0 : i * 0.055 }}
           >
-            {i < setup.rules - 3 ? <Check size={15} /> : <Clock3 size={15} />}
-            <span>{rule}</span>
+            {rule.passed ? <Check size={15} /> : <Clock3 size={15} />}
+            <span>{rule.label}</span>
           </motion.li>
         ))}
       </ul>
       <div className="oai-analysis-stats">
-        <KeyValue label="Sample R : R" value={`1 : ${setup.rr}`} />
+        <KeyValue
+          label={verified ? "Calculated R : R" : "Sample R : R"}
+          value={setup.rr > 0 ? `1 : ${setup.rr.toFixed(2)}` : "Unavailable"}
+        />
         <KeyValue label="Direction" value={setup.direction} />
-        <KeyValue label="Validation" value="Preview" />
+        <KeyValue label="Validation" value={setup.validation ?? "Preview"} />
       </div>
       <p className="oai-disclaimer">
-        Illustrative analysis. Confluence is not a win probability. News safety
-        has not been verified.
+        {verified
+          ? `${setup.reason ?? "Deterministic closed-candle evaluation."} ${setup.candleClosed ? "Latest evaluated candle is closed." : "Candle closure is not verified."}`
+          : "Illustrative analysis. Confluence is not a win probability. News safety has not been verified."}
       </p>
+      {verified && setup.waitFor && (
+        <p className="oai-live-evidence">
+          <strong>Wait for:</strong> {setup.waitFor}
+        </p>
+      )}
+      {verified && setup.learningInsight && (
+        <p className="oai-live-evidence">
+          <strong>Journal context:</strong> {setup.learningInsight}
+        </p>
+      )}
       <AIButton primary onClick={() => onNavigate(setupPath(setup.id))}>
         View full analysis <ArrowUpRight size={16} />
       </AIButton>
@@ -453,7 +487,10 @@ export function AlertsPanel({
             onClick={() => onNavigate(path)}
             initial={reduceMotion ? false : { opacity: 0.6, x: 7 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.34, delay: reduceMotion ? 0 : index * 0.06 }}
+            transition={{
+              duration: 0.34,
+              delay: reduceMotion ? 0 : index * 0.06,
+            }}
             whileHover={reduceMotion ? undefined : { x: 3 }}
             whileTap={reduceMotion ? undefined : { scale: 0.99 }}
           >

@@ -74,18 +74,21 @@ export const setupDetectionStatusSchema = z.enum([
   "CONFIRMED",
   "INVALID",
 ]);
-export const chartCandleSchema = z.object({
-  t: z.number().int().nonnegative(),
-  o: z.number().positive().finite(),
-  h: z.number().positive().finite(),
-  l: z.number().positive().finite(),
-  c: z.number().positive().finite(),
-  v: z.number().nonnegative().finite().nullable(),
-  closed: z.boolean(),
-}).strict().refine(
-  (c) => c.h >= Math.max(c.o, c.c) && c.l <= Math.min(c.o, c.c) && c.h >= c.l,
-  "Invalid chart OHLC range",
-);
+export const chartCandleSchema = z
+  .object({
+    t: z.number().int().nonnegative(),
+    o: z.number().positive().finite(),
+    h: z.number().positive().finite(),
+    l: z.number().positive().finite(),
+    c: z.number().positive().finite(),
+    v: z.number().nonnegative().finite().nullable(),
+    closed: z.boolean(),
+  })
+  .strict()
+  .refine(
+    (c) => c.h >= Math.max(c.o, c.c) && c.l <= Math.min(c.o, c.c) && c.h >= c.l,
+    "Invalid chart OHLC range",
+  );
 export const setupDetectionSchema = z.object({
   id: z.string(),
   symbol: sharedChartSymbolSchema,
@@ -104,11 +107,15 @@ export const setupDetectionSchema = z.object({
   waitFor: z.string(),
   candleClosed: z.boolean(),
   timestamp: z.string().datetime(),
-  zones: z.array(z.object({
-    low: z.number().finite(),
-    high: z.number().finite(),
-    kind: z.string(),
-  })).default([]),
+  zones: z
+    .array(
+      z.object({
+        low: z.number().finite(),
+        high: z.number().finite(),
+        kind: z.string(),
+      }),
+    )
+    .default([]),
 });
 export type SetupDetection = z.infer<typeof setupDetectionSchema>;
 export const sharedMarketSnapshotSchema = z.object({
@@ -210,7 +217,7 @@ export const scannerConfigSchema = z
       .max(8)
       .default(["15m", "30m", "1h"]),
     accountId: z.string().max(180).nullable().default(null),
-    strategyVersionIds: z.array(z.string().uuid()).max(12).default([]),
+    strategyVersionIds: z.array(z.string().uuid()).max(100).default([]),
     minimumScore: z.number().min(0).max(100).default(50),
     aiThreshold: z.number().min(60).max(100).default(75),
     alertThreshold: z.number().min(50).max(100).default(80),

@@ -1,4 +1,13 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { ScannerSnapshot } from "@workspace/api-zod";
 import {
   Activity,
   ArrowLeft,
@@ -34,14 +43,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import {
-  AIButton,
-  AIScoreBadge,
-  AIStatusBadge,
-  DemoLabel,
-  KeyValue,
-  Panel,
-} from "./ui";
+import { AIButton, AIScoreBadge, AIStatusBadge, KeyValue, Panel } from "./ui";
 import { MarketChart } from "./charts";
 import { SharedMarketChart } from "./SharedMarketChart";
 import {
@@ -53,11 +55,7 @@ import {
   SetupAnalysis,
   SetupTable,
 } from "./DashboardPanels";
-import {
-  AssistantPage,
-  JournalPage,
-  RiskPage,
-} from "./WorkspacePages";
+import { AssistantPage, JournalPage, RiskPage } from "./WorkspacePages";
 import { AgentCommandCenter } from "./AgentCommandCenter";
 import { AgentWorkspacePresence } from "./AgentWorkspacePresence";
 import { AnimatedMetricValue, MotionReveal } from "./motion";
@@ -69,6 +67,8 @@ import {
   type AISection,
   type SetupPreview,
 } from "./demo-data";
+import { brainRequest } from "../market-brain/api";
+import { connectedSetups, scannerIsLive } from "./connected-setups";
 import "./onkar-ai.css";
 import {
   Dialog,
@@ -151,9 +151,45 @@ export default function OnkarAIWorkspace({
     news: true,
     motion: true,
   });
+  const [scannerSnapshot, setScannerSnapshot] =
+    useState<ScannerSnapshot | null>(null);
+  const [scannerLoading, setScannerLoading] = useState(true);
+  const [scannerError, setScannerError] = useState("");
+  const [scannerSaving, setScannerSaving] = useState(false);
   const main = useRef<HTMLElement>(null);
-  const detail = detailId ? demoSetups.find((s) => s.id === detailId) : null;
+  const liveSetups = useMemo(
+    () => connectedSetups(scannerSnapshot),
+    [scannerSnapshot],
+  );
+  const detail = detailId
+    ? (liveSetups.find((s) => s.id === detailId) ??
+      demoSetups.find((s) => s.id === detailId))
+    : null;
   const current = detail || selected;
+  const dashboardSelected =
+    liveSetups.find((setup) => setup.id === selected.id) ??
+    liveSetups[0] ??
+    null;
+  const scannerLive = scannerIsLive(scannerSnapshot);
+  const refreshScanner = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const data = await brainRequest<ScannerSnapshot>(
+        "",
+        "GET",
+        undefined,
+        signal,
+      );
+      setScannerSnapshot(data);
+      setScannerError("");
+    } catch (error) {
+      if (!signal?.aborted)
+        setScannerError(
+          error instanceof Error ? error.message : "Scanner data unavailable.",
+        );
+    } finally {
+      if (!signal?.aborted) setScannerLoading(false);
+    }
+  }, []);
   const navigate = (next: string) => {
     setMenu(false);
     onNavigate(next);
@@ -175,6 +211,55 @@ export default function OnkarAIWorkspace({
     const timer = setTimeout(() => setNotice(""), 5000);
     return () => clearTimeout(timer);
   }, [notice]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void refreshScanner(controller.signal);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshScanner();
+    }, 30_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [refreshScanner]);
+  const toggleScanner = async () => {
+    const config = scannerSnapshot?.config?.config;
+    if (!config) {
+      setNotice(
+        "Save scanner settings and approve strategy rules before enabling continuous analysis.",
+      );
+      navigate("/onkar-ai/settings");
+      return;
+    }
+    if (!config.enabled && !config.strategyVersionIds.length) {
+      setNotice(
+        "Select at least one approved strategy before enabling continuous analysis.",
+      );
+      navigate("/onkar-ai/settings");
+      return;
+    }
+    setScannerSaving(true);
+    try {
+      await brainRequest("/config", "PUT", {
+        ...config,
+        enabled: !config.enabled,
+      });
+      await refreshScanner();
+      setNotice(
+        config.enabled
+          ? "Continuous setup scanning is off."
+          : "Continuous setup scanning is on. The worker will evaluate approved strategies on closed candles.",
+      );
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Could not change scanner state.",
+      );
+    } finally {
+      setScannerSaving(false);
+    }
+  };
   const label =
     segment === "setup"
       ? "Setup Analysis"
@@ -195,13 +280,23 @@ export default function OnkarAIWorkspace({
       onJournal={() => onExit("journal")}
     />
   );
-  const connectedPanel = (initialTab: "Watchlist" | "Rules" | "Settings" | "Connections" | "Journal insights" | "Replay" = "Watchlist") => (
+  const connectedPanel = (
+    initialTab:
+      | "Watchlist"
+      | "Rules"
+      | "Settings"
+      | "Connections"
+      | "Journal insights"
+      | "Replay" = "Watchlist",
+  ) => (
     <>
       <div className="oai-note">
         Connected workspace · authenticated scanner data, stored strategy rules,
         real health states and worker timestamps.
       </div>
-      <Suspense fallback={<div className="oai-empty">Loading connected scanner…</div>}>
+      <Suspense
+        fallback={<div className="oai-empty">Loading connected scanner…</div>}
+      >
         <ConnectedScanner
           initialTab={initialTab}
           onJournal={() => onExit("journal")}
@@ -281,7 +376,17 @@ export default function OnkarAIWorkspace({
             </span>
           </div>
           <div className="oai-topbar-actions">
-            <DemoLabel />
+            <span
+              className={`oai-demo-label ${scannerLive ? "is-connected" : ""}`}
+            >
+              {scannerLoading
+                ? "CHECKING SCANNER"
+                : scannerLive
+                  ? "VERIFIED DATA · LIVE SCANNER"
+                  : scannerSnapshot?.config?.enabled
+                    ? "SCANNER ON · WAITING FOR FRESH DATA"
+                    : "SCANNER OFF"}
+            </span>
             <button
               className="oai-icon-button"
               aria-label="Search markets"
@@ -339,17 +444,30 @@ export default function OnkarAIWorkspace({
             </nav>
           </DialogContent>
         </Dialog>
-        <div className="oai-ticker" aria-label="Illustrative market quotes">
-          <span className="oai-ticker-label">SAMPLE MARKETS</span>
-          {demoSetups.slice(0, 5).map((s) => (
-            <button key={s.id} onClick={() => select(s)}>
+        <div className="oai-ticker" aria-label="Verified scanner candidates">
+          <span className="oai-ticker-label">SCANNER EVIDENCE</span>
+          {(liveSetups.length
+            ? liveSetups.slice(0, 5)
+            : (scannerSnapshot?.config?.config.symbols ?? []).map((symbol) => ({
+                id: symbol,
+                symbol,
+                score: null,
+                status: "Awaiting data",
+              }))
+          ).map((s) => (
+            <button
+              key={s.id}
+              onClick={() => {
+                const setup = liveSetups.find(
+                  (candidate) => candidate.id === s.id,
+                );
+                if (setup) select(setup);
+              }}
+              disabled={s.score === null}
+            >
               <strong>{s.symbol}</strong>
-              <span>{price(s.price)}</span>
-              <em
-                className={s.change.startsWith("−") ? "oai-red" : "oai-green"}
-              >
-                {s.change}
-              </em>
+              <span>{s.score === null ? "—" : `${s.score}/100`}</span>
+              <em>{s.status}</em>
             </button>
           ))}
         </div>
@@ -362,7 +480,11 @@ export default function OnkarAIWorkspace({
                 <span className="oai-eyebrow">ONKARTRADEX / INTELLIGENCE</span>
                 <span className="oai-preview-pill">
                   <span className="oai-dot" />
-                  DESIGN PREVIEW
+                  {scannerLive
+                    ? "VERIFIED LIVE DATA"
+                    : scannerSnapshot?.config?.enabled
+                      ? "SCANNER WAITING"
+                      : "SCANNER OFF"}
                 </span>
               </div>
               <h1>
@@ -403,7 +525,9 @@ export default function OnkarAIWorkspace({
                   Meet the agents <ArrowRight size={15} />
                 </button>
                 <span className="oai-muted">
-                  Animated interface preview · connected health stays separate
+                  {scannerLive
+                    ? "Twelve Data candles · approved Setup Library rules"
+                    : "Open scanner settings to verify the market worker and approved rules"}
                 </span>
               </div>
             )}
@@ -414,44 +538,72 @@ export default function OnkarAIWorkspace({
               <div className="oai-kpi-grid">
                 {[
                   [
-                    "Markets in preview",
-                    "08",
-                    "5 asset classes",
+                    "Configured markets",
+                    String(
+                      scannerSnapshot?.config?.config.symbols.length ?? 0,
+                    ).padStart(2, "0"),
+                    scannerSnapshot?.config?.config.provider === "twelvedata"
+                      ? "Twelve Data"
+                      : "Market provider",
                     Globe2,
                     "blue",
                   ],
                   [
-                    "High-quality setups",
-                    "01",
-                    "Confluence, not probability",
+                    "Confirmed setups",
+                    String(
+                      liveSetups.filter((setup) => setup.status === "Confirmed")
+                        .length,
+                    ).padStart(2, "0"),
+                    "Verified closed-candle rules",
                     Target,
                     "green",
                   ],
                   [
-                    "Developing",
-                    "02",
-                    "Awaiting confirmation",
+                    "Partial / watching",
+                    String(
+                      liveSetups.filter((setup) =>
+                        ["Partial match", "Watching"].includes(setup.status),
+                      ).length,
+                    ).padStart(2, "0"),
+                    "Awaiting rule confirmation",
                     Activity,
                     "gold",
                   ],
                   [
-                    "Example alerts",
-                    "04",
-                    "Illustrative event feed",
+                    "Scanner alerts",
+                    String(scannerSnapshot?.alerts.length ?? 0).padStart(
+                      2,
+                      "0",
+                    ),
+                    "Stored verified events",
                     Bell,
                     "purple",
                   ],
                   [
-                    "Example win rate",
-                    "60%",
-                    "3 wins / 5 sample trades",
+                    "Journal win rate",
+                    scannerSnapshot?.journal &&
+                    scannerSnapshot.journal.wins +
+                      scannerSnapshot.journal.losses >
+                      0
+                      ? `${Math.round((scannerSnapshot.journal.wins / (scannerSnapshot.journal.wins + scannerSnapshot.journal.losses)) * 100)}%`
+                      : "—",
+                    scannerSnapshot?.journal
+                      ? `${scannerSnapshot.journal.wins + scannerSnapshot.journal.losses} resolved trades`
+                      : "Select a risk account",
                     ChartNoAxesCombined,
                     "cyan",
                   ],
                   [
                     "System status",
-                    "Preview",
-                    "Open Integrations for checks",
+                    scannerLive
+                      ? "Live"
+                      : scannerSnapshot?.config?.enabled
+                        ? "Waiting"
+                        : "Off",
+                    scannerError ||
+                      (scannerLive
+                        ? "Worker and market are fresh"
+                        : "Open Connections for checks"),
                     ShieldCheck,
                     "blue",
                   ],
@@ -467,7 +619,9 @@ export default function OnkarAIWorkspace({
                         <span>{String(title)}</span>
                         <MetricIcon size={17} />
                       </div>
-                      <strong><AnimatedMetricValue value={String(value)} /></strong>
+                      <strong>
+                        <AnimatedMetricValue value={String(value)} />
+                      </strong>
                       <small>{String(hint)}</small>
                     </MotionReveal>
                   );
@@ -477,15 +631,31 @@ export default function OnkarAIWorkspace({
               <div className="oai-dashboard-command">
                 <Panel
                   title="Top AI Setups"
-                  kicker="SAMPLE RULE CONFLUENCE"
+                  kicker="VERIFIED RULE CONFLUENCE"
                   className="oai-dashboard-watchlist"
                   action={
-                    <button
-                      className="oai-text-button"
-                      onClick={() => navigate("/onkar-ai/scanner")}
-                    >
-                      View all <ArrowUpRight size={14} />
-                    </button>
+                    <div className="oai-scanner-actions">
+                      <button
+                        className={`oai-scanner-switch ${scannerSnapshot?.config?.enabled ? "is-on" : ""}`}
+                        onClick={() => void toggleScanner()}
+                        disabled={scannerLoading || scannerSaving}
+                        role="switch"
+                        aria-checked={Boolean(scannerSnapshot?.config?.enabled)}
+                      >
+                        <i />{" "}
+                        {scannerSaving
+                          ? "Saving"
+                          : scannerSnapshot?.config?.enabled
+                            ? "Scanner on"
+                            : "Scanner off"}
+                      </button>
+                      <button
+                        className="oai-text-button"
+                        onClick={() => navigate("/onkar-ai/scanner")}
+                      >
+                        View all <ArrowUpRight size={14} />
+                      </button>
+                    </div>
                   }
                 >
                   <div className="oai-tabs oai-watch-tabs">
@@ -503,16 +673,48 @@ export default function OnkarAIWorkspace({
                     )}
                   </div>
                   <SetupTable
-                    setups={demoSetups.filter(
+                    setups={liveSetups.filter(
                       (s) => assetFilter === "All" || s.asset === assetFilter,
                     )}
-                    selectedId={selected.id}
+                    selectedId={dashboardSelected?.id}
                     onSelect={setSelected}
                     compact
+                    emptyMessage={
+                      scannerSnapshot?.config?.enabled
+                        ? "The scanner has not stored a qualifying candidate yet. Approved strategies will appear after verified closed-candle evaluation."
+                        : "Turn on the scanner to evaluate your approved Setup Library rules."
+                    }
                   />
                 </Panel>
                 <SharedMarketChart compact />
-                {analysis}
+                {dashboardSelected ? (
+                  <SetupAnalysis
+                    setup={dashboardSelected}
+                    saved={saved.includes(dashboardSelected.id)}
+                    onSave={() => save(dashboardSelected.id)}
+                    onNavigate={navigate}
+                    onJournal={() => onExit("journal")}
+                  />
+                ) : (
+                  <Panel
+                    title="AI Setup Analysis"
+                    kicker="AWAITING VERIFIED EVIDENCE"
+                    className="oai-analysis"
+                  >
+                    <div className="oai-empty">
+                      <Radar size={30} />
+                      <h3>No real setup candidate yet</h3>
+                      <p>
+                        {scannerSnapshot?.config?.enabled
+                          ? "Approved strategies are evaluated from Twelve Data closed candles. A result will appear when the deterministic rules produce a candidate."
+                          : "Turn on the scanner after approving at least one strategy version."}
+                      </p>
+                      <AIButton onClick={() => navigate("/onkar-ai/settings")}>
+                        Open scanner settings <ArrowUpRight size={15} />
+                      </AIButton>
+                    </div>
+                  </Panel>
+                )}
               </div>
               <div className="oai-dashboard-widgets">
                 <SessionPanel />
@@ -557,7 +759,9 @@ export default function OnkarAIWorkspace({
                 </Panel>
               </div>
             </>
-          ) : segment === "scanner" || segment === "markets" || segment === "watchlist" ? (
+          ) : segment === "scanner" ||
+            segment === "markets" ||
+            segment === "watchlist" ? (
             connectedPanel("Watchlist")
           ) : segment === "charts" ? (
             <>
@@ -565,7 +769,10 @@ export default function OnkarAIWorkspace({
                 <div>
                   <span className="oai-kicker">SHARED MARKET INTELLIGENCE</span>
                   <h2>Live chart and agent context</h2>
-                  <p>The chart, Master AI and every specialist consume this same authenticated candle snapshot.</p>
+                  <p>
+                    The chart, Master AI and every specialist consume this same
+                    authenticated candle snapshot.
+                  </p>
                 </div>
               </div>
               <SharedMarketChart />
@@ -576,7 +783,10 @@ export default function OnkarAIWorkspace({
                 <div className="oai-row">
                   <AIStatusBadge status={detail.status} />
                   <span className="oai-muted">
-                    {detail.symbol} · Illustrative setup
+                    {detail.symbol} ·{" "}
+                    {detail.source === "verified"
+                      ? "Verified scanner result"
+                      : "Illustrative setup"}
                   </span>
                 </div>
                 <AIButton onClick={() => navigate("/onkar-ai/scanner")}>
@@ -585,13 +795,32 @@ export default function OnkarAIWorkspace({
                 </AIButton>
               </div>
               <div className="oai-command-grid">
-                <MarketChart setup={detail} expanded />
+                {detail.source === "verified" ? (
+                  <SharedMarketChart
+                    initialSymbol={
+                      detail.symbol.replace(/[/-]/g, "") === "GBPJPY"
+                        ? "GBPJPY"
+                        : "XAUUSD"
+                    }
+                    initialTimeframe={
+                      detail.timeframe === "30m" || detail.timeframe === "1h"
+                        ? detail.timeframe
+                        : "15m"
+                    }
+                  />
+                ) : (
+                  <MarketChart setup={detail} expanded />
+                )}
                 {analysis}
               </div>
               <div className="oai-two-columns">
                 <Panel
                   title="Trade Plan"
-                  kicker="SAMPLE PRICES · NOT AN EXECUTABLE PLAN"
+                  kicker={
+                    detail.source === "verified"
+                      ? "CALCULATED PLAN · MANUAL REVIEW REQUIRED"
+                      : "SAMPLE PRICES · NOT AN EXECUTABLE PLAN"
+                  }
                 >
                   <div className="oai-plan-grid">
                     <KeyValue
@@ -612,25 +841,59 @@ export default function OnkarAIWorkspace({
                     />
                   </div>
                 </Panel>
-                <Panel title="Setup Timeline" kicker="ILLUSTRATIVE LIFECYCLE">
-                  <ol className="oai-timeline">
-                    <li>
-                      <time>09:15</time>
-                      <span>Higher-timeframe zone identified</span>
-                    </li>
-                    <li>
-                      <time>10:00</time>
-                      <span>Price approaches the area of interest</span>
-                    </li>
-                    <li>
-                      <time>10:15</time>
-                      <span>
-                        {detail.status === "Invalidated"
-                          ? "Support failed · setup invalidated"
-                          : "Confirmation reviewed · waiting for trader review"}
-                      </span>
-                    </li>
-                  </ol>
+                <Panel
+                  title="Setup Timeline"
+                  kicker={
+                    detail.source === "verified"
+                      ? "VERIFIED SCANNER LIFECYCLE"
+                      : "ILLUSTRATIVE LIFECYCLE"
+                  }
+                >
+                  {detail.source === "verified" ? (
+                    <ol className="oai-timeline">
+                      <li>
+                        <time>
+                          {detail.updatedAt
+                            ? new Date(detail.updatedAt).toLocaleTimeString(
+                                [],
+                                { hour: "2-digit", minute: "2-digit" },
+                              )
+                            : "—"}
+                        </time>
+                        <span>
+                          Closed-candle rules evaluated by the deterministic
+                          scanner
+                        </span>
+                      </li>
+                      <li>
+                        <time>{detail.validation ?? "—"}</time>
+                        <span>{detail.reason}</span>
+                      </li>
+                      <li>
+                        <time>NEXT</time>
+                        <span>{detail.waitFor}</span>
+                      </li>
+                    </ol>
+                  ) : (
+                    <ol className="oai-timeline">
+                      <li>
+                        <time>09:15</time>
+                        <span>Higher-timeframe zone identified</span>
+                      </li>
+                      <li>
+                        <time>10:00</time>
+                        <span>Price approaches the area of interest</span>
+                      </li>
+                      <li>
+                        <time>10:15</time>
+                        <span>
+                          {detail.status === "Invalidated"
+                            ? "Support failed · setup invalidated"
+                            : "Confirmation reviewed · waiting for trader review"}
+                        </span>
+                      </li>
+                    </ol>
+                  )}
                 </Panel>
               </div>
             </>

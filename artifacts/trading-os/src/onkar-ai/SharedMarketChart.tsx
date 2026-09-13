@@ -38,15 +38,24 @@ const detectionColors: Record<SetupDetection["status"], string> = {
   INVALID: "#ff647c",
 };
 
-export function SharedMarketChart({ compact = false }: { compact?: boolean }) {
+export function SharedMarketChart({
+  compact = false,
+  initialSymbol = "XAUUSD",
+  initialTimeframe = "15m",
+}: {
+  compact?: boolean;
+  initialSymbol?: SharedChartSymbol;
+  initialTimeframe?: SharedChartTimeframe;
+}) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const series = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lines = useRef<IPriceLine[]>([]);
   const markers = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
   const lastKey = useRef("");
-  const [symbol, setSymbol] = useState<SharedChartSymbol>("XAUUSD");
-  const [timeframe, setTimeframe] = useState<SharedChartTimeframe>("15m");
+  const [symbol, setSymbol] = useState<SharedChartSymbol>(initialSymbol);
+  const [timeframe, setTimeframe] =
+    useState<SharedChartTimeframe>(initialTimeframe);
   const [snapshot, setSnapshot] = useState<SharedMarketSnapshot | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -66,13 +75,37 @@ export function SharedMarketChart({ compact = false }: { compact?: boolean }) {
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: "rgba(78, 170, 255, .55)", labelBackgroundColor: "#1677d2" },
-        horzLine: { color: "rgba(78, 170, 255, .55)", labelBackgroundColor: "#1677d2" },
+        vertLine: {
+          color: "rgba(78, 170, 255, .55)",
+          labelBackgroundColor: "#1677d2",
+        },
+        horzLine: {
+          color: "rgba(78, 170, 255, .55)",
+          labelBackgroundColor: "#1677d2",
+        },
       },
-      rightPriceScale: { borderColor: "rgba(121, 151, 187, .2)", scaleMargins: { top: 0.08, bottom: 0.12 } },
-      timeScale: { borderColor: "rgba(121, 151, 187, .2)", timeVisible: true, secondsVisible: false, rightOffset: 7, barSpacing: compact ? 5 : 7 },
-      handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
-      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      rightPriceScale: {
+        borderColor: "rgba(121, 151, 187, .2)",
+        scaleMargins: { top: 0.08, bottom: 0.12 },
+      },
+      timeScale: {
+        borderColor: "rgba(121, 151, 187, .2)",
+        timeVisible: true,
+        secondsVisible: false,
+        rightOffset: 7,
+        barSpacing: compact ? 5 : 7,
+      },
+      handleScale: {
+        axisPressedMouseMove: true,
+        mouseWheel: true,
+        pinch: true,
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: false,
+      },
     });
     const candleSeries = api.addSeries(CandlestickSeries, {
       upColor: "#19d3a2",
@@ -106,7 +139,9 @@ export function SharedMarketChart({ compact = false }: { compact?: boolean }) {
         setError("");
       } catch (cause) {
         if (!active || abort.signal.aborted) return;
-        setError(cause instanceof Error ? cause.message : "Market data unavailable.");
+        setError(
+          cause instanceof Error ? cause.message : "Market data unavailable.",
+        );
       } finally {
         if (active) setLoading(false);
       }
@@ -149,28 +184,63 @@ export function SharedMarketChart({ compact = false }: { compact?: boolean }) {
       ] as const;
       for (const [value, title] of levels) {
         if (value === null) continue;
-        lines.current.push(candleSeries.createPriceLine({
-          price: value,
-          color: title.startsWith("SL") ? "#ff647c" : title === "TP" ? "#2ee6a6" : color,
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title,
-        }));
+        lines.current.push(
+          candleSeries.createPriceLine({
+            price: value,
+            color: title.startsWith("SL")
+              ? "#ff647c"
+              : title === "TP"
+                ? "#2ee6a6"
+                : color,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title,
+          }),
+        );
       }
       for (const zone of detection.zones) {
-        lines.current.push(candleSeries.createPriceLine({ price: zone.low, color, lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: `${zone.kind} low` }));
-        lines.current.push(candleSeries.createPriceLine({ price: zone.high, color, lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: `${zone.kind} high` }));
+        lines.current.push(
+          candleSeries.createPriceLine({
+            price: zone.low,
+            color,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dotted,
+            axisLabelVisible: false,
+            title: `${zone.kind} low`,
+          }),
+        );
+        lines.current.push(
+          candleSeries.createPriceLine({
+            price: zone.high,
+            color,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dotted,
+            axisLabelVisible: false,
+            title: `${zone.kind} high`,
+          }),
+        );
       }
     }
     const markerRows: SeriesMarker<Time>[] = snapshot.detections
-      .filter((item) => snapshot.candles.some((candle) => Math.floor(candle.t / 1000) === Math.floor(Date.parse(item.timestamp) / 1000)))
+      .filter((item) =>
+        snapshot.candles.some(
+          (candle) =>
+            Math.floor(candle.t / 1000) ===
+            Math.floor(Date.parse(item.timestamp) / 1000),
+        ),
+      )
       .slice(0, 12)
       .map((item) => ({
         time: Math.floor(Date.parse(item.timestamp) / 1000) as UTCTimestamp,
         position: item.direction === "SELL" ? "aboveBar" : "belowBar",
         color: detectionColors[item.status],
-        shape: item.direction === "SELL" ? "arrowDown" : item.direction === "BUY" ? "arrowUp" : "circle",
+        shape:
+          item.direction === "SELL"
+            ? "arrowDown"
+            : item.direction === "BUY"
+              ? "arrowUp"
+              : "circle",
         text: `${item.setup} · ${item.status}`,
       }));
     markers.current?.setMarkers(markerRows);
@@ -182,32 +252,102 @@ export function SharedMarketChart({ compact = false }: { compact?: boolean }) {
       <div className="oai-live-chart-head">
         <div>
           <small>TWELVE DATA · SHARED MARKET CONTEXT</small>
-          <h3>{snapshot?.displaySymbol || SYMBOLS.find((item) => item.value === symbol)?.label}</h3>
-          <span className={`oai-market-state is-${snapshot?.dataStatus || "loading"}`}>
+          <h3>
+            {snapshot?.displaySymbol ||
+              SYMBOLS.find((item) => item.value === symbol)?.label}
+          </h3>
+          <span
+            className={`oai-market-state is-${snapshot?.dataStatus || "loading"}`}
+          >
             <i /> {loading ? "Loading" : snapshot?.dataStatus || "Unavailable"}
           </span>
         </div>
         <div className="oai-live-chart-controls">
-          <select aria-label="Chart symbol" value={symbol} onChange={(event) => setSymbol(event.target.value as SharedChartSymbol)}>
-            {SYMBOLS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          <select
+            aria-label="Chart symbol"
+            value={symbol}
+            onChange={(event) =>
+              setSymbol(event.target.value as SharedChartSymbol)
+            }
+          >
+            {SYMBOLS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
           </select>
           <div role="group" aria-label="Chart timeframe">
-            {TIMEFRAMES.map((item) => <button key={item.value} className={timeframe === item.value ? "active" : ""} onClick={() => setTimeframe(item.value)}>{item.label}</button>)}
+            {TIMEFRAMES.map((item) => (
+              <button
+                key={item.value}
+                className={timeframe === item.value ? "active" : ""}
+                onClick={() => setTimeframe(item.value)}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
         </div>
       </div>
-      {latest && <div className="oai-live-ohlc" aria-label="Latest candle OHLC">
-        <span>O <b>{latest.o}</b></span><span>H <b>{latest.h}</b></span><span>L <b>{latest.l}</b></span><span>C <b>{latest.c}</b></span>
-        <span className={latest.closed ? "is-closed" : "is-forming"}>{latest.closed ? <CheckCircle2 size={12} /> : <RefreshCw size={12} />} {latest.closed ? "Closed" : "Forming"}</span>
-      </div>}
-      <div ref={container} className="oai-lightweight-chart" aria-label={`${symbol} ${timeframe} candlestick chart`} />
-      {error && <div className="oai-chart-message" role="alert"><AlertTriangle size={15} /> {error}</div>}
-      {snapshot?.warnings.map((warning) => <div className="oai-chart-message" key={warning}><AlertTriangle size={14} /> {warning}</div>)}
-      {!!snapshot?.detections.length && <div className="oai-chart-detections">
-        {snapshot.detections.slice(0, 4).map((item) => <article key={item.id} style={{ "--detection-color": detectionColors[item.status] } as CSSProperties}>
-          <span>{item.status}</span><strong>{item.setup}</strong><small>{item.direction} · {item.reason}</small>
-        </article>)}
-      </div>}
+      {latest && (
+        <div className="oai-live-ohlc" aria-label="Latest candle OHLC">
+          <span>
+            O <b>{latest.o}</b>
+          </span>
+          <span>
+            H <b>{latest.h}</b>
+          </span>
+          <span>
+            L <b>{latest.l}</b>
+          </span>
+          <span>
+            C <b>{latest.c}</b>
+          </span>
+          <span className={latest.closed ? "is-closed" : "is-forming"}>
+            {latest.closed ? (
+              <CheckCircle2 size={12} />
+            ) : (
+              <RefreshCw size={12} />
+            )}{" "}
+            {latest.closed ? "Closed" : "Forming"}
+          </span>
+        </div>
+      )}
+      <div
+        ref={container}
+        className="oai-lightweight-chart"
+        aria-label={`${symbol} ${timeframe} candlestick chart`}
+      />
+      {error && (
+        <div className="oai-chart-message" role="alert">
+          <AlertTriangle size={15} /> {error}
+        </div>
+      )}
+      {snapshot?.warnings.map((warning) => (
+        <div className="oai-chart-message" key={warning}>
+          <AlertTriangle size={14} /> {warning}
+        </div>
+      ))}
+      {!!snapshot?.detections.length && (
+        <div className="oai-chart-detections">
+          {snapshot.detections.slice(0, 4).map((item) => (
+            <article
+              key={item.id}
+              style={
+                {
+                  "--detection-color": detectionColors[item.status],
+                } as CSSProperties
+              }
+            >
+              <span>{item.status}</span>
+              <strong>{item.setup}</strong>
+              <small>
+                {item.direction} · {item.reason}
+              </small>
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

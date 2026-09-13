@@ -230,6 +230,33 @@ export function ScannerSettings({
       </fieldset>
       <fieldset className="mb-panel">
         <legend>Active approved strategies</legend>
+        {snapshot.versions.some(
+          (version) => version.definition.approval === "approved",
+        ) && (
+          <div className="mb-row mb-wrap">
+            <button
+              type="button"
+              onClick={() =>
+                update(
+                  "strategyVersionIds",
+                  snapshot.versions
+                    .filter(
+                      (version) => version.definition.approval === "approved",
+                    )
+                    .map((version) => version.id),
+                )
+              }
+            >
+              Enable all approved setups
+            </button>
+            <button
+              type="button"
+              onClick={() => update("strategyVersionIds", [])}
+            >
+              Turn off all setups
+            </button>
+          </div>
+        )}
         {snapshot.versions
           .filter((v) => v.definition.approval === "approved")
           .map((v) => (
@@ -252,6 +279,10 @@ export function ScannerSettings({
         {!snapshot.versions.some(
           (v) => v.definition.approval === "approved",
         ) && <p className="mb-muted">Approve a version in Rules first.</p>}
+        <p className="mb-muted">
+          {draft.strategyVersionIds.length} approved setup version
+          {draft.strategyVersionIds.length === 1 ? "" : "s"} enabled.
+        </p>
       </fieldset>
       <label className="mb-check">
         <input

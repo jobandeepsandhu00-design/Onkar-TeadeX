@@ -22,7 +22,15 @@ export type SetupPreview = {
   name: string;
   asset: string;
   score: number;
-  status: "High quality" | "Watching" | "Developing" | "Weak" | "Invalidated";
+  status:
+    | "High quality"
+    | "Confirmed"
+    | "Watching"
+    | "Partial match"
+    | "Developing"
+    | "Weak"
+    | "Invalidated"
+    | "Awaiting data";
   direction: "Long" | "Short";
   timeframe: string;
   price: number;
@@ -32,6 +40,16 @@ export type SetupPreview = {
   targets: [number, number];
   rr: number;
   rules: number;
+  totalRules?: number;
+  source?: "sample" | "verified";
+  validation?: string;
+  conditionsMatched?: string[];
+  conditionsMissing?: string[];
+  reason?: string;
+  waitFor?: string;
+  learningInsight?: string;
+  candleClosed?: boolean;
+  updatedAt?: string;
 };
 export const demoSetups: SetupPreview[] = [
   {

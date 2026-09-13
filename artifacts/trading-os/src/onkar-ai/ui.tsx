@@ -1,5 +1,13 @@
 import type { CSSProperties, ReactNode } from "react";
-import { Activity, ArrowUpRight, BarChart3, Bell, BrainCircuit, ChevronRight, Target } from "lucide-react";
+import {
+  Activity,
+  ArrowUpRight,
+  BarChart3,
+  Bell,
+  BrainCircuit,
+  ChevronRight,
+  Target,
+} from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import type { SetupPreview } from "./demo-data";
@@ -59,7 +67,7 @@ export function Panel({
   );
 }
 export function AIStatusBadge({ status }: { status: string }) {
-  const tone = /High|Ready|Long|Win|Safe/.test(status)
+  const tone = /High|Ready|Confirmed|Long|Win|Safe/.test(status)
     ? "green"
     : /Invalid|Loss|Short|Offline/.test(status)
       ? "red"
@@ -82,7 +90,7 @@ export function AIScoreBadge({
 }) {
   return (
     <span
-      title="Sample rule confluence score, not a win probability"
+      title="Rule confluence score, not a win probability"
       className={`oai-score ${large ? "oai-score-large" : ""} ${score >= 80 ? "oai-green" : score >= 65 ? "oai-blue" : "oai-gold"}`}
       style={large ? ({ "--oai-score": score } as CSSProperties) : undefined}
     >
@@ -108,26 +116,58 @@ export function OnkarAIEntryButton({
       onClick={onClick}
       aria-label="Launch the Onkar AI market intelligence workspace"
     >
-      {compact ? <>
-        <span className="oai-entry-icon"><BrainCircuit size={19} /></span>
-        <span><strong>Onkar AI</strong></span>
-        <ArrowUpRight size={17} />
-      </> : <>
-        <span className="oai-entry-art" aria-hidden="true" />
-        <span className="oai-entry-content">
-          <span className="oai-entry-kicker"><BrainCircuit size={13} /> INTELLIGENCE WORKSPACE <i>LIVE</i></span>
-          <strong>ONKAR <b>AI</b></strong>
-          <small>YOUR AI TRADING ADVANTAGE</small>
-          <span className="oai-entry-description">Scan. Analyse. Find opportunities. 24/7.</span>
-          <span className="oai-entry-metrics" aria-hidden="true">
-            <span><BarChart3 size={15} /><b>32</b><em>Markets</em></span>
-            <span><Target size={15} /><b>7</b><em>High quality</em></span>
-            <span><Activity size={15} /><b>12</b><em>Developing</em></span>
-            <span><Bell size={15} /><b>Alerts</b><em>Real-time</em></span>
+      {compact ? (
+        <>
+          <span className="oai-entry-icon">
+            <BrainCircuit size={19} />
           </span>
-        </span>
-        <span className="oai-entry-action">Launch Onkar AI <ChevronRight size={18} /></span>
-      </>}
+          <span>
+            <strong>Onkar AI</strong>
+          </span>
+          <ArrowUpRight size={17} />
+        </>
+      ) : (
+        <>
+          <span className="oai-entry-art" aria-hidden="true" />
+          <span className="oai-entry-content">
+            <span className="oai-entry-kicker">
+              <BrainCircuit size={13} /> INTELLIGENCE WORKSPACE <i>LIVE</i>
+            </span>
+            <strong>
+              ONKAR <b>AI</b>
+            </strong>
+            <small>YOUR AI TRADING ADVANTAGE</small>
+            <span className="oai-entry-description">
+              Scan. Analyse. Find opportunities. 24/7.
+            </span>
+            <span className="oai-entry-metrics" aria-hidden="true">
+              <span>
+                <BarChart3 size={15} />
+                <b>32</b>
+                <em>Markets</em>
+              </span>
+              <span>
+                <Target size={15} />
+                <b>7</b>
+                <em>High quality</em>
+              </span>
+              <span>
+                <Activity size={15} />
+                <b>12</b>
+                <em>Developing</em>
+              </span>
+              <span>
+                <Bell size={15} />
+                <b>Alerts</b>
+                <em>Real-time</em>
+              </span>
+            </span>
+          </span>
+          <span className="oai-entry-action">
+            Launch Onkar AI <ChevronRight size={18} />
+          </span>
+        </>
+      )}
     </button>
   );
 }
