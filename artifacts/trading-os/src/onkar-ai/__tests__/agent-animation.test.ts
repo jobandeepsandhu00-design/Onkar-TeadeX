@@ -11,6 +11,7 @@ import {
   type AgentVoiceProvider,
 } from "../agent-voice";
 import { ROBOT_PROFILES } from "../robot-profiles";
+import { AGENT_DEFINITIONS } from "../agent-data";
 import { readMasterStream } from "../read-master-stream";
 import type { MasterAIResponse } from "@workspace/api-zod";
 
@@ -24,6 +25,11 @@ test("all ten agents have individually aligned eye masks, head masks and chest c
       assert.ok(eye.center.every((value) => value > 0 && value < 720));
     assert.ok(profile.chest.every((value) => value > 0 && value < 720));
   }
+});
+test("every agent opens a real workspace and Master does not navigate back to its own dashboard", () => {
+  assert.equal(AGENT_DEFINITIONS.length, 10);
+  assert.equal(AGENT_DEFINITIONS.find((agent) => agent.id === "master")?.destination, "/onkar-ai/assistant");
+  for (const agent of AGENT_DEFINITIONS) assert.match(agent.destination, /^\/onkar-ai\/.+/);
 });
 test("runtime never randomly activates specialists; ignores stale requests", () => {
   const runtime = createAgentRuntime();

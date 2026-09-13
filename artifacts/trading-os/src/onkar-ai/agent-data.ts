@@ -73,7 +73,7 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
     signal: "Network harmony 98%",
     image: "/onkar-ai/agents/master.jpg",
     icon: Crown,
-    destination: "/onkar-ai",
+    destination: "/onkar-ai/assistant",
     visualState: "active",
     primaryMetric: "XAUUSD",
     secondaryMetric: "91 score",

@@ -157,7 +157,13 @@ export function AgentCommandCenter({ onNavigate }: Props) {
                   <div><span>Example signal</span><strong>{selected.signal}</strong></div>
                 </div>
                 <div className="oai-agent-detail-actions">
-                  <AIButton primary onClick={() => onNavigate(selected.destination)}>
+                  <AIButton
+                    primary
+                    onClick={() => {
+                      setSelected(null);
+                      onNavigate(selected.destination);
+                    }}
+                  >
                     Open workspace <ArrowRight size={16} />
                   </AIButton>
                   {selected.id === "master" && <AIButton onClick={() => onNavigate("/onkar-ai/assistant")}>Ask Master AI</AIButton>}
