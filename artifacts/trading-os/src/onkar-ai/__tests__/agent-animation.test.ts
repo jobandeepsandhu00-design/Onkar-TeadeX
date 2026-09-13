@@ -12,6 +12,7 @@ import {
 } from "../agent-voice";
 import { ROBOT_PROFILES } from "../robot-profiles";
 import { AGENT_DEFINITIONS } from "../agent-data";
+import { mergeDashboardSections, moveDashboardSection } from "../../market-brain/dashboard-order";
 import { readMasterStream } from "../read-master-stream";
 import type { MasterAIResponse } from "@workspace/api-zod";
 
@@ -30,6 +31,13 @@ test("every agent opens a real workspace and Master does not navigate back to it
   assert.equal(AGENT_DEFINITIONS.length, 10);
   assert.equal(AGENT_DEFINITIONS.find((agent) => agent.id === "master")?.destination, "/onkar-ai/assistant");
   for (const agent of AGENT_DEFINITIONS) assert.match(agent.destination, /^\/onkar-ai\/.+/);
+});
+test("the multi-agent command center migrates below account overview and remains reorderable", () => {
+  const all = ["moolMantar", "marketOverview", "accountOverview", "onkarAICommandCenter", "marketBrain"];
+  const stored = ["moolMantar", "marketOverview", "accountOverview", "marketBrain"];
+  const migrated = mergeDashboardSections(stored, all);
+  assert.deepEqual(migrated, ["moolMantar", "marketOverview", "accountOverview", "onkarAICommandCenter", "marketBrain"]);
+  assert.deepEqual(moveDashboardSection(migrated, all, "onkarAICommandCenter", 1), ["moolMantar", "marketOverview", "accountOverview", "marketBrain", "onkarAICommandCenter"]);
 });
 test("runtime never randomly activates specialists; ignores stale requests", () => {
   const runtime = createAgentRuntime();

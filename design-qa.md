@@ -50,4 +50,15 @@ The Master AI and specialist strip were inspected at native mobile width. Robot 
 - [x] Label unverified information as Preview/Sample.
 - [x] Verify mobile rendering, navigation and console health.
 
+## Placement and visibility update — 2026-09-13
+
+- Source: user-provided iPhone dashboard screenshot showing the existing command center.
+- Scope: placement, visibility control, and dashboard ordering; command-center visuals remain unchanged.
+- Account Overview appears immediately before the Onkar AI Multi-Agent Command Center.
+- The section header exposes an accessible eye control labeled “Hide Onkar AI Multi-Agent Command Center”.
+- Closing the eye removes the complete command center while retaining a “Show Onkar AI Multi-Agent Command Center” control.
+- Market Overview flows upward without an empty layout gap while the section is hidden.
+- The command center participates in the same persisted reorder system as the other dashboard sections.
+- Mobile expanded and hidden states were inspected in the Codex in-app Browser; no P0, P1, P2, or P3 issue remains in this update's scope.
+
 final result: passed

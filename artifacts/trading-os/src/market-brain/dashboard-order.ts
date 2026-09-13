@@ -21,3 +21,18 @@ export function mergeDashboardSections(
   }
   return result;
 }
+
+export function moveDashboardSection(
+  stored: unknown,
+  all: string[],
+  key: string,
+  direction: -1 | 1,
+): string[] {
+  const order = mergeDashboardSections(stored, all);
+  const index = order.indexOf(key);
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return order;
+  const next = [...order];
+  [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+  return next;
+}

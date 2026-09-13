@@ -23,7 +23,7 @@ import { createDefaultTradeSetups, migrateLegacySetupImages, normalizeTradeSetup
 import { SetupLibrary } from "./trade-setups/SetupLibrary";
 import { TradeSetupDashboard } from "./trade-setups/TradeSetupBoard";
 import { DashboardVideoSection, VideoLearningHub, VideoLessonPage } from "./video-lessons";
-import { mergeDashboardSections } from "./market-brain/dashboard-order";
+import { mergeDashboardSections, moveDashboardSection } from "./market-brain/dashboard-order";
 const OnkarAIRecentSlider = React.lazy(() => import("./onkar-ai/RecentSlider").then(module => ({ default: module.OnkarAIRecentSlider })));
 const OnkarAIAgentCommandCenter = React.lazy(() => import("./onkar-ai/HomeAgentCommandCenter").then(module => ({ default: module.OnkarAIAgentCommandCenter })));
 const OnkarAIWorkspace = React.lazy(() => import("./onkar-ai/OnkarAIWorkspace"));
@@ -873,8 +873,9 @@ const DEFAULT_SETTINGS = () => ({
     activeTrades:    true,
     equityCurve:     true,
     tvChart:         true,
+    onkarAICommandCenter: true,
   },
-  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","marketBrain","videoLearning","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
+  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","onkarAICommandCenter","marketBrain","videoLearning","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -6115,13 +6116,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
     setData((d: any) => {
       const s = { ...DEFAULT_SETTINGS(), ...(d.settings || {}) };
       const allKeys = DASH_SECTION_META.map((m: any) => m.key);
-      const order = mergeDashboardSections(s.dashSectionOrder, allKeys);
-      const idx = order.indexOf(key);
-      if (idx < 0) return d;
-      const newIdx = idx + dir;
-      if (newIdx < 0 || newIdx >= order.length) return d;
-      const next = [...order];
-      [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
+      const next = moveDashboardSection(s.dashSectionOrder, allKeys, key, dir);
       return { ...d, settings: { ...s, dashSectionOrder: next } };
     });
   };
@@ -6209,6 +6204,13 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
           ))}
         </div>
       </>
+    ),
+    onkarAICommandCenter: (
+      <div className="oai">
+        <React.Suspense fallback={<div className="oai-home-command oai-home-loading">Preparing Onkar AI agents…</div>}>
+          <OnkarAIAgentCommandCenter onNavigate={(path) => goTo("onkar-ai", path)} />
+        </React.Suspense>
+      </div>
     ),
     performanceLearning: <PerformanceLearning data={data} setData={setData} embedded />,
     videoLearning: <DashboardVideoSection onOpenLesson={onOpenLesson} onManage={() => goTo("academy", "Video Lessons")} />,
@@ -6385,13 +6387,6 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
               {meta.label}
             </DashSectionLabel>
             {vis[key] !== false && sectionContent[key]}
-            {key === "moolMantar" && (
-              <div className="oai">
-                <React.Suspense fallback={<div className="oai-home-command oai-home-loading">Preparing Onkar AI agents…</div>}>
-                  <OnkarAIAgentCommandCenter onNavigate={(path) => goTo("onkar-ai", path)} />
-                </React.Suspense>
-              </div>
-            )}
           </React.Fragment>
         );
       })}
@@ -13030,6 +13025,7 @@ const DASH_SECTION_META = [
   { key: "liveTicker",      label: "Live Market Ticker",    icon: "📊" },
   { key: "activeTrades",    label: "Active Trades Monitor",  icon: "📡" },
   { key: "accountOverview", label: "Account Overview",       icon: "💰" },
+  { key: "onkarAICommandCenter", label: "Onkar AI Multi-Agent Command Center", icon: "🤖" },
   { key: "marketBrain",     label: "ONKAR AI Market Brain",    icon: "🧠" },
   { key: "videoLearning",  label: "Featured Strategy Videos", icon: "🎬" },
   { key: "performanceLearning", label: "Performance & Learning", icon: "📊" },
@@ -13237,13 +13233,7 @@ function SettingsPanel({ data, setData }) {
                   const stored = (settings.dashSectionOrder as string[] | undefined);
                   const order = mergeDashboardSections(stored, allKeys);
                   const moveFn = (key: string, dir: -1 | 1) => {
-                    const idx = order.indexOf(key);
-                    if (idx < 0) return;
-                    const newIdx = idx + dir;
-                    if (newIdx < 0 || newIdx >= order.length) return;
-                    const next = [...order];
-                    [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
-                    upd({ dashSectionOrder: next });
+                    upd({ dashSectionOrder: moveDashboardSection(order, allKeys, key, dir) });
                   };
                   return order.map((key, i) => {
                     const meta = DASH_SECTION_META.find((m) => m.key === key);
