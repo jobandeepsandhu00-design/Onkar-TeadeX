@@ -166,6 +166,11 @@ export function createAgentRuntime() {
       operations.delete(id);
       setState(id, success ? "success" : "warning", success);
     },
+    report(id: AgentId, value: string, label: string, confirmed = true) {
+      setState(id, value, confirmed);
+      states.set(id, { ...states.get(id)!, statusLabel: label });
+      emit();
+    },
     finish(token: string) {
       if (run !== token) return;
       run = null;
@@ -197,7 +202,7 @@ export function createAgentRuntime() {
           ...snapshot(id),
           state: "speaking",
           isSpeaking: true,
-          statusLabel: "Speaking · device voice",
+          statusLabel: "Speaking · local Kokoro",
         });
       } else speech.delete(id);
       emit();

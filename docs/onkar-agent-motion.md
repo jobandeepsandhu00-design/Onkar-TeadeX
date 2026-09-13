@@ -29,25 +29,26 @@ No autonomous order execution is added.
 Initial cards remain Preview; unknown/unavailable agents dim. Only invoked agents
 receive completion states. Completed success fades to idle; stale request tokens are
 ignored; failed/aborted streams cannot leave work running. Final response receipt is
-not itself speech. Master/Insight animate speaking only while device voice is playing.
+not itself speech. Only Master animates speaking while local Kokoro audio is playing.
 The current OpenAI response is not token-streamed; the SSE stream carries operational
 events, followed by the completed report.
 
 ## Voice
 
-`AgentVoiceProvider` can be replaced with another TTS provider without changing
-avatar components. The current provider uses browser SpeechSynthesis with available
-English/system voices and conservative role-specific pitch/rate. One global manager
-cancels the previous agent before another speaks. Auto-speak is OFF by default.
-Device voice controls include enable/disable, auto-speak, speed and volume. Preferences
-alone are stored locally. Voice stops on page hiding, logout, explicit Stop, error,
-or timeout. Browser voice availability and permission vary; iPhone may require a
-Read aloud tap. No microphone input is requested or recorded.
+`AgentVoiceProvider` remains replaceable without changing avatar components. The
+production provider now runs Kokoro-82M ONNX in a dedicated browser worker. It tries
+WebGPU/fp32 first and automatically retries ONNX WASM/q8 when WebGPU is absent or
+initialization fails. Model files download as static assets on first use and are cached
+by the browser; inference, alert text, and generated audio stay on the device. There is
+no TTS API, API key, `speechSynthesis`, microphone input, or recording.
 
-SpeechSynthesis does not expose an audio waveform. Its visor/waveform animation is
-procedural, **not phoneme lip sync**. The existing HTMLMediaElement analyser bridge
-supports actual audio amplitude when a future playback provider supplies an element.
-That bridge should not be used twice for the same media element.
+Only Master AI can call the provider. Confirmed closed-candle scanner alerts enter a
+single priority queue, deduplicate by candidate and candle, and cancel when the setup
+expires or invalidates. Generated alert audio uses a bounded in-memory cache. Controls
+include enable/disable, response auto-speak, speed, volume, male voice selection and
+preview. Preferences are stored locally. PWA notifications are separately permissioned,
+so Voice OFF never disables in-app or system notifications. iPhone may require one
+Preview tap before automatic media playback is allowed.
 
 ## Performance / accessibility
 

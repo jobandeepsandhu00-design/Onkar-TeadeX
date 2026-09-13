@@ -83,6 +83,7 @@
     "@react-three/fiber": "^9.7.0",
     "@supabase/supabase-js": "^2.115.0",
     "@workspace/api-zod": "workspace:*",
+    "kokoro-js": "1.2.1",
     "lightweight-charts": "5.2.1",
     "three": "^0.186.0"
   }

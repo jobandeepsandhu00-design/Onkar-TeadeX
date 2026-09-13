@@ -69,6 +69,7 @@ import {
 } from "./demo-data";
 import { brainRequest } from "../market-brain/api";
 import { connectedSetups, scannerIsLive } from "./connected-setups";
+import { MasterSetupAlertBridge } from "./MasterSetupAlertBridge";
 import "./onkar-ai.css";
 import {
   Dialog,
@@ -309,6 +310,7 @@ export default function OnkarAIWorkspace({
     <div
       className={`oai oai-workspace ${preferences.compact ? "oai-prefer-compact" : ""} ${preferences.motion ? "" : "oai-no-motion"}`}
     >
+      <MasterSetupAlertBridge snapshot={scannerSnapshot} onAlert={setNotice} />
       <a className="oai-skip" href="#onkar-ai-main">
         Skip to workspace content
       </a>

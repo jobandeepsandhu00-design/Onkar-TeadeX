@@ -1,7 +1,13 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { Volume2, Square } from "lucide-react";
+import { Bell, Volume2, Square } from "lucide-react";
 import type { AgentId } from "./agent-data";
-import { agentVoice, type VoiceSettings } from "./agent-voice";
+import {
+  agentVoice,
+  KOKORO_MALE_VOICES,
+  type KokoroVoiceId,
+  type VoiceSettings,
+} from "./agent-voice";
+import { requestMasterNotificationPermission } from "./MasterSetupAlertBridge";
 
 export function AgentVoiceControls({
   agent,
@@ -23,6 +29,7 @@ export function AgentVoiceControls({
     agentVoice.initialize();
   }, []);
   useEffect(() => () => agentVoice.stop(agent), [agent]);
+  if (agent !== "master") return null;
   const playing = voice.agent === agent;
   return (
     <div className="oai-voice-controls">
@@ -46,11 +53,13 @@ export function AgentVoiceControls({
       {playing && (
         <small role="status">
           {voice.pending
-            ? "Starting device voice…"
-            : "Speaking · procedural visor animation"}
+            ? voice.engine === "loading"
+              ? `Loading Kokoro locally${voice.progress == null ? "…" : ` · ${Math.round(voice.progress)}%`}`
+              : "Preparing local voice…"
+            : `Speaking · Kokoro ${voice.engine.toUpperCase()}`}
         </small>
       )}
-      {!agentVoice.available() && <small>Device voice unavailable</small>}
+      {!agentVoice.available() && <small>Local Kokoro voice unavailable</small>}
       {voice.error && <small role="status">{voice.error}</small>}
       {settings && (
         <details>
@@ -64,7 +73,7 @@ export function AgentVoiceControls({
                   agentVoice.configure({ enabled: event.target.checked })
                 }
               />{" "}
-              Agent voice
+              Master AI voice
             </label>
             <label>
               <input
@@ -92,6 +101,37 @@ export function AgentVoiceControls({
               </select>
             </label>
             <label>
+              Kokoro voice{" "}
+              <select
+                value={voice.settings.voice}
+                onChange={(event) =>
+                  agentVoice.configure({
+                    voice: event.target.value as KokoroVoiceId,
+                  })
+                }
+              >
+                {KOKORO_MALE_VOICES.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="oai-text-button"
+              onClick={() => agentVoice.preview()}
+            >
+              <Volume2 size={14} /> Preview selected voice
+            </button>
+            <button
+              type="button"
+              className="oai-text-button"
+              onClick={() => void requestMasterNotificationPermission()}
+            >
+              <Bell size={14} /> Enable browser notifications
+            </button>
+            <label>
               Volume{" "}
               <input
                 type="range"
@@ -105,8 +145,10 @@ export function AgentVoiceControls({
               />
             </label>
             <small>
-              Uses voices available on your device. No microphone recording.
-              Auto speak may require a tap on iPhone.
+              Kokoro-82M runs locally using WebGPU, with ONNX WASM fallback. The
+              model downloads once and is cached by the browser. No TTS API, API
+              key, or microphone recording is used. iPhone may require one
+              Preview tap before automatic audio can play.
             </small>
           </div>
         </details>

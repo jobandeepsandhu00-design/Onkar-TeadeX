@@ -429,14 +429,13 @@ export function AnalyticsPage() {
   );
 }
 export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
-  const [speaker, setSpeaker] = useState<"master" | "insight">("master");
+  const speaker = "master" as const;
   const animation = useAgentAnimationState(speaker);
   const request = useRef<{ token: string; abort: AbortController } | null>(null);
   const [events, setEvents] = useState<{ agent: string; state: string; timestamp: string }[]>([]);
   useEffect(() => () => {
     if (request.current) { request.current.abort.abort(); agentRuntime.fail(request.current.token, "Request cancelled"); request.current = null; }
     agentRuntime.listen("master", false);
-    agentRuntime.listen("insight", false);
   }, []);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -517,7 +516,7 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
       >
         <div className={`oai-assistant-agent-presence oai-agent-${speaker}`}>
           <AnimatedAgentAvatar agentId={speaker} image={`/onkar-ai/agents/${speaker}.jpg`} alt={`${speaker} AI animated robot`} quality="preview" />
-          <div><label>Response voice <select aria-label="Response agent" disabled={loading} value={speaker} onChange={(event) => { agentVoice.stop(); agentRuntime.listen(speaker, false); setSpeaker(event.target.value as "master" | "insight"); }}><option value="master">Master AI</option><option value="insight">Insight AI</option></select></label><small>{animation.statusLabel}</small><small>Voice starts only when requested or auto-speak is enabled.</small></div>
+          <div><strong>Master AI voice</strong><small>{animation.statusLabel}</small><small>Specialist agents report silently. Only Master AI can speak.</small></div>
         </div>
         <div className="oai-chat-messages" aria-live="polite">
           {!messages.length ? (

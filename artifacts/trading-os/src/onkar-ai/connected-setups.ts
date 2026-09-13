@@ -1,4 +1,8 @@
-import type { ScannerCandidate, ScannerSnapshot } from "@workspace/api-zod";
+import {
+  timeframeMs,
+  type ScannerCandidate,
+  type ScannerSnapshot,
+} from "@workspace/api-zod";
 import type { SetupPreview } from "./demo-data";
 
 function status(candidate: ScannerCandidate): SetupPreview["status"] {
@@ -17,6 +21,13 @@ export function candidateToSetup(candidate: ScannerCandidate): SetupPreview {
   const matched = candidate.payload.rules.filter((rule) => rule.passed);
   const missing = candidate.payload.rules.filter((rule) => !rule.passed);
   const historical = candidate.payload.historical;
+  const duration = timeframeMs[candidate.timeframe as keyof typeof timeframeMs];
+  const candleClosed = Boolean(
+    duration &&
+    Date.parse(candidate.last_candle_at) + duration <= Date.now() &&
+    !candidate.staleNow &&
+    !candidate.payload.stale,
+  );
   return {
     id: candidate.id,
     symbol: candidate.symbol,
@@ -48,7 +59,7 @@ export function candidateToSetup(candidate: ScannerCandidate): SetupPreview {
     learningInsight: historical?.sample
       ? `${historical.sample} matching journal trades · ${historical.averageR == null ? "average R unavailable" : `${historical.averageR.toFixed(2)}R average`}.`
       : "No sufficient matching closed-trade sample yet.",
-    candleClosed: !candidate.staleNow && !candidate.payload.stale,
+    candleClosed,
     updatedAt: candidate.payload.analyzedAt,
   };
 }

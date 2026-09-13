@@ -171,7 +171,7 @@ export function AgentCommandCenter({ onNavigate }: Props) {
                     Return to command center
                   </button>
                 </div>
-                <AgentVoiceControls key={selected.id} agent={selected.id} text={`${selected.name}. My role is: ${selected.role}. Open my workspace to review available evidence. This introduction does not indicate a live analysis.`} label="Hear agent introduction" />
+                {selected.id === "master" && <AgentVoiceControls key={selected.id} agent="master" text={`${selected.name}. My role is: ${selected.role}. Open my workspace to review available evidence. This introduction does not indicate a live analysis.`} label="Hear Master AI introduction" />}
               </div>
             </div>
           )}

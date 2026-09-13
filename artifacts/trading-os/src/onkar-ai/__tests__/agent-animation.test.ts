@@ -12,7 +12,10 @@ import {
 } from "../agent-voice";
 import { ROBOT_PROFILES } from "../robot-profiles";
 import { AGENT_DEFINITIONS } from "../agent-data";
-import { mergeDashboardSections, moveDashboardSection } from "../../market-brain/dashboard-order";
+import {
+  mergeDashboardSections,
+  moveDashboardSection,
+} from "../../market-brain/dashboard-order";
 import { readMasterStream } from "../read-master-stream";
 import type { MasterAIResponse } from "@workspace/api-zod";
 
@@ -29,15 +32,45 @@ test("all ten agents have individually aligned eye masks, head masks and chest c
 });
 test("every agent opens a real workspace and Master does not navigate back to its own dashboard", () => {
   assert.equal(AGENT_DEFINITIONS.length, 10);
-  assert.equal(AGENT_DEFINITIONS.find((agent) => agent.id === "master")?.destination, "/onkar-ai/assistant");
-  for (const agent of AGENT_DEFINITIONS) assert.match(agent.destination, /^\/onkar-ai\/.+/);
+  assert.equal(
+    AGENT_DEFINITIONS.find((agent) => agent.id === "master")?.destination,
+    "/onkar-ai/assistant",
+  );
+  for (const agent of AGENT_DEFINITIONS)
+    assert.match(agent.destination, /^\/onkar-ai\/.+/);
 });
 test("the multi-agent command center migrates below account overview and remains reorderable", () => {
-  const all = ["moolMantar", "marketOverview", "accountOverview", "onkarAICommandCenter", "marketBrain"];
-  const stored = ["moolMantar", "marketOverview", "accountOverview", "marketBrain"];
+  const all = [
+    "moolMantar",
+    "marketOverview",
+    "accountOverview",
+    "onkarAICommandCenter",
+    "marketBrain",
+  ];
+  const stored = [
+    "moolMantar",
+    "marketOverview",
+    "accountOverview",
+    "marketBrain",
+  ];
   const migrated = mergeDashboardSections(stored, all);
-  assert.deepEqual(migrated, ["moolMantar", "marketOverview", "accountOverview", "onkarAICommandCenter", "marketBrain"]);
-  assert.deepEqual(moveDashboardSection(migrated, all, "onkarAICommandCenter", 1), ["moolMantar", "marketOverview", "accountOverview", "marketBrain", "onkarAICommandCenter"]);
+  assert.deepEqual(migrated, [
+    "moolMantar",
+    "marketOverview",
+    "accountOverview",
+    "onkarAICommandCenter",
+    "marketBrain",
+  ]);
+  assert.deepEqual(
+    moveDashboardSection(migrated, all, "onkarAICommandCenter", 1),
+    [
+      "moolMantar",
+      "marketOverview",
+      "accountOverview",
+      "marketBrain",
+      "onkarAICommandCenter",
+    ],
+  );
 });
 test("runtime never randomly activates specialists; ignores stale requests", () => {
   const runtime = createAgentRuntime();
@@ -123,18 +156,19 @@ test("one voice at a time; starts only on playback, auto-speak defaults OFF, lat
   callbacks!.start();
   assert.equal(voice.isSpeaking("master"), true);
   const old = callbacks!;
-  voice.speak("insight", "New speech");
+  assert.equal(voice.speak("insight", "Specialists stay silent"), false);
+  assert.equal(voice.isSpeaking("master"), true);
+  voice.speak("master", "New speech");
   callbacks!.start();
   old.end();
-  assert.equal(voice.isSpeaking("insight"), true);
-  assert.equal(agentRuntime.snapshot("master").isSpeaking, false);
+  assert.equal(voice.isSpeaking("master"), true);
   callbacks!.end();
   assert.equal(voice.getSnapshot().agent, null);
   voice.configure({ volume: 9 });
   assert.equal(voice.getSnapshot().settings.volume, 1);
   voice.configure({ volume: -2 });
   assert.equal(voice.getSnapshot().settings.volume, 0);
-  assert.equal(voice.speak("journal", "Muted"), false);
+  assert.equal(voice.speak("master", "Muted"), false);
   voice.stop();
   agentRuntime.reset();
 });
@@ -145,7 +179,7 @@ test("speech failure or unsupported browsers cannot leave an avatar speaking", (
     stop() {},
   });
   assert.equal(voice.speak("master", "Test"), false);
-  assert.match(voice.getSnapshot().error!, /does not support/);
+  assert.match(voice.getSnapshot().error!, /unsupported/);
   assert.equal(voice.getSnapshot().agent, null);
   const failure = createAgentVoiceManager({
     available: () => true,
@@ -154,10 +188,59 @@ test("speech failure or unsupported browsers cannot leave an avatar speaking", (
     },
     stop() {},
   });
-  failure.speak("journal", "Test");
+  failure.speak("master", "Test");
   assert.equal(failure.getSnapshot().agent, null);
   assert.equal(failure.getSnapshot().error, "Device failed");
   failure.stop();
+});
+test("confirmed alerts deduplicate, queue sequentially, and invalidation cancels speech", () => {
+  const callbacks: Parameters<AgentVoiceProvider["speak"]>[3][] = [];
+  let stops = 0;
+  const voice = createAgentVoiceManager({
+    available: () => true,
+    speak(_agent, _text, _settings, next) {
+      callbacks.push(next);
+    },
+    stop() {
+      stops++;
+    },
+  });
+  assert.equal(
+    voice.enqueueAlert({ key: "a", candidateId: "one", text: "First" }),
+    true,
+  );
+  assert.equal(
+    voice.enqueueAlert({ key: "a", candidateId: "one", text: "Duplicate" }),
+    false,
+  );
+  voice.enqueueAlert({ key: "b", candidateId: "two", text: "Second" });
+  assert.equal(voice.getSnapshot().queueLength, 1);
+  callbacks[0].start();
+  callbacks[0].end();
+  assert.equal(callbacks.length, 2);
+  callbacks[1].start();
+  voice.cancelAlert("two");
+  assert.equal(voice.getSnapshot().agent, null);
+  assert.ok(stops > 0);
+  voice.stop();
+  agentRuntime.reset();
+});
+test("Voice OFF suppresses Kokoro while leaving non-voice alert delivery independent", () => {
+  let calls = 0;
+  const voice = createAgentVoiceManager({
+    available: () => true,
+    speak() {
+      calls++;
+    },
+    stop() {},
+  });
+  voice.configure({ enabled: false });
+  assert.equal(
+    voice.enqueueAlert({ key: "silent", candidateId: "one", text: "Alert" }),
+    false,
+  );
+  assert.equal(calls, 0);
+  assert.equal(voice.getSnapshot().queueLength, 0);
 });
 const runId = "76129217-b596-4fb7-b7ae-cf811820ca20";
 const response: MasterAIResponse = {

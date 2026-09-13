@@ -78,6 +78,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        // Kokoro is lazy so ordinary PWA installs do not download the ML worker.
+        globIgnores: ["**/kokoro.worker-*.js"],
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [

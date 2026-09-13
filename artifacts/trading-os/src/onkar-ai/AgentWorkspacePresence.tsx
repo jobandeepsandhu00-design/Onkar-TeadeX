@@ -1,6 +1,5 @@
 import { AGENT_DEFINITIONS, type AgentId } from "./agent-data";
 import { AnimatedAgentAvatar } from "./AnimatedAgentAvatar";
-import { AgentVoiceControls } from "./AgentVoiceControls";
 import { useAgentAnimationState } from "./useAgentAnimationState";
 
 const roleForPage: Record<string, AgentId> = {
@@ -36,12 +35,6 @@ function Presence({ id }: { id: AgentId }) {
         <small>
           {agent.role} · {runtime.statusLabel}
         </small>
-        <AgentVoiceControls
-          agent={id}
-          text={`${agent.name}. ${agent.role}. ${id === "execution" ? "Order execution is manual, not autonomous." : "Use the connected tools below to review available data."}`}
-          label="Hear agent role"
-          settings={false}
-        />
       </div>
     </div>
   );

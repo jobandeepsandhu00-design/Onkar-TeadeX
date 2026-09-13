@@ -27,6 +27,7 @@ import { mergeDashboardSections, moveDashboardSection } from "./market-brain/das
 const OnkarAIRecentSlider = React.lazy(() => import("./onkar-ai/RecentSlider").then(module => ({ default: module.OnkarAIRecentSlider })));
 const OnkarAIAgentCommandCenter = React.lazy(() => import("./onkar-ai/HomeAgentCommandCenter").then(module => ({ default: module.OnkarAIAgentCommandCenter })));
 const OnkarAIWorkspace = React.lazy(() => import("./onkar-ai/OnkarAIWorkspace"));
+const MasterSetupAlertMonitor = React.lazy(() => import("./onkar-ai/MasterSetupAlertMonitor"));
 import "./onkar-ai/onkar-ai.css";
 
 /* ============================================================
@@ -16163,6 +16164,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   }
   return (
     <div className="w-full bg-slate-950" style={{ fontFamily: "'Inter', sans-serif", minHeight: "100dvh" }}>
+      <React.Suspense fallback={null}><MasterSetupAlertMonitor /></React.Suspense>
       {/* Scrollable content — header scrolls with content, only bottom nav is fixed */}
       <div className="mx-auto max-w-[1800px] overflow-y-auto px-4 py-4"
         style={{
