@@ -28,6 +28,13 @@ export interface MarketDataProvider {
     from: number,
     to: number,
   ): Promise<Candle[]>;
+  /** Optional provider-native series including the current forming candle. */
+  getBarsIncludingOpen?: (
+    symbol: string,
+    timeframe: Timeframe,
+    from: number,
+    to: number,
+  ) => Promise<Candle[]>;
   getQuote(symbol: string): Promise<{ price: number; timestamp: string }>;
   getMarketStatus(symbol: string): Promise<"open" | "closed" | "unknown">;
   healthCheck(): Promise<ProviderHealth>;
@@ -184,6 +191,15 @@ export class TwelveDataProvider implements MarketDataProvider {
     from: number,
     to: number,
   ) {
+    const rows = await this.getBarsIncludingOpen(symbol, timeframe, from, to);
+    return validClosedBars(rows, timeframe, to).filter((c) => c.t >= from);
+  }
+  async getBarsIncludingOpen(
+    symbol: string,
+    timeframe: Timeframe,
+    from: number,
+    to: number,
+  ) {
     const data = await this.request("time_series", {
       symbol: this.symbol(symbol),
       interval: tdIntervals[timeframe],
@@ -194,8 +210,8 @@ export class TwelveDataProvider implements MarketDataProvider {
     });
     if (!Array.isArray(data.values))
       throw new Error("Provider returned no candle history");
-    return validClosedBars(
-      (data.values as Array<Record<string, string>>).map((v) => ({
+    return (data.values as Array<Record<string, string>>)
+      .map((v) => ({
         t: Date.parse(
           v.datetime.length === 10
             ? `${v.datetime}T00:00:00Z`
@@ -206,10 +222,17 @@ export class TwelveDataProvider implements MarketDataProvider {
         l: Number(v.low),
         c: Number(v.close),
         v: v.volume === undefined ? null : Number(v.volume),
-      })),
-      timeframe,
-      to,
-    ).filter((c) => c.t >= from);
+      }))
+      .filter(
+        (c) =>
+          c.t >= from &&
+          c.t <= to &&
+          Number.isFinite(c.t) &&
+          c.o > 0 &&
+          c.h >= Math.max(c.o, c.c) &&
+          c.l <= Math.min(c.o, c.c),
+      )
+      .sort((a, b) => a.t - b.t);
   }
   async getQuote(symbol: string) {
     const q = await this.request("quote", { symbol: this.symbol(symbol) });

@@ -64,6 +64,66 @@ export const candleSchema = z
     "Invalid OHLC range",
   );
 export type Candle = z.infer<typeof candleSchema>;
+export const sharedChartSymbolSchema = z.enum(["GBPJPY", "XAUUSD"]);
+export const sharedChartTimeframeSchema = z.enum(["15m", "30m", "1h"]);
+export type SharedChartSymbol = z.infer<typeof sharedChartSymbolSchema>;
+export type SharedChartTimeframe = z.infer<typeof sharedChartTimeframeSchema>;
+export const setupDetectionStatusSchema = z.enum([
+  "WATCHING",
+  "PARTIAL",
+  "CONFIRMED",
+  "INVALID",
+]);
+export const chartCandleSchema = z.object({
+  t: z.number().int().nonnegative(),
+  o: z.number().positive().finite(),
+  h: z.number().positive().finite(),
+  l: z.number().positive().finite(),
+  c: z.number().positive().finite(),
+  v: z.number().nonnegative().finite().nullable(),
+  closed: z.boolean(),
+}).strict().refine(
+  (c) => c.h >= Math.max(c.o, c.c) && c.l <= Math.min(c.o, c.c) && c.h >= c.l,
+  "Invalid chart OHLC range",
+);
+export const setupDetectionSchema = z.object({
+  id: z.string(),
+  symbol: sharedChartSymbolSchema,
+  timeframe: sharedChartTimeframeSchema,
+  setup: z.string(),
+  status: setupDetectionStatusSchema,
+  direction: z.enum(["BUY", "SELL", "NONE"]),
+  conditionsMatched: z.array(z.string()),
+  conditionsMissing: z.array(z.string()),
+  entry: z.number().finite().nullable(),
+  stopLoss: z.number().finite().nullable(),
+  takeProfit: z.number().finite().nullable(),
+  riskReward: z.number().finite().nullable(),
+  learningInsight: z.string(),
+  reason: z.string(),
+  waitFor: z.string(),
+  candleClosed: z.boolean(),
+  timestamp: z.string().datetime(),
+  zones: z.array(z.object({
+    low: z.number().finite(),
+    high: z.number().finite(),
+    kind: z.string(),
+  })).default([]),
+});
+export type SetupDetection = z.infer<typeof setupDetectionSchema>;
+export const sharedMarketSnapshotSchema = z.object({
+  symbol: sharedChartSymbolSchema,
+  displaySymbol: z.string(),
+  timeframe: sharedChartTimeframeSchema,
+  provider: z.literal("twelvedata"),
+  dataStatus: z.enum(["live", "delayed", "cached", "unavailable"]),
+  fetchedAt: z.string().datetime(),
+  candles: z.array(chartCandleSchema),
+  detections: z.array(setupDetectionSchema),
+  warnings: z.array(z.string()),
+  source: z.array(z.string()),
+});
+export type SharedMarketSnapshot = z.infer<typeof sharedMarketSnapshotSchema>;
 export const FEATURES = [
   "trend",
   "structure",
@@ -86,6 +146,7 @@ export const FEATURES = [
   "rr",
   "newsSafe",
   "session",
+  "manualConfirmation",
 ] as const;
 export const ruleSchema = z
   .object({
@@ -142,12 +203,12 @@ export const scannerConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
     provider: z.enum(["twelvedata", "coinbase"]).default("twelvedata"),
-    symbols: z.array(symbolSchema).min(1).max(32).default(["EURUSD", "XAUUSD"]),
+    symbols: z.array(symbolSchema).min(1).max(32).default(["GBPJPY", "XAUUSD"]),
     timeframes: z
       .array(timeframeSchema)
       .min(1)
       .max(8)
-      .default(["5m", "15m", "1h", "4h", "1D"]),
+      .default(["15m", "30m", "1h"]),
     accountId: z.string().max(180).nullable().default(null),
     strategyVersionIds: z.array(z.string().uuid()).max(12).default([]),
     minimumScore: z.number().min(0).max(100).default(50),

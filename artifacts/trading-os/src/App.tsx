@@ -15675,6 +15675,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   const pendingSaveRef = useRef<any>(null);
   const saveInFlightRef = useRef(false);
   const saveErrorShownRef = useRef(false);
+  const lastCompiledSetupsRef = useRef("");
 
   const handleLogout = async () => {
     if (!onLogout || loggingOut) return;
@@ -15751,6 +15752,17 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
         for (let attempt = 0; attempt < 2; attempt += 1) {
           try {
             await storage.set(STORAGE_KEY, JSON.stringify(snapshot));
+            const setupFingerprint = JSON.stringify(snapshot?.setups || []);
+            if (setupFingerprint !== lastCompiledSetupsRef.current) {
+              lastCompiledSetupsRef.current = setupFingerprint;
+              void authenticatedPost("/api/market-brain/strategies/sync-library", {})
+                .then((response) => {
+                  if (!response.ok) lastCompiledSetupsRef.current = "";
+                })
+                .catch(() => {
+                  lastCompiledSetupsRef.current = "";
+                });
+            }
             lastError = null;
             saveErrorShownRef.current = false;
             break;

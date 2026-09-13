@@ -10,6 +10,22 @@ test("unconfigured Twelve Data does not fall back to simulated candles", async (
     /not configured/,
   );
 });
+test("Twelve Data series is normalized oldest-first while analysis excludes the forming candle", async (t) => {
+  const now = Date.UTC(2026, 8, 13, 12, 7, 0);
+  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({
+    status: "ok",
+    values: [
+      { datetime: "2026-09-13 12:00:00", open: "100", high: "104", low: "99", close: "103" },
+      { datetime: "2026-09-13 11:45:00", open: "98", high: "101", low: "97", close: "100" },
+    ],
+  }), { headers: { "Content-Type": "application/json" } }));
+  const provider = new TwelveDataProvider("test-key");
+  const includingOpen = await provider.getBarsIncludingOpen("XAUUSD", "15m", now - 3_600_000, now);
+  assert.deepEqual(includingOpen.map((bar) => bar.t), [Date.UTC(2026, 8, 13, 11, 45), Date.UTC(2026, 8, 13, 12, 0)]);
+  const closed = await provider.getHistoricalBars("XAUUSD", "15m", now - 3_600_000, now);
+  assert.equal(closed.length, 1);
+  assert.equal(closed[0].t, Date.UTC(2026, 8, 13, 11, 45));
+});
 test(
   "real public Coinbase candles pass ingestion and deterministic engines",
   { skip: process.env.RUN_MARKET_PROVIDER_TESTS !== "1" },

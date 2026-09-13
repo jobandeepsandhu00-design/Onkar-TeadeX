@@ -4158,6 +4158,25 @@
 .oai-chart-canvas .recharts-reference-area-rect {
   animation: oai-zone-glow 3.6s ease-in-out infinite;
 }
+
+/* Shared Twelve Data + Lightweight Charts v5 surface */
+.oai-live-chart{position:relative;overflow:hidden;border:1px solid rgba(60,153,255,.32);border-radius:18px;background:linear-gradient(145deg,rgba(9,20,38,.98),rgba(4,10,21,.98));box-shadow:inset 0 1px rgba(255,255,255,.04),0 18px 48px rgba(0,0,0,.22)}
+.oai-live-chart:before{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 70% 0,rgba(25,111,255,.12),transparent 38%)}
+.oai-live-chart-head{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px 10px}
+.oai-live-chart-head small{display:block;color:#6d89a8;font-size:9px;font-weight:800;letter-spacing:.15em}
+.oai-live-chart-head h3{display:inline-block;margin:4px 10px 0 0;color:#f4f8ff;font-size:21px}
+.oai-market-state{display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;color:#89a0ba;font-size:9px;font-weight:800;letter-spacing:.1em}
+.oai-market-state i{width:6px;height:6px;border-radius:99px;background:#758ba4}
+.oai-market-state.is-live{color:#35dfa9}.oai-market-state.is-live i{background:#2ee6a6;box-shadow:0 0 10px #2ee6a6;animation:oai-status-pulse 2s infinite}
+.oai-market-state.is-delayed{color:#f2be61}.oai-market-state.is-delayed i{background:#f2be61}.oai-market-state.is-cached{color:#69b9f4}.oai-market-state.is-cached i{background:#69b9f4}
+.oai-live-chart-controls{display:flex;align-items:center;gap:10px}.oai-live-chart-controls select,.oai-live-chart-controls>div{border:1px solid rgba(121,160,204,.2);border-radius:10px;background:#091426;color:#dceaff}
+.oai-live-chart-controls select{padding:8px 28px 8px 10px;font-size:12px}.oai-live-chart-controls>div{display:flex;padding:3px}.oai-live-chart-controls button{min-width:38px;border:0;border-radius:7px;padding:6px;background:transparent;color:#7f96b1;font-size:10px;font-weight:800}.oai-live-chart-controls button.active{background:#1677e8;color:#fff;box-shadow:0 0 15px rgba(22,119,232,.35)}
+.oai-live-ohlc{position:relative;z-index:2;display:flex;flex-wrap:wrap;gap:10px;padding:0 18px 8px;color:#6f88a5;font-size:10px}.oai-live-ohlc b{color:#bcd0e7;font-weight:700}.oai-live-ohlc>span:last-child{display:flex;align-items:center;gap:4px;margin-left:auto}.oai-live-ohlc .is-forming{color:#55baff}.oai-live-ohlc .is-forming svg{animation:oai-spin 2s linear infinite}.oai-live-ohlc .is-closed{color:#39dca7}
+.oai-lightweight-chart{position:relative;z-index:1;width:100%;height:430px;border-top:1px solid rgba(104,144,188,.11)}.oai-live-chart.is-compact .oai-lightweight-chart{height:330px}
+.oai-chart-message{position:relative;z-index:2;display:flex;align-items:flex-start;gap:7px;margin:8px 14px;padding:9px 10px;border:1px solid rgba(241,179,73,.22);border-radius:9px;background:rgba(73,48,8,.2);color:#d9b975;font-size:10px;line-height:1.45}
+.oai-chart-detections{position:relative;z-index:2;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px 14px 14px}.oai-chart-detections article{min-width:0;border:1px solid color-mix(in srgb,var(--detection-color) 35%,transparent);border-radius:10px;padding:9px 10px;background:color-mix(in srgb,var(--detection-color) 7%,#07101f)}.oai-chart-detections span{display:block;color:var(--detection-color);font-size:8px;font-weight:900;letter-spacing:.1em}.oai-chart-detections strong,.oai-chart-detections small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.oai-chart-detections strong{margin-top:3px;color:#eaf3ff;font-size:11px}.oai-chart-detections small{margin-top:3px;color:#7289a4;font-size:9px}
+@keyframes oai-spin{to{transform:rotate(360deg)}}
+@media(max-width:700px){.oai-live-chart-head{align-items:flex-start;flex-direction:column;padding:13px 12px 8px}.oai-live-chart-controls{width:100%;justify-content:space-between}.oai-live-chart-controls select{min-width:118px}.oai-live-chart-controls>div{flex:1;justify-content:flex-end}.oai-live-chart-controls button{flex:1}.oai-live-ohlc{padding:0 12px 8px;gap:7px}.oai-live-ohlc>span:last-child{margin-left:0}.oai-lightweight-chart,.oai-live-chart.is-compact .oai-lightweight-chart{height:330px}.oai-chart-detections{grid-template-columns:1fr}.oai-live-chart.is-compact .oai-chart-detections{display:none}}
 .oai-tabs button.active {
   position: relative;
   box-shadow: 0 0 16px #338dff32;

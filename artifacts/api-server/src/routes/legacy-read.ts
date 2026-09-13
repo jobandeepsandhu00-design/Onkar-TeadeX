@@ -4,8 +4,9 @@ import jwt from "jsonwebtoken";
 import { pool } from "@workspace/db";
 
 const router = Router();
-const secret = process.env.SESSION_SECRET;
-if (!secret) throw new Error("SESSION_SECRET is required for the legacy read-only rollback service.");
+const configuredSecret = process.env.SESSION_SECRET;
+if (!configuredSecret) throw new Error("SESSION_SECRET is required for the legacy read-only rollback service.");
+const secret: string = configuredSecret;
 
 type LegacyRequest = Request & { legacyUserId: number; legacyUserEmail: string };
 
@@ -13,7 +14,9 @@ function requireLegacyAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   try {
-    const payload = jwt.verify(token, secret, { audience: "trading-os-legacy-read" }) as { uid: number; email: string };
+    const payload = jwt.verify(token, secret, { audience: "trading-os-legacy-read" });
+    if (typeof payload === "string" || typeof payload.uid !== "number" || typeof payload.email !== "string")
+      throw new Error("Invalid legacy session payload");
     (req as LegacyRequest).legacyUserId = payload.uid;
     (req as LegacyRequest).legacyUserEmail = payload.email;
     next();

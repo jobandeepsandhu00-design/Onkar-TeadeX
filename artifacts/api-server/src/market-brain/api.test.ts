@@ -15,8 +15,10 @@ test("all private scanner APIs reject anonymous requests", async () => {
   try {
     for (const [method, path] of [
       ["GET", "/market-brain"],
+      ["GET", "/market-brain/shared-market?symbol=XAUUSD&timeframe=15m"],
       ["PUT", "/market-brain/config"],
       ["POST", "/market-brain/strategies"],
+      ["POST", "/market-brain/strategies/sync-library"],
       ["POST", "/market-brain/scan"],
       ["POST", "/market-brain/webhook-key"],
       ["POST", "/market-brain/chat"],

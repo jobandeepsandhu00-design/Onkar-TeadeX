@@ -6,6 +6,8 @@ import {
   scannerChatSchema,
   backtestRequestSchema,
   masterAIRequestSchema,
+  sharedChartSymbolSchema,
+  sharedChartTimeframeSchema,
   timeframeMs,
   type Candle,
   type Timeframe,
@@ -37,6 +39,8 @@ import {
 } from "../lib/openai";
 import { runMasterAI } from "../onkar-ai/orchestrator";
 import { runNextLearningJob } from "../onkar-ai/learning-worker";
+import { getSharedMarketSnapshot } from "../market-brain/shared-market";
+import { compileLibrarySetup } from "../market-brain/strategy-compiler";
 
 const router: IRouter = Router();
 const requestTimes = new Map<string, number[]>();
@@ -255,6 +259,32 @@ router.get(
     });
   }),
 );
+router.get(
+  "/market-brain/shared-market",
+  route(async (req, res) => {
+    const { user, config } = await context(req);
+    const symbol = sharedChartSymbolSchema.safeParse(
+      String(req.query.symbol || "").toUpperCase().replace(/[/-]/g, ""),
+    );
+    const timeframe = sharedChartTimeframeSchema.safeParse(
+      String(req.query.timeframe || "").toLowerCase(),
+    );
+    if (!symbol.success || !timeframe.success)
+      throw new ScannerError(
+        "Choose GBP/JPY or XAU/USD and a 15M, 30M or 1H timeframe.",
+        400,
+      );
+    rateLimit(`chart:${config?.user_id || "user"}`, 20);
+    res.json(
+      await getSharedMarketSnapshot({
+        user,
+        config,
+        symbol: symbol.data,
+        timeframe: timeframe.data,
+      }),
+    );
+  }),
+);
 router.put(
   "/market-brain/config",
   route(async (req, res) => {
@@ -354,6 +384,46 @@ router.post(
       },
     );
     res.status(201).json(row);
+  }),
+);
+router.post(
+  "/market-brain/strategies/sync-library",
+  route(async (req, res) => {
+    const { identity, user, config } = await context(req);
+    const [source, memberships] = await Promise.all([
+      user.source(identity.userId),
+      user.request<Array<{ workspace_id: string }>>("workspace_members", {
+        user_id: `eq.${identity.userId}`,
+        limit: "1",
+      }),
+    ]);
+    if (!memberships[0]) throw new ScannerError("Existing workspace not found.", 409);
+    const compiled = records(source.setups)
+      .map(compileLibrarySetup)
+      .filter((value): value is NonNullable<typeof value> => Boolean(value));
+    if (!compiled.length) {
+      res.json({ synced: 0, message: "No setup with explicit rules was available to compile." });
+      return;
+    }
+    await ScannerStore.service().request(
+      "scanner_strategy_versions",
+      { on_conflict: "user_id,source_setup_id,fingerprint" },
+      "POST",
+      compiled.map((definition) => ({
+        user_id: identity.userId,
+        workspace_id: config?.workspace_id ?? memberships[0].workspace_id,
+        source_setup_id: definition.sourceSetupId,
+        name: definition.name,
+        definition,
+        fingerprint: fingerprint(definition),
+      })),
+      "resolution=ignore-duplicates,return=minimal",
+    );
+    res.json({
+      synced: compiled.length,
+      approval: "ai_extracted",
+      message: "Machine-readable draft versions created. Approval is still required before scanning.",
+    });
   }),
 );
 router.post(

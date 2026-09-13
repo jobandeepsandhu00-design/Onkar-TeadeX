@@ -43,6 +43,7 @@ import {
   Panel,
 } from "./ui";
 import { MarketChart } from "./charts";
+import { SharedMarketChart } from "./SharedMarketChart";
 import {
   AlertsPanel,
   IntegrationsPanel,
@@ -510,10 +511,7 @@ export default function OnkarAIWorkspace({
                     compact
                   />
                 </Panel>
-                <MarketChart
-                  setup={selected}
-                  onExpand={() => navigate("/onkar-ai/charts")}
-                />
+                <SharedMarketChart compact />
                 {analysis}
               </div>
               <div className="oai-dashboard-widgets">
@@ -562,7 +560,16 @@ export default function OnkarAIWorkspace({
           ) : segment === "scanner" || segment === "markets" || segment === "watchlist" ? (
             connectedPanel("Watchlist")
           ) : segment === "charts" ? (
-            connectedPanel("Watchlist")
+            <>
+              <div className="oai-section-intro">
+                <div>
+                  <span className="oai-kicker">SHARED MARKET INTELLIGENCE</span>
+                  <h2>Live chart and agent context</h2>
+                  <p>The chart, Master AI and every specialist consume this same authenticated candle snapshot.</p>
+                </div>
+              </div>
+              <SharedMarketChart />
+            </>
           ) : segment === "setup" && detail ? (
             <>
               <div className="oai-section-intro">
