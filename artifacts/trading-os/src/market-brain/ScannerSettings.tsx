@@ -6,6 +6,7 @@ import {
   type ScannerSnapshot,
 } from "@workspace/api-zod";
 import { brainRequest } from "./api";
+import { SymbolManager } from "./SymbolManager";
 
 export function ScannerSettings({
   snapshot,
@@ -17,7 +18,6 @@ export function ScannerSettings({
   const [draft, setDraft] = useState<ScannerConfig>(
     () => snapshot.config?.config ?? snapshot.defaults,
   );
-  const [symbols, setSymbols] = useState(draft.symbols.join(", "));
   const [contractText, setContractText] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       Object.entries(draft.risk.valuePerPriceUnit).map(([s, v]) => [
@@ -38,11 +38,6 @@ export function ScannerSettings({
   async function save() {
     const parsed = scannerConfigSchema.safeParse({
       ...draft,
-      symbols: symbols
-        .toUpperCase()
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
     });
     if (!parsed.success) {
       setError(
@@ -80,6 +75,7 @@ export function ScannerSettings({
               update("provider", e.target.value as ScannerConfig["provider"])
             }
           >
+            <option value="mt5">MetaTrader 5 · connected broker feed</option>
             <option value="twelvedata">
               Twelve Data · server API key required
             </option>
@@ -99,18 +95,6 @@ export function ScannerSettings({
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          Symbols · comma separated
-          <input
-            value={symbols}
-            onChange={(e) => setSymbols(e.target.value)}
-            placeholder={
-              draft.provider === "coinbase"
-                ? "BTC-USD, ETH-USD"
-                : "EURUSD, XAUUSD"
-            }
-          />
         </label>
         <label>
           Full watchlist cycle (seconds)
@@ -166,6 +150,11 @@ export function ScannerSettings({
           </label>
         ))}
       </div>
+      <SymbolManager
+        symbols={draft.symbols}
+        provider={draft.provider}
+        onChange={(symbols) => update("symbols", symbols)}
+      />
       <fieldset className="mb-panel">
         <legend>Market / webhook timeframes</legend>
         <div className="mb-row mb-wrap">
@@ -201,31 +190,26 @@ export function ScannerSettings({
           they are not guessed.
         </p>
         <div className="mb-grid">
-          {symbols
-            .toUpperCase()
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .map((s) => (
-              <label key={s}>
-                {s}
-                <input
-                  inputMode="decimal"
-                  value={contractText[s] ?? ""}
-                  onChange={(e) => {
-                    setContractText((old) => ({ ...old, [s]: e.target.value }));
-                    const values = { ...draft.risk.valuePerPriceUnit };
-                    const n = Number(e.target.value.replace(",", "."));
-                    if (n > 0) values[s] = n;
-                    else delete values[s];
-                    update("risk", {
-                      ...draft.risk,
-                      valuePerPriceUnit: values,
-                    });
-                  }}
-                />
-              </label>
-            ))}
+          {draft.symbols.map((s) => (
+            <label key={s}>
+              {s}
+              <input
+                inputMode="decimal"
+                value={contractText[s] ?? ""}
+                onChange={(e) => {
+                  setContractText((old) => ({ ...old, [s]: e.target.value }));
+                  const values = { ...draft.risk.valuePerPriceUnit };
+                  const n = Number(e.target.value.replace(",", "."));
+                  if (n > 0) values[s] = n;
+                  else delete values[s];
+                  update("risk", {
+                    ...draft.risk,
+                    valuePerPriceUnit: values,
+                  });
+                }}
+              />
+            </label>
+          ))}
         </div>
       </fieldset>
       <fieldset className="mb-panel">

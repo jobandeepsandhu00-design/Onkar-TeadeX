@@ -9,6 +9,7 @@ import {
   type Timeframe,
 } from "@workspace/api-zod";
 import { getMarketProvider } from "./providers";
+import { getMT5Account } from "../mt5/client";
 import { ScannerStore, type CandidateRow, type ConfigRow } from "./store";
 import {
   buildGlobalTradingWorkflow,
@@ -25,7 +26,15 @@ type StoredBar = {
 };
 
 const DISPLAY_SYMBOLS: Record<SharedChartSymbol, string> = {
+  EURUSD: "EUR/USD",
+  GBPUSD: "GBP/USD",
+  USDJPY: "USD/JPY",
   GBPJPY: "GBP/JPY",
+  EURJPY: "EUR/JPY",
+  AUDUSD: "AUD/USD",
+  USDCAD: "USD/CAD",
+  NZDUSD: "NZD/USD",
+  EURGBP: "EUR/GBP",
   XAUUSD: "XAU/USD",
 };
 const snapshotPromises = new Map<
@@ -40,7 +49,9 @@ const snapshotPromises = new Map<
   }
 >();
 
-function uniqueBars(rows: Candle[]) {
+type ProviderBar = Candle & { closed?: boolean };
+
+function uniqueBars(rows: ProviderBar[]) {
   return [...new Map(rows.map((row) => [row.t, row])).values()].sort(
     (a, b) => a.t - b.t,
   );
@@ -48,18 +59,19 @@ function uniqueBars(rows: Candle[]) {
 
 async function sharedProviderCandles(
   service: ScannerStore,
+  providerName: "mt5" | "twelvedata",
   symbol: SharedChartSymbol,
   timeframe: Timeframe,
   now = Date.now(),
 ) {
-  const cacheKey = `${symbol}:${timeframe}`;
+  const cacheKey = `${providerName}:${symbol}:${timeframe}`;
   const cachedPromise = snapshotPromises.get(cacheKey);
   if (cachedPromise && cachedPromise.expiresAt > now)
     return cachedPromise.promise;
 
   const promise = (async () => {
     const stored = await service.request<StoredBar[]>("market_candles", {
-      provider: "eq.twelvedata",
+      provider: `eq.${providerName}`,
       symbol: `eq.${symbol}`,
       timeframe: `eq.${timeframe}`,
       order: "open_time.desc",
@@ -73,7 +85,7 @@ async function sharedProviderCandles(
       c: row.c,
       v: row.v,
     }));
-    const provider = getMarketProvider("twelvedata");
+    const provider = getMarketProvider(providerName);
     const from = storedCandles.at(-1)?.t
       ? Math.max(
           storedCandles.at(-1)!.t - timeframeMs[timeframe],
@@ -85,14 +97,16 @@ async function sharedProviderCandles(
         ? await provider.getBarsIncludingOpen(symbol, timeframe, from, now)
         : await provider.getHistoricalBars(symbol, timeframe, from, now);
       const all = uniqueBars([...storedCandles, ...fetched]).slice(-300);
-      const closed = all.filter((bar) => bar.t + timeframeMs[timeframe] <= now);
+      const isClosed = (bar: ProviderBar) =>
+        bar.closed ?? bar.t + timeframeMs[timeframe] <= now;
+      const closed = all.filter(isClosed);
       if (closed.length) {
         await service.request(
           "market_candles",
           { on_conflict: "provider,symbol,timeframe,open_time" },
           "POST",
           closed.map((bar) => ({
-            provider: "twelvedata",
+            provider: providerName,
             symbol,
             timeframe,
             open_time: bar.t,
@@ -105,13 +119,11 @@ async function sharedProviderCandles(
           "resolution=merge-duplicates,return=minimal",
         );
       }
-      const hasForming = all.some(
-        (bar) => bar.t <= now && bar.t + timeframeMs[timeframe] > now,
-      );
+      const hasForming = all.some((bar) => !isClosed(bar));
       return {
         candles: all.map((bar) => ({
           ...bar,
-          closed: bar.t + timeframeMs[timeframe] <= now,
+          closed: isClosed(bar),
         })),
         dataStatus: (hasForming
           ? "live"
@@ -132,8 +144,8 @@ async function sharedProviderCandles(
           : "unavailable") as SharedMarketSnapshot["dataStatus"],
         warnings: [
           storedCandles.length
-            ? "Twelve Data is temporarily unavailable; showing the last stored closed candles."
-            : "Twelve Data returned no candles for this symbol, timeframe, or subscription.",
+            ? `${providerName === "mt5" ? "MT5" : "Twelve Data"} is temporarily unavailable; showing the last stored closed candles.`
+            : `${providerName === "mt5" ? "MT5" : "Twelve Data"} returned no candles for this symbol and timeframe.`,
         ],
       };
     }
@@ -142,7 +154,13 @@ async function sharedProviderCandles(
   // context cannot change faster than its candle, so keep it longer and avoid
   // multiplying Twelve Data requests across the ten specialists.
   const cacheMs =
-    timeframe === "4h" ? 5 * 60_000 : timeframe === "1h" ? 2 * 60_000 : 55_000;
+    providerName === "mt5"
+      ? 10_000
+      : timeframe === "4h"
+        ? 5 * 60_000
+        : timeframe === "1h"
+          ? 2 * 60_000
+          : 55_000;
   snapshotPromises.set(cacheKey, { expiresAt: now + cacheMs, promise });
   promise.catch(() => snapshotPromises.delete(cacheKey));
   return promise;
@@ -251,20 +269,55 @@ export async function getSharedMarketSnapshot(args: {
   timeframe: SharedChartTimeframe;
 }): Promise<SharedMarketSnapshot> {
   const service = ScannerStore.service();
+  const requestedProvider =
+    process.env.PRIMARY_MARKET_PROVIDER === "mt5" ||
+    args.config?.config.provider === "mt5"
+      ? "mt5"
+      : "twelvedata";
+  let activeProvider: "mt5" | "twelvedata" = requestedProvider;
+  let fallbackWarning: string | null = null;
   const requestedTimeframes = new Set<Timeframe>([
     args.timeframe,
     ...GLOBAL_WORKFLOW_TIMEFRAMES,
   ]);
-  const [marketEntries, candidates] = await Promise.all([
-    Promise.all(
+  let marketEntries = await Promise.all(
+    [...requestedTimeframes].map(
+      async (timeframe) =>
+        [
+          timeframe,
+          await sharedProviderCandles(
+            service,
+            requestedProvider,
+            args.symbol,
+            timeframe,
+          ),
+        ] as const,
+    ),
+  );
+  if (
+    requestedProvider === "mt5" &&
+    marketEntries.every(([, market]) => market.dataStatus === "unavailable") &&
+    process.env.MARKET_DATA_FALLBACK_ENABLED === "true"
+  ) {
+    activeProvider = "twelvedata";
+    fallbackWarning =
+      "MT5 is disconnected. DATA SOURCE: FALLBACK (Twelve Data). Broker execution remains unavailable.";
+    marketEntries = await Promise.all(
       [...requestedTimeframes].map(
         async (timeframe) =>
           [
             timeframe,
-            await sharedProviderCandles(service, args.symbol, timeframe),
+            await sharedProviderCandles(
+              service,
+              "twelvedata",
+              args.symbol,
+              timeframe,
+            ),
           ] as const,
       ),
-    ),
+    );
+  }
+  const [candidates] = await Promise.all([
     args.user.request<CandidateRow[]>("setup_candidates", {
       ...(args.config ? { config_id: `eq.${args.config.id}` } : {}),
       symbol: `eq.${args.symbol}`,
@@ -290,18 +343,57 @@ export async function getSharedMarketSnapshot(args: {
         .find((candle) => !candle.closed) ?? null,
   });
   const detections = candidates.map(mapDetection);
+  let account: Awaited<ReturnType<typeof getMT5Account>> | null = null;
+  let quote: Awaited<ReturnType<ReturnType<typeof getMarketProvider>["getQuote"]>> | null = null;
+  if (activeProvider === "mt5") {
+    try {
+      [account, quote] = await Promise.all([
+        getMT5Account(),
+        getMarketProvider("mt5").getQuote(args.symbol),
+      ]);
+    } catch {
+      // Candles may still be cached. Never label cached broker data as live.
+    }
+  }
+  const quoteState = quote?.state;
+  const dataStatus =
+    activeProvider === "mt5" && quoteState !== "CONNECTED"
+      ? selected.candles.length
+        ? "cached"
+        : "unavailable"
+      : selected.dataStatus;
   return sharedMarketSnapshotSchema.parse({
     symbol: args.symbol,
     displaySymbol: DISPLAY_SYMBOLS[args.symbol],
     timeframe: args.timeframe,
-    provider: "twelvedata",
-    dataStatus: selected.dataStatus,
+    provider: activeProvider,
+    dataSource: activeProvider === "mt5" ? "broker" : "fallback",
+    dataStatus,
     fetchedAt: new Date().toISOString(),
+    broker: account?.broker ?? null,
+    server: account?.server ?? null,
+    accountType: account?.accountType ?? null,
+    quote: quote
+      ? {
+          bid: quote.bid ?? quote.price,
+          ask: quote.ask ?? quote.price,
+          last: quote.price,
+          spread: quote.spread ?? 0,
+          timestamp: quote.timestamp,
+          approximateLatencyMs: quote.approximateLatencyMs ?? null,
+          state: quote.state ?? "DISCONNECTED",
+          brokerSymbol: quote.brokerSymbol ?? args.symbol,
+        }
+      : null,
     candles: selected.candles,
     detections,
     workflow,
     warnings: [
       ...selected.warnings,
+      ...(fallbackWarning ? [fallbackWarning] : []),
+      ...(requestedProvider === "mt5" && !quote
+        ? ["MT5 bridge is disconnected or not configured. No broker price is being invented."]
+        : []),
       ...(!workflow
         ? [
             "Global 4H → 1H → 30M workflow is waiting for sufficient closed candles.",
@@ -314,7 +406,7 @@ export async function getSharedMarketSnapshot(args: {
         : []),
     ],
     source: [
-      "Twelve Data",
+      activeProvider === "mt5" ? "Connected MT5 broker" : "Twelve Data fallback",
       "market_candles",
       "approved strategy versions",
       "trade journal learning",

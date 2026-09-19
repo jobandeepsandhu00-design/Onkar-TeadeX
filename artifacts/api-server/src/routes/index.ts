@@ -8,6 +8,7 @@ import legacyReadRouter from "./legacy-read";
 import videoLessonsRouter from "./video-lessons";
 import mediaRouter from "./media";
 import marketBrainRouter from "./market-brain";
+import mt5Router from "./mt5";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(legacyReadRouter);
 router.use(videoLessonsRouter);
 router.use(mediaRouter);
 router.use(marketBrainRouter);
+router.use(mt5Router);
 
 export default router;

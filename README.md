@@ -2,6 +2,11 @@
 
 A full-stack Forex trading journal and operating system. Log trades, track P&L, size positions correctly, monitor daily risk limits in real time, and study from the built-in academy and blueprint library.
 
+The broker-independent Windows MetaTrader 5 bridge is in
+[`mt5-bridge`](./mt5-bridge). It uses the official MetaQuotes Python package
+and is intentionally separate from Vercel. See
+[`docs/MT5_SETUP.md`](./docs/MT5_SETUP.md) for demo/VPS setup and safety controls.
+
 ---
 
 ## Stack

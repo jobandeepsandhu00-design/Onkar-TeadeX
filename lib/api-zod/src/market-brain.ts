@@ -64,8 +64,19 @@ export const candleSchema = z
     "Invalid OHLC range",
   );
 export type Candle = z.infer<typeof candleSchema>;
-export const sharedChartSymbolSchema = z.enum(["GBPJPY", "XAUUSD"]);
-export const sharedChartTimeframeSchema = z.enum(["15m", "30m", "1h"]);
+export const sharedChartSymbolSchema = z.enum([
+  "EURUSD",
+  "GBPUSD",
+  "USDJPY",
+  "GBPJPY",
+  "EURJPY",
+  "AUDUSD",
+  "USDCAD",
+  "NZDUSD",
+  "EURGBP",
+  "XAUUSD",
+]);
+export const sharedChartTimeframeSchema = z.enum(["15m", "30m", "1h", "4h"]);
 export type SharedChartSymbol = z.infer<typeof sharedChartSymbolSchema>;
 export type SharedChartTimeframe = z.infer<typeof sharedChartTimeframeSchema>;
 export const chartCandleSchema = z
@@ -232,9 +243,26 @@ export const sharedMarketSnapshotSchema = z.object({
   symbol: sharedChartSymbolSchema,
   displaySymbol: z.string(),
   timeframe: sharedChartTimeframeSchema,
-  provider: z.literal("twelvedata"),
+  provider: z.enum(["mt5", "twelvedata"]),
+  dataSource: z.enum(["broker", "fallback"]),
   dataStatus: z.enum(["live", "delayed", "cached", "unavailable"]),
   fetchedAt: z.string().datetime(),
+  broker: z.string().nullable().default(null),
+  server: z.string().nullable().default(null),
+  accountType: z.enum(["DEMO", "LIVE", "CONTEST"]).nullable().default(null),
+  quote: z
+    .object({
+      bid: z.number().finite(),
+      ask: z.number().finite(),
+      last: z.number().finite(),
+      spread: z.number().nonnegative().finite(),
+      timestamp: z.string().datetime(),
+      approximateLatencyMs: z.number().nonnegative().finite().nullable(),
+      state: z.enum(["CONNECTED", "STALE", "MARKET_CLOSED", "DISCONNECTED"]),
+      brokerSymbol: z.string(),
+    })
+    .nullable()
+    .default(null),
   candles: z.array(chartCandleSchema),
   detections: z.array(setupDetectionSchema),
   workflow: globalTradingWorkflowSchema.nullable(),
@@ -323,7 +351,7 @@ export const riskProfileSchema = z
 export const scannerConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
-    provider: z.enum(["twelvedata", "coinbase"]).default("twelvedata"),
+    provider: z.enum(["mt5", "twelvedata", "coinbase"]).default("twelvedata"),
     symbols: z.array(symbolSchema).min(1).max(32).default(["GBPJPY", "XAUUSD"]),
     timeframes: z
       .array(timeframeSchema)
@@ -518,7 +546,15 @@ export type ScannerSnapshot = {
     latency_ms: number | null;
     created_at: string;
   }>;
-  accounts: Array<{ id: string; name: string; currency: string; type: string }>;
+  accounts: Array<{
+    id: string;
+    name: string;
+    currency: string;
+    type: string;
+    broker?: string;
+    accountNumber?: string;
+    balance?: number | null;
+  }>;
   setups: Array<{
     id: string;
     name: string;
@@ -528,6 +564,7 @@ export type ScannerSnapshot = {
     rules?: unknown[];
   }>;
   connection: Record<string, string>;
+  runtime: ScannerRuntime;
   journal: {
     accountId: string | null;
     trades: number;
@@ -546,6 +583,28 @@ export type ScannerSnapshot = {
     }>;
   } | null;
 };
+
+export const scannerRuntimeSchema = z.object({
+  scannerState: z.enum(["RUNNING", "PAUSED", "STOPPED"]).default("STOPPED"),
+  tradingMode: z.enum(["ANALYSIS", "CONFIRM", "AUTO"]).default("ANALYSIS"),
+  autoStart: z.boolean().default(false),
+  autoExecutionEnabled: z.boolean().default(false),
+  emergencyStop: z.boolean().default(false),
+  reconciledAt: z.string().datetime().nullable().default(null),
+  updatedAt: z.string().datetime().nullable().default(null),
+});
+export type ScannerRuntime = z.infer<typeof scannerRuntimeSchema>;
+
+export const scannerRuntimeUpdateSchema = scannerRuntimeSchema.pick({
+  scannerState: true,
+  tradingMode: true,
+  autoStart: true,
+  autoExecutionEnabled: true,
+});
+
+export const scannerControlSchema = z.object({
+  action: z.enum(["PAUSE", "RESUME", "STOP", "EMERGENCY_STOP", "DISABLE_AUTO"]),
+});
 
 export const scannerToolInputSchema = z
   .object({

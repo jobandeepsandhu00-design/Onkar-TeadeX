@@ -1,64 +1,48 @@
-# Design QA — Home Multi-Agent Command Center
+# Design QA — Onkar AI account command carousel
 
-## Evidence
+- Source visual truth: `C:\Users\joban\.codex\codex-remote-attachments\01a07180-c785-7692-9b30-a7c170f1481f\FCE0C687-907E-4C4C-979F-FEBFE64E49F6\1-Photo-1.jpg`
+- Implementation screenshot: unavailable — the configured in-app browser returned `Browser is not available: iab` while the local Vite server was running.
+- Intended viewport: mobile-first, 390 × 844 CSS px; desktop responsive layout also implemented.
+- Source pixels: 720 × 1280.
+- Implementation pixels / density normalization: unavailable because browser capture was blocked.
+- State: connected MT5 account when configured; stored/disconnected account otherwise. No sample values are injected.
 
-- Source visual truth: `C:\Users\joban\.codex\codex-remote-attachments\01a07180-c785-7692-9b30-a7c170f1481f\051E2672-B46F-499A-9BAF-9FCC03C45153\1-Photo-1.jpg`
-- Source pixels: 589 × 1280, including mobile browser chrome and a 589px-wide app surface.
-- Implementation capture: Codex in-app Browser, `http://127.0.0.1:5188/`, tab 11.
-- Implementation viewport: 390 × 844 CSS px, device pixel ratio 1.
-- Combined comparison view inspected: `http://127.0.0.1:5188/design-qa`, 900 × 1200 CSS px.
-- State: normal Home dashboard preview with Mool Mantar above, multi-agent replacement in the original AI-card position, and Market Overview continuing below.
-- Density normalization: source was scaled to 390px display width; implementation stayed at native 390 CSS px.
-- Primary interactions tested: direct Trend AI navigation to `/onkar-ai/scanner`; horizontal agent strip; Home-to-workspace handoff.
-- Browser console errors: none.
+## Full-view comparison evidence
 
-## Full-view comparison
+The source reference was opened and inspected. It uses a dominant center account card, partially visible adjacent cards, luminous navy/cyan borders, large balance hierarchy, active-trade metrics, progress, pagination, and compact operational statistics. The implementation maps those same regions in `AccountCommandCarousel`, including touch swipe, previous/next controls, pagination dots, three-dimensional side-card transforms, account metrics, broker position metrics, and real empty/disconnected states.
 
-The replacement preserves the source dashboard's midnight-blue fintech palette, luminous blue border, compact radii, strong AI imagery, and premium CTA treatment. It deliberately changes the old single promotional hero into the requested command-center hierarchy: honest connection state, featured Master AI, specialist strip, activity, combined conclusion, and full-workspace CTA. Mool Mantar remains directly above and Market Overview continues directly below.
+A browser-rendered implementation image could not be captured, so a valid combined visual comparison was not possible. Code inspection and successful production compilation are not substitutes for that comparison.
 
-## Focused-region comparison
+## Focused-region comparison evidence
 
-The Master AI and specialist strip were inspected at native mobile width. Robot portraits are correctly cropped to head/upper-body, status labels remain legible, the second specialist peeks into view to communicate horizontal swiping, and sample values are explicitly identified instead of appearing live. The detail is readable without a page-width overflow.
+Blocked with the full-view capture. The intended focused regions are the account-card header/status, trade metric row, progress treatment, and mobile side-card crop.
 
 ## Findings
 
-- No P0, P1, or P2 issues remain.
-- [P3] The activity/conclusion strip requires a horizontal swipe on mobile. This is intentional to keep the command center compact while preserving both panels.
+- [P1] Browser-rendered visual evidence is unavailable.
+  - Location: local OnkarTradex Watchlist / account carousel.
+  - Evidence: local Vite server started successfully, but the available computer-use browser rejected creation with `Browser is not available: iab`.
+  - Impact: typography, exact mobile crop, touch-state appearance, and above-the-fold proportions cannot be signed off visually.
+  - Fix: capture the authenticated Watchlist at 390 × 844 and compare it alongside the source reference before deployment.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: Sora/Inter hierarchy matches the existing OnkarTradex dashboard; compact labels retain readable weight and contrast.
-- Spacing and layout rhythm: 14px outer dashboard rhythm is preserved; 12px internal spacing and 12–18px radii match the source card language.
-- Colors and visual tokens: dark navy, electric blue, cyan, gold, green, purple and orange are reused through the existing scoped Onkar AI tokens.
-- Image quality and asset fidelity: existing optimized 720px robot portraits are used with native dimensions, async decoding and lazy loading below the first visible cards; no placeholder avatars are present.
-- Copy and content: all ten named agents, their roles, routes, sample activity, Master conclusion and manual-execution warning are represented. Unverified data is labeled Preview/Sample.
+- Fonts and typography: implemented with the application font stack and responsive display sizes; browser verification blocked.
+- Spacing and layout rhythm: center/side card proportions, mobile padding, swipe stats, and safe-area sheet spacing implemented; browser verification blocked.
+- Colors and visual tokens: dark navy glass, cyan/blue/green semantic glow, muted disconnected treatment implemented; browser verification blocked.
+- Image quality and asset fidelity: the account card deliberately contains real data UI rather than invented mountain artwork or CSS illustration. No fake product imagery was introduced.
+- Copy and content: all values are sourced from existing account, MT5 position, and journal records; unavailable values render as explicit empty/disconnected states.
+- Accessibility/interaction: semantic buttons, labels, disabled states, touch swipe, reduced-motion override, and keyboard-reachable controls are present; runtime UI test blocked.
 
 ## Comparison history
 
-1. Initial implementation: P2 excessive mobile height at 916px due to a single-column Master metric stack and vertically stacked support panels.
-2. Fix: Master metrics changed to a compact two-column layout; activity and conclusion changed to a snap-scrolling mobile strip.
-3. Post-fix evidence: command center measures 761px at 390px viewport width, document scroll width remains 375px within the browser's content area, all primary content remains readable, and existing Market Overview follows immediately afterward.
+- Pass 1: blocked before comparison because no supported browser surface was available. No visual fixes were inferred from code alone.
 
 ## Implementation checklist
 
-- [x] Preserve all Home sections outside the existing Onkar AI slot.
-- [x] Feature Master AI and expose all nine specialist agents.
-- [x] Route every agent into an existing Onkar AI workspace destination.
-- [x] Add lightweight image, glow, eye, halo and card motion.
-- [x] Lazy-load lower specialist artwork and reserve image dimensions.
-- [x] Support reduced motion.
-- [x] Label unverified information as Preview/Sample.
-- [x] Verify mobile rendering, navigation and console health.
+1. Open the authenticated Market Scanner Watchlist in a supported browser.
+2. Capture 390 × 844 and desktop 1440 × 1000 states with a connected and disconnected MT5 account.
+3. Compare the mobile capture alongside the source image.
+4. Correct any P0/P1/P2 crop, typography, overlap, or control-density issue before deployment.
 
-## Placement and visibility update — 2026-09-13
-
-- Source: user-provided iPhone dashboard screenshot showing the existing command center.
-- Scope: placement, visibility control, and dashboard ordering; command-center visuals remain unchanged.
-- Account Overview appears immediately before the Onkar AI Multi-Agent Command Center.
-- The section header exposes an accessible eye control labeled “Hide Onkar AI Multi-Agent Command Center”.
-- Closing the eye removes the complete command center while retaining a “Show Onkar AI Multi-Agent Command Center” control.
-- Market Overview flows upward without an empty layout gap while the section is hidden.
-- The command center participates in the same persisted reorder system as the other dashboard sections.
-- Mobile expanded and hidden states were inspected in the Codex in-app Browser; no P0, P1, P2, or P3 issue remains in this update's scope.
-
-final result: passed
+final result: blocked

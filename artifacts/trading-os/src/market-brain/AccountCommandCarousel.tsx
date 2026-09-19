@@ -1,0 +1,387 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  MT5Account,
+  MT5Position,
+  ScannerSnapshot,
+} from "@workspace/api-zod";
+import {
+  Activity,
+  ArrowLeft,
+  ArrowRight,
+  ChartNoAxesCombined,
+  CircleCheck,
+  RadioTower,
+  ShieldCheck,
+} from "lucide-react";
+import { mt5Request } from "./MT5StatusPanel";
+
+type JournalTrade = Record<string, unknown> & {
+  id: string;
+  symbol?: string;
+  date?: string;
+};
+type AccountCard = ScannerSnapshot["accounts"][number] & {
+  broker?: string;
+  accountNumber?: string;
+  balance?: number | null;
+  mt5: boolean;
+};
+
+const number = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+const money = (value: number | null, currency = "USD", signed = false) => {
+  if (value === null) return "—";
+  try {
+    return new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: /^[A-Z]{3}$/.test(currency) ? currency : "USD",
+      maximumFractionDigits: 2,
+      signDisplay: signed ? "exceptZero" : "auto",
+    }).format(value);
+  } catch {
+    return `${signed && value > 0 ? "+" : ""}${value.toFixed(2)} ${currency}`;
+  }
+};
+
+export function AccountCommandCarousel({
+  snapshot,
+  journalTrades,
+  onSelect,
+  onOpenTrade,
+}: {
+  snapshot: ScannerSnapshot;
+  journalTrades: JournalTrade[];
+  onSelect: (accountId: string) => void;
+  onOpenTrade: () => void;
+}) {
+  const [mt5, setMT5] = useState<MT5Account | null>(null);
+  const [positions, setPositions] = useState<MT5Position[]>([]);
+  const [index, setIndex] = useState(0);
+  const [error, setError] = useState("");
+  const touch = useRef<number | null>(null);
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const [account, open] = await Promise.all([
+        mt5Request<MT5Account>("/account", signal),
+        mt5Request<{ positions: MT5Position[] }>("/positions", signal),
+      ]);
+      setMT5(account);
+      setPositions(open.positions);
+      setError("");
+    } catch (cause) {
+      if (!signal?.aborted) {
+        setMT5(null);
+        setPositions([]);
+        setError(cause instanceof Error ? cause.message : "MT5 disconnected");
+      }
+    }
+  }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    void refresh(controller.signal);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, 15_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [refresh]);
+  const accounts = useMemo(() => {
+    const configured: AccountCard[] = snapshot.accounts.map((account) => ({
+      ...account,
+      mt5: false,
+    }));
+    if (!mt5) return configured;
+    const match = configured.findIndex(
+      (account) =>
+        account.accountNumber === mt5.account || account.broker === mt5.broker,
+    );
+    const liveAccount = {
+      id: match >= 0 ? configured[match].id : "connected-mt5",
+      name:
+        match >= 0
+          ? configured[match].name
+          : `${mt5.broker} ${mt5.accountType}`,
+      currency: mt5.currency,
+      type: mt5.accountType,
+      broker: mt5.broker,
+      accountNumber: mt5.account,
+      balance: mt5.balance,
+      mt5: true,
+    };
+    if (match >= 0) configured.splice(match, 1, liveAccount);
+    else configured.unshift(liveAccount);
+    return configured;
+  }, [mt5, snapshot.accounts]);
+  useEffect(() => {
+    const selected = accounts.findIndex(
+      (account) => account.id === snapshot.config?.config.accountId,
+    );
+    if (selected >= 0) setIndex(selected);
+  }, [accounts, snapshot.config?.config.accountId]);
+  const move = (direction: number) => {
+    if (!accounts.length) return;
+    setIndex(
+      (current) => (current + direction + accounts.length) % accounts.length,
+    );
+  };
+  const current = accounts[index] ?? null;
+  const scopedTrades = current
+    ? journalTrades.filter(
+        (trade) => String(trade.accountId || "") === current.id,
+      )
+    : [];
+  const closed = scopedTrades.filter((trade) =>
+    /closed|win|loss|break/i.test(String(trade.status || trade.result || "")),
+  );
+  const wins = closed.filter((trade) =>
+    /win/i.test(String(trade.result || "")),
+  ).length;
+  const dailyPnl = closed
+    .filter(
+      (trade) =>
+        String(trade.exitDate || trade.date || "").slice(0, 10) ===
+        new Date().toISOString().slice(0, 10),
+    )
+    .reduce((sum, trade) => sum + (number(trade.netPnl ?? trade.pnl) ?? 0), 0);
+  const activeTrade = current?.mt5 ? (positions[0] ?? null) : null;
+  const progress = activeTrade?.takeProfit
+    ? Math.max(
+        0,
+        Math.min(
+          100,
+          activeTrade.direction === "BUY"
+            ? ((activeTrade.currentPrice - activeTrade.entryPrice) /
+                (activeTrade.takeProfit - activeTrade.entryPrice)) *
+                100
+            : ((activeTrade.entryPrice - activeTrade.currentPrice) /
+                (activeTrade.entryPrice - activeTrade.takeProfit)) *
+                100,
+        ),
+      )
+    : null;
+  const floating = current?.mt5
+    ? positions.reduce((sum, position) => sum + position.profitLoss, 0)
+    : null;
+  const floatingPct =
+    current?.balance && floating !== null
+      ? (floating / current.balance) * 100
+      : null;
+
+  if (!current)
+    return (
+      <section className="mb-account-empty">
+        <ShieldCheck size={24} />
+        <div>
+          <strong>No trading account selected</strong>
+          <span>Add an account or connect MT5 in Connections.</span>
+        </div>
+      </section>
+    );
+  return (
+    <section
+      className="mb-account-command"
+      aria-label="Trading account carousel"
+    >
+      <div
+        className="mb-account-stage"
+        onTouchStart={(event) => {
+          touch.current = event.touches[0]?.clientX ?? null;
+        }}
+        onTouchEnd={(event) => {
+          if (touch.current === null) return;
+          const distance =
+            (event.changedTouches[0]?.clientX ?? touch.current) - touch.current;
+          if (Math.abs(distance) > 45) move(distance > 0 ? -1 : 1);
+          touch.current = null;
+        }}
+      >
+        {accounts.map((account, position) => {
+          let offset = position - index;
+          if (offset > accounts.length / 2) offset -= accounts.length;
+          if (offset < -accounts.length / 2) offset += accounts.length;
+          if (Math.abs(offset) > 1) return null;
+          const isActive = offset === 0;
+          return (
+            <article
+              className={`mb-account-card ${isActive ? "is-active" : "is-side"}`}
+              data-offset={offset}
+              key={account.id}
+              aria-hidden={!isActive}
+              onClick={() => !isActive && setIndex(position)}
+            >
+              <div className="mb-account-glow" />
+              <div className="mb-account-card-head">
+                <div className="mb-account-identity">
+                  <span className="mb-account-icon">
+                    <ShieldCheck size={20} />
+                  </span>
+                  <div>
+                    <strong>{account.name}</strong>
+                    <small>
+                      {account.broker || "Stored account"} · {account.type}
+                    </small>
+                  </div>
+                </div>
+                <span
+                  className={`mb-live-pill ${account.mt5 ? "is-live" : ""}`}
+                >
+                  <i /> {account.mt5 ? mt5?.connection : "STORED"}
+                </span>
+              </div>
+              <div className="mb-account-balance">
+                <strong>
+                  {money(account.balance ?? null, account.currency)}
+                </strong>
+                <span>ACCOUNT BALANCE</span>
+              </div>
+              {account.mt5 ? (
+                <div className="mb-account-finance-grid">
+                  <div>
+                    <span>Equity</span>
+                    <b>{money(mt5?.equity ?? null, account.currency)}</b>
+                  </div>
+                  <div>
+                    <span>Free margin</span>
+                    <b>{money(mt5?.freeMargin ?? null, account.currency)}</b>
+                  </div>
+                  <div>
+                    <span>Account</span>
+                    <b>{account.accountNumber}</b>
+                  </div>
+                </div>
+              ) : null}
+              <button
+                className="mb-active-trade"
+                disabled={!activeTrade}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (activeTrade) onOpenTrade();
+                }}
+              >
+                <span>ACTIVE TRADE</span>
+                <strong>
+                  {activeTrade ? activeTrade.symbol : "No open broker position"}
+                </strong>
+                {activeTrade ? (
+                  <em
+                    className={
+                      activeTrade.direction === "BUY" ? "is-buy" : "is-sell"
+                    }
+                  >
+                    {activeTrade.direction}
+                  </em>
+                ) : null}
+              </button>
+              <div className="mb-trade-metrics">
+                <div>
+                  <span>Floating P/L</span>
+                  <b className={(floating ?? 0) >= 0 ? "is-profit" : "is-loss"}>
+                    {money(floating, account.currency, true)}
+                  </b>
+                  <small>
+                    {floatingPct === null
+                      ? "—"
+                      : `${floatingPct >= 0 ? "+" : ""}${floatingPct.toFixed(2)}%`}
+                  </small>
+                </div>
+                <div>
+                  <span>Entry</span>
+                  <b>{activeTrade?.entryPrice ?? "—"}</b>
+                  <small>SL {activeTrade?.stopLoss ?? "—"}</small>
+                </div>
+                <div>
+                  <span>Current</span>
+                  <b>{activeTrade?.currentPrice ?? "—"}</b>
+                  <small>TP {activeTrade?.takeProfit ?? "—"}</small>
+                </div>
+              </div>
+              <div className="mb-trade-progress">
+                <span>
+                  <b>TRADE PROGRESS</b>
+                  <b>{progress === null ? "—" : `${progress.toFixed(0)}%`}</b>
+                </span>
+                <div>
+                  <i style={{ width: `${progress ?? 0}%` }} />
+                </div>
+              </div>
+              {isActive ? (
+                <button
+                  className="mb-use-account"
+                  disabled={
+                    account.id === "connected-mt5" ||
+                    snapshot.config?.config.accountId === account.id
+                  }
+                  onClick={() => onSelect(account.id)}
+                >
+                  {snapshot.config?.config.accountId === account.id
+                    ? "Selected account"
+                    : "Use this account"}
+                </button>
+              ) : null}
+            </article>
+          );
+        })}
+        {accounts.length > 1 ? (
+          <>
+            <button
+              className="mb-carousel-arrow is-left"
+              onClick={() => move(-1)}
+              aria-label="Previous account"
+            >
+              <ArrowLeft size={18} />
+            </button>
+            <button
+              className="mb-carousel-arrow is-right"
+              onClick={() => move(1)}
+              aria-label="Next account"
+            >
+              <ArrowRight size={18} />
+            </button>
+          </>
+        ) : null}
+      </div>
+      <div className="mb-carousel-dots" aria-label="Account pages">
+        {accounts.map((account, position) => (
+          <button
+            key={account.id}
+            aria-label={`Show ${account.name}`}
+            aria-pressed={position === index}
+            onClick={() => setIndex(position)}
+          />
+        ))}
+      </div>
+      <div className="mb-account-stats">
+        <div>
+          <Activity size={18} />
+          <b>{current.mt5 ? positions.length : 0}</b>
+          <span>Active trades</span>
+        </div>
+        <div>
+          <CircleCheck size={18} />
+          <b>{closed.length}</b>
+          <span>
+            Closed trades ·{" "}
+            {closed.length
+              ? `${Math.round((wins / closed.length) * 100)}% win`
+              : "No result"}
+          </span>
+        </div>
+        <div>
+          <ChartNoAxesCombined size={18} />
+          <b>{money(dailyPnl, current.currency, true)}</b>
+          <span>Daily P/L · {scopedTrades.length} total</span>
+        </div>
+        <div>
+          <RadioTower size={18} />
+          <b>{current.mt5 ? mt5?.connection : "NOT LIVE"}</b>
+          <span>{current.mt5 ? "Broker system" : "Journal account"}</span>
+        </div>
+      </div>
+      {error ? <p className="mb-muted">MT5: {error}</p> : null}
+    </section>
+  );
+}

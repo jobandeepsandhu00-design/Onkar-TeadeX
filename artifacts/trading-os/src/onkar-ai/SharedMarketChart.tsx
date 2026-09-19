@@ -23,13 +23,22 @@ import type {
 import { fetchSharedMarket } from "../market-brain/shared-market";
 
 const SYMBOLS: Array<{ value: SharedChartSymbol; label: string }> = [
+  { value: "EURUSD", label: "EUR/USD" },
+  { value: "GBPUSD", label: "GBP/USD" },
+  { value: "USDJPY", label: "USD/JPY" },
   { value: "GBPJPY", label: "GBP/JPY" },
+  { value: "EURJPY", label: "EUR/JPY" },
+  { value: "AUDUSD", label: "AUD/USD" },
+  { value: "USDCAD", label: "USD/CAD" },
+  { value: "NZDUSD", label: "NZD/USD" },
+  { value: "EURGBP", label: "EUR/GBP" },
   { value: "XAUUSD", label: "XAU/USD" },
 ];
 const TIMEFRAMES: Array<{ value: SharedChartTimeframe; label: string }> = [
   { value: "15m", label: "15M" },
   { value: "30m", label: "30M" },
   { value: "1h", label: "1H" },
+  { value: "4h", label: "4H" },
 ];
 const detectionColors: Record<SetupDetection["status"], string> = {
   WATCHING: "#54b8ff",
@@ -59,6 +68,9 @@ export function SharedMarketChart({
   const [snapshot, setSnapshot] = useState<SharedMarketSnapshot | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [timezone, setTimezone] = useState<"local" | "broker" | "utc">(
+    "local",
+  );
 
   useEffect(() => {
     if (!container.current) return;
@@ -251,7 +263,11 @@ export function SharedMarketChart({
     <section className={`oai-live-chart ${compact ? "is-compact" : ""}`}>
       <div className="oai-live-chart-head">
         <div>
-          <small>TWELVE DATA · SHARED MARKET CONTEXT</small>
+          <small>
+            {snapshot?.provider === "mt5"
+              ? "MT5 BROKER FEED · SHARED MARKET CONTEXT"
+              : "DATA SOURCE: FALLBACK · TWELVE DATA"}
+          </small>
           <h3>
             {snapshot?.displaySymbol ||
               SYMBOLS.find((item) => item.value === symbol)?.label}
@@ -261,6 +277,11 @@ export function SharedMarketChart({
           >
             <i /> {loading ? "Loading" : snapshot?.dataStatus || "Unavailable"}
           </span>
+          {snapshot?.provider === "mt5" && snapshot.broker && (
+            <small className="oai-market-broker">
+              {snapshot.broker} · {snapshot.accountType} · {snapshot.quote?.brokerSymbol}
+            </small>
+          )}
         </div>
         <div className="oai-live-chart-controls">
           <select
@@ -287,8 +308,44 @@ export function SharedMarketChart({
               </button>
             ))}
           </div>
+          <select
+            aria-label="Chart timezone"
+            value={timezone}
+            onChange={(event) =>
+              setTimezone(event.target.value as "local" | "broker" | "utc")
+            }
+          >
+            <option value="local">Europe/Vienna / Local</option>
+            <option value="broker">Broker Server Time</option>
+            <option value="utc">UTC</option>
+          </select>
         </div>
       </div>
+      {snapshot?.quote && (
+        <div className="oai-live-ohlc" aria-label="MT5 live quote">
+          <span>Bid <b>{snapshot.quote.bid}</b></span>
+          <span>Ask <b>{snapshot.quote.ask}</b></span>
+          <span>Spread <b>{snapshot.quote.spread}</b></span>
+          <span>Latency <b>{snapshot.quote.approximateLatencyMs ?? "—"} ms</b></span>
+          <span className={snapshot.quote.state === "CONNECTED" ? "is-closed" : "is-forming"}>
+            {snapshot.quote.state}
+          </span>
+          <span>
+            {new Intl.DateTimeFormat("en-GB", {
+              timeZone:
+                timezone === "utc"
+                  ? "UTC"
+                  : timezone === "local"
+                    ? "Europe/Vienna"
+                    : "UTC",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            }).format(new Date(snapshot.quote.timestamp))}
+            {timezone === "broker" ? " broker epoch" : ""}
+          </span>
+        </div>
+      )}
       {latest && (
         <div className="oai-live-ohlc" aria-label="Latest candle OHLC">
           <span>

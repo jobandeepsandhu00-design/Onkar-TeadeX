@@ -34,8 +34,17 @@ export interface MarketDataProvider {
     timeframe: Timeframe,
     from: number,
     to: number,
-  ) => Promise<Candle[]>;
-  getQuote(symbol: string): Promise<{ price: number; timestamp: string }>;
+  ) => Promise<Array<Candle & { closed?: boolean }>>;
+  getQuote(symbol: string): Promise<{
+    price: number;
+    timestamp: string;
+    bid?: number;
+    ask?: number;
+    spread?: number;
+    brokerSymbol?: string;
+    state?: "CONNECTED" | "STALE" | "MARKET_CLOSED" | "DISCONNECTED";
+    approximateLatencyMs?: number;
+  }>;
   getMarketStatus(symbol: string): Promise<"open" | "closed" | "unknown">;
   healthCheck(): Promise<ProviderHealth>;
   subscribeBars?: (
@@ -401,5 +410,16 @@ export class CoinbaseProvider implements MarketDataProvider {
     }
   }
 }
-export const getMarketProvider = (name: string): MarketDataProvider =>
-  name === "coinbase" ? new CoinbaseProvider() : new TwelveDataProvider();
+export const getMarketProvider = (name: string): MarketDataProvider => {
+  if (name === "coinbase") return new CoinbaseProvider();
+  if (name === "mt5") {
+    // Avoid loading bridge-specific code in environments that only use Twelve Data.
+    const module = requireMT5Provider();
+    return new module.MT5Provider();
+  }
+  return new TwelveDataProvider();
+};
+
+// Static import with an indirection keeps the public provider factory unchanged.
+import { MT5Provider } from "./mt5-provider";
+const requireMT5Provider = () => ({ MT5Provider });

@@ -8,6 +8,9 @@ import {
   masterAIRequestSchema,
   sharedChartSymbolSchema,
   sharedChartTimeframeSchema,
+  scannerRuntimeSchema,
+  scannerRuntimeUpdateSchema,
+  scannerControlSchema,
   timeframeMs,
   type Candle,
   type Timeframe,
@@ -38,6 +41,7 @@ import { runMasterAI } from "../onkar-ai/orchestrator";
 import { runNextLearningJob } from "../onkar-ai/learning-worker";
 import { getSharedMarketSnapshot } from "../market-brain/shared-market";
 import { compileLibrarySetup } from "../market-brain/strategy-compiler";
+import { syncConfiguredMT5Journal } from "../mt5/journal-sync";
 
 const router: IRouter = Router();
 const requestTimes = new Map<string, number[]>();
@@ -121,11 +125,22 @@ const cronHandler = route(async (req, res) => {
   await requireCronAuthorization(req);
   if (process.env.SCANNER_ENABLED !== "true")
     throw new ScannerError("Scanner background processing is disabled", 503);
-  const [result, learning] = await Promise.all([
+  const [result, mt5Journal] = await Promise.all([
     runNextJob(undefined, { budgetMs: 48_000 }),
-    runNextLearningJob(),
+    syncConfiguredMT5Journal().catch((error) => ({
+      skipped: true,
+      reason:
+        error instanceof Error ? error.message : "MT5 journal sync failed",
+    })),
   ]);
-  res.json({ ok: true, result, learning, checkedAt: new Date().toISOString() });
+  const learning = await runNextLearningJob();
+  res.json({
+    ok: true,
+    result,
+    mt5Journal,
+    learning,
+    checkedAt: new Date().toISOString(),
+  });
 });
 
 // Vercel Cron uses GET; Supabase Cron/pg_net uses POST. Both require the same
@@ -136,7 +151,11 @@ router.post(
   "/market-brain/provider-health/cron",
   route(async (req, res) => {
     await requireCronAuthorization(req);
-    res.json(await getMarketProvider("twelvedata").healthCheck());
+    res.json(
+      await getMarketProvider(
+        process.env.PRIMARY_MARKET_PROVIDER === "mt5" ? "mt5" : "twelvedata",
+      ).healthCheck(),
+    );
   }),
 );
 async function context(req: Request) {
@@ -154,31 +173,57 @@ async function context(req: Request) {
   });
   return { identity, user, config };
 }
+type RuntimeRow = {
+  scanner_state: "RUNNING" | "PAUSED" | "STOPPED";
+  trading_mode: "ANALYSIS" | "CONFIRM" | "AUTO";
+  auto_start: boolean;
+  auto_execution_enabled: boolean;
+  emergency_stop: boolean;
+  reconciled_at: string | null;
+  updated_at: string;
+};
+const runtimeValue = (row?: RuntimeRow) =>
+  scannerRuntimeSchema.parse({
+    scannerState: row?.scanner_state,
+    tradingMode: row?.trading_mode,
+    autoStart: row?.auto_start,
+    autoExecutionEnabled: row?.auto_execution_enabled,
+    emergencyStop: row?.emergency_stop,
+    reconciledAt: row?.reconciled_at,
+    updatedAt: row?.updated_at ?? null,
+  });
 router.get(
   "/market-brain",
   route(async (req, res) => {
     const { identity, user, config } = await context(req);
-    const [candidates, alerts, versions, runs, source] = await Promise.all([
-      user.request<CandidateRow[]>("setup_candidates", {
-        order: "updated_at.desc",
-        limit: "100",
-      }),
-      user.request("scanner_alerts", { order: "created_at.desc", limit: "50" }),
-      user.request<VersionRow[]>("scanner_strategy_versions", {
-        order: "created_at.desc",
-        limit: "100",
-      }),
-      user.request<Array<{ status: string; created_at: string }>>(
-        "scanner_ai_runs",
-        {
-          select: "id,status,model,latency_ms,created_at",
-          created_at: `gte.${new Date().toISOString().slice(0, 10)}T00:00:00Z`,
+    const [candidates, alerts, versions, runs, source, runtimeRows] =
+      await Promise.all([
+        user.request<CandidateRow[]>("setup_candidates", {
+          order: "updated_at.desc",
+          limit: "100",
+        }),
+        user.request("scanner_alerts", {
+          order: "created_at.desc",
+          limit: "50",
+        }),
+        user.request<VersionRow[]>("scanner_strategy_versions", {
           order: "created_at.desc",
           limit: "100",
-        },
-      ),
-      user.source(identity.userId),
-    ]);
+        }),
+        user.request<Array<{ status: string; created_at: string }>>(
+          "scanner_ai_runs",
+          {
+            select: "id,status,model,latency_ms,created_at",
+            created_at: `gte.${new Date().toISOString().slice(0, 10)}T00:00:00Z`,
+            order: "created_at.desc",
+            limit: "100",
+          },
+        ),
+        user.source(identity.userId),
+        user
+          .request<RuntimeRow[]>("scanner_runtime_controls", { limit: "1" })
+          .catch(() => []),
+      ]);
     const age = config?.last_run_at
       ? Date.now() - Date.parse(config.last_run_at)
       : Infinity;
@@ -221,6 +266,11 @@ router.get(
         name: a.alias || a.accountNumber,
         currency: a.currency,
         type: a.accountType,
+        broker: a.broker,
+        accountNumber: a.accountNumber,
+        balance: Number.isFinite(Number(a.balance ?? a.startingBalance))
+          ? Number(a.balance ?? a.startingBalance)
+          : null,
       })),
       setups: records(source.setups).map((s) => ({
         id: s.id,
@@ -238,7 +288,13 @@ router.get(
         worker: fresh ? "recent_heartbeat" : "not_running_or_stale",
         mcp: "optional_not_configured",
         vision: "optional_not_configured",
-        execution: "disabled",
+        execution: runtimeRows[0]?.emergency_stop
+          ? "emergency_stopped"
+          : runtimeRows[0]?.auto_execution_enabled
+            ? "auto_enabled"
+            : runtimeRows[0]?.trading_mode === "CONFIRM"
+              ? "confirmation_required"
+              : "analysis_only",
         ai:
           runs[0] && Date.now() - Date.parse(runs[0].created_at) < 300_000
             ? runs[0].status === "succeeded"
@@ -253,7 +309,112 @@ router.get(
             : "unavailable",
         storage: "existing_R2_not_checked_by_scanner",
       },
+      runtime: runtimeValue(runtimeRows[0]),
     });
+  }),
+);
+router.put(
+  "/market-brain/runtime",
+  route(async (req, res) => {
+    const { identity, config } = await context(req);
+    if (!config) throw new ScannerError("Save scanner settings first.", 409);
+    const parsed = scannerRuntimeUpdateSchema.safeParse(req.body);
+    if (!parsed.success)
+      throw new ScannerError(
+        parsed.error.issues.map((issue) => issue.message).join("; "),
+        400,
+      );
+    const currentRuntime = await ScannerStore.service().request<RuntimeRow[]>(
+      "scanner_runtime_controls",
+      { user_id: `eq.${identity.userId}`, limit: "1" },
+    );
+    if (currentRuntime[0]?.emergency_stop && parsed.data.autoExecutionEnabled)
+      throw new ScannerError(
+        "Emergency Stop is active. Reconciliation is required before AUTO can be armed again.",
+        409,
+      );
+    if (
+      parsed.data.autoExecutionEnabled ||
+      parsed.data.tradingMode === "AUTO"
+    ) {
+      throw new ScannerError(
+        "Automatic execution is not yet enabled by the scanner worker. Use Confirm mode; the MT5 bridge will not receive an automatic order.",
+        409,
+      );
+    }
+    await ScannerStore.service().request(
+      "scanner_runtime_controls",
+      { on_conflict: "user_id" },
+      "POST",
+      {
+        user_id: identity.userId,
+        workspace_id: config.workspace_id,
+        scanner_config_id: config.id,
+        scanner_state: parsed.data.scannerState,
+        trading_mode: parsed.data.tradingMode,
+        auto_start: parsed.data.autoStart,
+        auto_execution_enabled: parsed.data.autoExecutionEnabled,
+        emergency_stop: currentRuntime[0]?.emergency_stop ?? false,
+        updated_at: new Date().toISOString(),
+      },
+      "resolution=merge-duplicates,return=minimal",
+    );
+    res.json({ saved: true });
+  }),
+);
+router.post(
+  "/market-brain/control",
+  route(async (req, res) => {
+    const { identity, config } = await context(req);
+    if (!config) throw new ScannerError("Save scanner settings first.", 409);
+    const parsed = scannerControlSchema.safeParse(req.body);
+    if (!parsed.success)
+      throw new ScannerError("Invalid scanner control action.", 400);
+    const action = parsed.data.action;
+    const patch: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (action === "PAUSE") patch.scanner_state = "PAUSED";
+    if (action === "RESUME") patch.scanner_state = "RUNNING";
+    if (action === "STOP") patch.scanner_state = "STOPPED";
+    if (action === "DISABLE_AUTO") {
+      patch.trading_mode = "CONFIRM";
+      patch.auto_execution_enabled = false;
+    }
+    if (action === "EMERGENCY_STOP") {
+      patch.scanner_state = "PAUSED";
+      patch.trading_mode = "ANALYSIS";
+      patch.auto_execution_enabled = false;
+      patch.emergency_stop = true;
+    }
+    const existing = await ScannerStore.service().request<RuntimeRow[]>(
+      "scanner_runtime_controls",
+      { user_id: `eq.${identity.userId}`, limit: "1" },
+    );
+    if (existing[0])
+      await ScannerStore.service().request(
+        "scanner_runtime_controls",
+        { user_id: `eq.${identity.userId}` },
+        "PATCH",
+        patch,
+      );
+    else
+      await ScannerStore.service().request(
+        "scanner_runtime_controls",
+        {},
+        "POST",
+        {
+          user_id: identity.userId,
+          workspace_id: config.workspace_id,
+          scanner_config_id: config.id,
+          scanner_state: patch.scanner_state ?? "STOPPED",
+          trading_mode: patch.trading_mode ?? "ANALYSIS",
+          auto_execution_enabled: patch.auto_execution_enabled ?? false,
+          emergency_stop: patch.emergency_stop ?? false,
+          auto_start: false,
+        },
+      );
+    res.json({ saved: true, action });
   }),
 );
 router.get(
@@ -270,7 +431,7 @@ router.get(
     );
     if (!symbol.success || !timeframe.success)
       throw new ScannerError(
-        "Choose GBP/JPY or XAU/USD and a 15M, 30M or 1H timeframe.",
+        "Choose a supported watchlist symbol and a 15M, 30M, 1H or 4H timeframe.",
         400,
       );
     rateLimit(`chart:${config?.user_id || "user"}`, 20);

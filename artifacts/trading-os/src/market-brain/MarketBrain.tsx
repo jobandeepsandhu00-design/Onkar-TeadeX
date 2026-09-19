@@ -11,7 +11,10 @@ import { brainRequest } from "./api";
 import { RuleBuilder } from "./RuleBuilder";
 import { ScannerSettings } from "./ScannerSettings";
 import { CandidateDetail } from "./CandidateDetail";
+import { MT5StatusPanel } from "./MT5StatusPanel";
 import { ScannerReplay } from "./ScannerReplay";
+import { AccountCommandCarousel } from "./AccountCommandCarousel";
+import { AutomationControlBar } from "./AutomationControlBar";
 import "./market-brain.css";
 
 export type MarketBrainTab =
@@ -27,7 +30,9 @@ export default function MarketBrain({
   initialTab = "Watchlist",
 }: {
   onJournal: () => void;
-  journalTrades?: Array<{ id: string; symbol?: string; date?: string }>;
+  journalTrades?: Array<
+    Record<string, unknown> & { id: string; symbol?: string; date?: string }
+  >;
   initialTab?: MarketBrainTab;
 }) {
   const [snapshot, setSnapshot] = useState<ScannerSnapshot | null>(null),
@@ -92,6 +97,21 @@ export default function MarketBrain({
     setNotice("Saved to your account.");
     void refresh();
   };
+  const selectAccount = async (accountId: string) => {
+    if (!snapshot?.config) return;
+    try {
+      await brainRequest("/config", "PUT", {
+        ...snapshot.config.config,
+        accountId,
+      });
+      setNotice("Trading account selected. Risk and scanner context updated.");
+      await refresh();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Account selection failed",
+      );
+    }
+  };
   const candidates = snapshot?.candidates ?? [];
   const active = candidates.filter(
     (c) => !["EXPIRED", "INVALIDATED", "COMPLETED"].includes(c.state),
@@ -145,8 +165,15 @@ export default function MarketBrain({
       </header>
       <div className="mb-safety">
         <ShieldCheck size={16} />
-        Analysis-only · live execution disabled · score is confluence, not win
-        probability
+        {snapshot?.runtime.emergencyStop
+          ? "Emergency Stop active · new execution locked"
+          : snapshot?.runtime.tradingMode === "AUTO" &&
+              snapshot.runtime.autoExecutionEnabled
+            ? "AUTO armed by server · approved rules and risk checks remain mandatory"
+            : snapshot?.runtime.tradingMode === "CONFIRM"
+              ? "Confirmation required before every execution"
+              : "Analysis-only · broker execution disabled"}
+        {" · "}score is confluence, not win probability
       </div>
       <nav className="mb-tabs" aria-label="Scanner views">
         {(
@@ -197,6 +224,21 @@ export default function MarketBrain({
             )}
             {tab === "Watchlist" && (
               <div className="mb-stack">
+                <AutomationControlBar
+                  runtime={snapshot.runtime}
+                  mt5Status={snapshot.connection.market ?? "NOT CONFIGURED"}
+                  markets={snapshot.config?.config.symbols.length ?? 0}
+                  onChanged={(message) => {
+                    setNotice(message);
+                    void refresh();
+                  }}
+                />
+                <AccountCommandCarousel
+                  snapshot={snapshot}
+                  journalTrades={journalTrades}
+                  onSelect={(accountId) => void selectAccount(accountId)}
+                  onOpenTrade={onJournal}
+                />
                 <div className="mb-kpis">
                   {[
                     [
@@ -396,6 +438,7 @@ export default function MarketBrain({
             )}
             {tab === "Connections" && (
               <div className="mb-stack">
+                <MT5StatusPanel />
                 <h3>Data & integrations</h3>
                 <div className="mb-grid">
                   {Object.entries(snapshot.connection).map(([label, value]) => (
@@ -432,9 +475,15 @@ export default function MarketBrain({
                         model: string;
                         message: string;
                       }>("/openai-health");
-                      setNotice(`${health.status}: ${health.message} (${health.model})`);
+                      setNotice(
+                        `${health.status}: ${health.message} (${health.model})`,
+                      );
                     } catch (e) {
-                      setError(e instanceof Error ? e.message : "OpenAI health check failed");
+                      setError(
+                        e instanceof Error
+                          ? e.message
+                          : "OpenAI health check failed",
+                      );
                     }
                   }}
                 >
@@ -452,10 +501,11 @@ export default function MarketBrain({
                 </p>
                 <p className="mb-warning">{snapshot.config?.last_error}</p>
                 <p className="mb-muted">
-                  REST candle-close scanning; active WebSockets: 0. MCP and
-                  vision are optional adapters, not connected services. R2/video
-                  playback and the existing chart remain unchanged. No
-                  “connected” badge is inferred from an API key alone.
+                  Shared candle-close scanning; the Windows MT5 bridge owns the
+                  terminal WebSocket/tick stream. MCP and vision are optional
+                  adapters, not connected services. R2/video playback and the
+                  existing chart remain unchanged. No “connected” badge is
+                  inferred from an API key alone.
                 </p>
               </div>
             )}
