@@ -965,7 +965,7 @@ const DEFAULT_SETTINGS = () => ({
 const DEFAULT_DATA = () => ({
   trades: [],
   setups: createDefaultTradeSetups(),
-  setupLibraryVersion: 3,
+  setupLibraryVersion: 4,
   strategies: seedStrategies(),
   plans: seedPlans(),
   psychology: [],
@@ -987,10 +987,10 @@ function hydrateAppData(parsed: any, current?: any) {
   return {
     ...defaults,
     ...incoming,
-    setupLibraryVersion: 3,
+    setupLibraryVersion: 4,
     setups: normalizeTradeSetups(
       Array.isArray(incoming.setups) ? incoming.setups : defaults.setups,
-      incoming.setupLibraryVersion !== 3,
+      incoming.setupLibraryVersion !== 4,
     ),
     plans: {
       ...defaults.plans,

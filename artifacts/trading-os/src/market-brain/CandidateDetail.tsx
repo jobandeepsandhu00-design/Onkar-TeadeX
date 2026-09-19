@@ -34,6 +34,8 @@ const price = (n: number | null | undefined) =>
   n === null || n === undefined
     ? "Unavailable"
     : n.toLocaleString(undefined, { maximumFractionDigits: 5 });
+const zone = (value: { low: number; high: number } | null | undefined) =>
+  value ? `${price(value.low)}–${price(value.high)}` : "Unavailable";
 function CandidateChart({ bars, plan }: { bars: Bar[]; plan: RiskResult }) {
   const rows = [...bars].sort((a, b) => a.open_time - b.open_time).slice(-80);
   if (!rows.length)
@@ -193,6 +195,138 @@ export function CandidateDetail({
               </div>
             ))}
           </div>
+          {p.globalWorkflowRequired && (
+            <section className="mb-panel">
+              <h3>Official 4H → 1H → 30M workflow</h3>
+              {p.globalWorkflow ? (
+                <>
+                  <div className="mb-grid">
+                    {[
+                      [
+                        "Master status",
+                        p.globalWorkflow.masterStatus.replaceAll("_", " "),
+                      ],
+                      ["Setup AI gate", p.globalWorkflow.gate.status],
+                      ["4H bias", p.globalWorkflow.fourHour.bias],
+                      ["4H support", zone(p.globalWorkflow.fourHour.support)],
+                      [
+                        "4H resistance",
+                        zone(p.globalWorkflow.fourHour.resistance),
+                      ],
+                      [
+                        "1H alignment",
+                        p.globalWorkflow.oneHour.alignment.replaceAll("_", " "),
+                      ],
+                      [
+                        "1H setup zone",
+                        zone(p.globalWorkflow.oneHour.setupZone),
+                      ],
+                      [
+                        "30M reaction",
+                        p.globalWorkflow.thirtyMinute.reaction.replaceAll(
+                          "_",
+                          " ",
+                        ),
+                      ],
+                      [
+                        "30M candle",
+                        p.globalWorkflow.thirtyMinute.candle.closed
+                          ? "CLOSED"
+                          : "FORMING",
+                      ],
+                      [
+                        "Price location",
+                        p.globalWorkflow.priceLocation.replaceAll("_", " "),
+                      ],
+                      [
+                        "Available range",
+                        p.globalWorkflow.availableRange.pips === null
+                          ? p.globalWorkflow.availableRange.status.replaceAll(
+                              "_",
+                              " ",
+                            )
+                          : `${p.globalWorkflow.availableRange.pips.toFixed(1)} pips · ${p.globalWorkflow.availableRange.status.replaceAll("_", " ")}`,
+                      ],
+                      ["Risk gate", p.globalWorkflow.riskGate],
+                    ].map(([label, value]) => (
+                      <div className="mb-panel" key={label}>
+                        <span className="mb-muted">{label}</span>
+                        <strong className="mb-value">{value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  {p.globalWorkflow.gate.missing.length > 0 && (
+                    <>
+                      <h4>Waiting for</h4>
+                      <ul className="mb-warning">
+                        {p.globalWorkflow.gate.missing.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  <p className="mb-muted">
+                    Setup matching cannot become READY until every parent gate
+                    is satisfied from closed market candles. Risk AI retains
+                    veto authority.
+                  </p>
+                </>
+              ) : (
+                <p className="mb-notice">
+                  Waiting for sufficient closed 4H, 1H and 30M candles. Setup AI
+                  remains locked.
+                </p>
+              )}
+            </section>
+          )}
+          {p.setupWorkflow && (
+            <section className="mb-panel">
+              <h3>{p.setupWorkflow.setup} workflow</h3>
+              <div className="mb-grid">
+                {[
+                  [
+                    "Pattern",
+                    p.setupWorkflow.patternMatched ? "MATCHED" : "WAITING",
+                  ],
+                  [
+                    "Closed entry trigger",
+                    p.setupWorkflow.entryTrigger ? "CONFIRMED" : "WAITING",
+                  ],
+                  ["Direction", p.setupWorkflow.direction.toUpperCase()],
+                  [
+                    "Invalidation",
+                    p.setupWorkflow.invalidated ? "PRESENT" : "CLEAR",
+                  ],
+                ].map(([label, value]) => (
+                  <div className="mb-panel" key={label}>
+                    <span className="mb-muted">{label}</span>
+                    <strong className="mb-value">{value}</strong>
+                  </div>
+                ))}
+              </div>
+              {p.setupWorkflow.conditionsMatched.length > 0 && (
+                <>
+                  <h4>Matched evidence</h4>
+                  <ul className="mb-positive">
+                    {p.setupWorkflow.conditionsMatched.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {p.setupWorkflow.conditionsMissing.length > 0 && (
+                <>
+                  <h4>Waiting for</h4>
+                  <ul className="mb-warning">
+                    {p.setupWorkflow.conditionsMissing.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <p className="mb-muted">Next: {p.setupWorkflow.waitFor}</p>
+            </section>
+          )}
           {c.plan && (
             <p className="mb-muted">
               Execution levels were frozen when the setup first became READY.

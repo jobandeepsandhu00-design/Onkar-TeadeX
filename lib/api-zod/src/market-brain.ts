@@ -68,12 +68,6 @@ export const sharedChartSymbolSchema = z.enum(["GBPJPY", "XAUUSD"]);
 export const sharedChartTimeframeSchema = z.enum(["15m", "30m", "1h"]);
 export type SharedChartSymbol = z.infer<typeof sharedChartSymbolSchema>;
 export type SharedChartTimeframe = z.infer<typeof sharedChartTimeframeSchema>;
-export const setupDetectionStatusSchema = z.enum([
-  "WATCHING",
-  "PARTIAL",
-  "CONFIRMED",
-  "INVALID",
-]);
 export const chartCandleSchema = z
   .object({
     t: z.number().int().nonnegative(),
@@ -89,6 +83,122 @@ export const chartCandleSchema = z
     (c) => c.h >= Math.max(c.o, c.c) && c.l <= Math.min(c.o, c.c) && c.h >= c.l,
     "Invalid chart OHLC range",
   );
+export const workflowBiasSchema = z.enum(["bullish", "bearish", "ranging"]);
+export const workflowAlignmentSchema = z.enum([
+  "FULL_ALIGNMENT",
+  "PARTIAL_ALIGNMENT",
+  "CONFLICT",
+  "RANGING",
+]);
+export const workflowLocationSchema = z.enum([
+  "AT_4H_SUPPORT",
+  "AT_4H_RESISTANCE",
+  "AT_1H_SUPPORT",
+  "AT_1H_RESISTANCE",
+  "AT_30M_SUPPORT",
+  "AT_30M_RESISTANCE",
+  "APPROACHING_ZONE",
+  "MIDDLE_OF_RANGE",
+  "TOO_FAR_FROM_ZONE",
+  "AT_OPPOSING_ZONE",
+]);
+export const workflowRangeStatusSchema = z.enum([
+  "GOOD_RANGE",
+  "LIMITED_RANGE",
+  "INSUFFICIENT_RANGE",
+  "UNAVAILABLE",
+]);
+export const workflowReactionSchema = z.enum([
+  "BULLISH_REJECTION",
+  "BEARISH_REJECTION",
+  "BULLISH_CONTINUATION",
+  "BEARISH_CONTINUATION",
+  "BULLISH_BREAKOUT",
+  "BEARISH_BREAKOUT",
+  "BULLISH_FAKEOUT",
+  "BEARISH_FAKEOUT",
+  "SUPPORT_CONFIRMED",
+  "RESISTANCE_CONFIRMED",
+  "NO_CONFIRMATION",
+]);
+const workflowZoneSchema = z
+  .object({
+    low: z.number().finite(),
+    high: z.number().finite(),
+    type: z.string(),
+    timeframe: z.enum(["4h", "1h", "30m"]),
+    touches: z.number().int().nonnegative(),
+    freshness: z.number().min(0).max(100),
+  })
+  .nullable();
+export const globalTradingWorkflowSchema = z.object({
+  version: z.literal("4h-1h-30m-v1"),
+  symbol: z.string(),
+  evaluatedAt: z.string().datetime(),
+  session: z.string(),
+  currentPrice: z.number().positive().finite(),
+  fourHour: z.object({
+    bias: workflowBiasSchema,
+    structure: z.array(z.string()),
+    support: workflowZoneSchema,
+    resistance: workflowZoneSchema,
+    swingHigh: z.number().finite().nullable(),
+    swingLow: z.number().finite().nullable(),
+    brokenStructure: z.enum(["bullish", "bearish"]).nullable(),
+  }),
+  oneHour: z.object({
+    bias: workflowBiasSchema,
+    alignment: workflowAlignmentSchema,
+    support: workflowZoneSchema,
+    resistance: workflowZoneSchema,
+    setupZone: workflowZoneSchema,
+    swingHigh: z.number().finite().nullable(),
+    swingLow: z.number().finite().nullable(),
+    brokenStructure: z.enum(["bullish", "bearish"]).nullable(),
+  }),
+  thirtyMinute: z.object({
+    support: workflowZoneSchema,
+    resistance: workflowZoneSchema,
+    swingHigh: z.number().finite().nullable(),
+    swingLow: z.number().finite().nullable(),
+    brokenStructure: z.enum(["bullish", "bearish"]).nullable(),
+    candle: chartCandleSchema,
+    reaction: workflowReactionSchema,
+  }),
+  priceLocation: workflowLocationSchema,
+  availableRange: z.object({
+    priceUnits: z.number().nonnegative().finite().nullable(),
+    pips: z.number().nonnegative().finite().nullable(),
+    pipSize: z.number().positive().finite().nullable(),
+    status: workflowRangeStatusSchema,
+    opposingZone: workflowZoneSchema,
+  }),
+  gate: z.object({
+    status: z.enum(["LOCKED", "UNLOCKED"]),
+    passed: z.array(z.string()),
+    missing: z.array(z.string()),
+  }),
+  riskGate: z.enum(["PENDING", "APPROVED", "REJECTED"]),
+  masterStatus: z.enum([
+    "SCANNING",
+    "APPROACHING_ZONE",
+    "AT_SETUP_AREA",
+    "WAITING_FOR_30M_CLOSE",
+    "NO_CONFIRMATION",
+    "SETUP_DETECTED",
+    "RISK_REVIEW",
+    "RISK_REJECTED",
+    "ENTRY_READY",
+    "INVALIDATED",
+  ]),
+});
+export type GlobalTradingWorkflow = z.infer<typeof globalTradingWorkflowSchema>;
+export const setupDetectionStatusSchema = z.enum([
+  "WATCHING",
+  "PARTIAL",
+  "CONFIRMED",
+  "INVALID",
+]);
 export const setupDetectionSchema = z.object({
   id: z.string(),
   symbol: sharedChartSymbolSchema,
@@ -127,6 +237,7 @@ export const sharedMarketSnapshotSchema = z.object({
   fetchedAt: z.string().datetime(),
   candles: z.array(chartCandleSchema),
   detections: z.array(setupDetectionSchema),
+  workflow: globalTradingWorkflowSchema.nullable(),
   warnings: z.array(z.string()),
   source: z.array(z.string()),
 });
@@ -154,6 +265,9 @@ export const FEATURES = [
   "newsSafe",
   "session",
   "manualConfirmation",
+  "setupPatternMatched",
+  "entryTrigger",
+  "volumeWindow",
 ] as const;
 export const ruleSchema = z
   .object({
@@ -330,6 +444,18 @@ export type ScannerCandidate = {
       checkedAt: string;
       events: Array<{ title: string; time: number; currency: string }>;
     };
+    globalWorkflow?: GlobalTradingWorkflow | null;
+    globalWorkflowRequired?: boolean;
+    setupWorkflow?: {
+      setup: string;
+      direction: "long" | "short";
+      patternMatched: boolean;
+      entryTrigger: boolean;
+      conditionsMatched: string[];
+      conditionsMissing: string[];
+      invalidated: boolean;
+      waitFor: string;
+    } | null;
     historical?: {
       sample: number;
       knownPnl: number;

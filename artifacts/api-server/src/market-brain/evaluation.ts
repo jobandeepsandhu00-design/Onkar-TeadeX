@@ -15,6 +15,12 @@ import {
   marketSession,
   mean,
 } from "./calculations";
+import {
+  buildGlobalTradingWorkflow,
+  finalizeGlobalTradingWorkflow,
+  globalWorkflowRequired,
+} from "./global-workflow";
+import { evaluateSetupWorkflow } from "./setup-workflows";
 
 export type NewsCheck = {
   status: "safe" | "blocked" | "unavailable";
@@ -192,6 +198,7 @@ export function analyzeCandidate(
   account: AccountContext | null,
   news: NewsCheck,
   now: number,
+  symbol = "",
 ) {
   const contexts: Partial<Record<Timeframe, TimeframeContext>> = {};
   for (const [tf, bars] of Object.entries(histories))
@@ -201,12 +208,23 @@ export function analyzeCandidate(
     higher = contexts[strategy.higherTimeframe];
   if (!primary || !higher)
     throw new Error("Insufficient primary/higher timeframe history");
+  const requiresGlobalWorkflow = globalWorkflowRequired(symbol);
+  const parentWorkflow = requiresGlobalWorkflow
+    ? buildGlobalTradingWorkflow({ symbol, histories, now })
+    : null;
+  const setupWorkflow = evaluateSetupWorkflow({
+    setupName: strategy.name,
+    requestedDirection: strategy.direction,
+    workflow: parentWorkflow,
+    closedThirtyMinuteCandles: histories["30m"] ?? [],
+  });
   const direction =
-    strategy.direction === "both"
-      ? higher.structure.trend === "bearish"
+    setupWorkflow?.direction ??
+    (strategy.direction === "both"
+      ? (parentWorkflow?.fourHour.bias ?? higher.structure.trend) === "bearish"
         ? "short"
         : "long"
-      : strategy.direction;
+      : strategy.direction);
   const bullish = direction === "long",
     atr = primary.indicators.atr;
   if (!atr || atr <= 0) throw new Error("ATR warmup incomplete");
@@ -263,6 +281,7 @@ export function analyzeCandidate(
       : null,
     session: marketSession(now),
   };
+  if (setupWorkflow) Object.assign(extra, setupWorkflow.features);
   const rules = evaluateRules(strategy, contexts, extra),
     score = confluence(rules);
   const needed = new Set([
@@ -273,27 +292,46 @@ export function analyzeCandidate(
   const stale = [...needed].some((tf) => !contexts[tf] || contexts[tf]!.stale);
   const sessionPass =
     !strategy.sessions.length || strategy.sessions.includes(marketSession(now));
+  const setupMatched =
+    score.requiredPass && score.score >= config.alertThreshold;
+  const globalWorkflow = parentWorkflow
+    ? finalizeGlobalTradingWorkflow(parentWorkflow, setupMatched, risk.allowed)
+    : null;
+  const parentGatePassed =
+    !requiresGlobalWorkflow || globalWorkflow?.gate.status === "UNLOCKED";
   const canReady =
     score.requiredPass &&
     risk.allowed &&
     sessionPass &&
     !stale &&
+    parentGatePassed &&
     (!config.requireNews || news.status === "safe");
   const status: CandidateState = stale
     ? "SCANNING"
-    : score.score >= config.alertThreshold && canReady
-      ? "READY"
-      : score.score >= 65
-        ? "WATCH"
-        : "DEVELOPING";
+    : requiresGlobalWorkflow && !globalWorkflow
+      ? "SCANNING"
+      : requiresGlobalWorkflow && !parentGatePassed
+        ? globalWorkflow?.masterStatus === "AT_SETUP_AREA" ||
+          globalWorkflow?.masterStatus === "APPROACHING_ZONE" ||
+          globalWorkflow?.masterStatus === "NO_CONFIRMATION"
+          ? "WATCH"
+          : "DEVELOPING"
+        : score.score >= config.alertThreshold && canReady
+          ? "READY"
+          : score.score >= 65
+            ? "WATCH"
+            : "DEVELOPING";
   return {
-    engineVersion: "onkar-closed-candle-v1",
+    engineVersion: "onkar-global-workflow-v2",
     source: "calculated" as const,
     direction,
     status: status as CandidateState,
     ...score,
     rules,
     risk,
+    globalWorkflow,
+    globalWorkflowRequired: requiresGlobalWorkflow,
+    setupWorkflow,
     contexts,
     news,
     stale,
@@ -318,6 +356,14 @@ export function analyzeCandidate(
         : []),
       ...(news.status === "unavailable"
         ? ["News confirmation unavailable"]
+        : []),
+      ...(requiresGlobalWorkflow && !globalWorkflow
+        ? ["Global 4H → 1H → 30M workflow data is incomplete"]
+        : globalWorkflow?.gate.status === "LOCKED"
+          ? [`Setup AI locked: ${globalWorkflow.gate.missing.join("; ")}`]
+          : []),
+      ...(setupWorkflow?.invalidated
+        ? ["Setup-specific invalidation condition is present"]
         : []),
       ...(!sessionPass ? ["Outside preferred session"] : []),
     ],

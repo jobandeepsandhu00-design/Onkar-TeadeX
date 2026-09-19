@@ -313,6 +313,41 @@ export function SharedMarketChart({
           </span>
         </div>
       )}
+      {snapshot?.workflow && (
+        <div
+          className={`oai-workflow-strip is-${snapshot.workflow.gate.status.toLowerCase()}`}
+          aria-label="Official 4H 1H 30M trading workflow"
+        >
+          <div>
+            <small>4H BIAS</small>
+            <strong>{snapshot.workflow.fourHour.bias}</strong>
+          </div>
+          <div>
+            <small>1H ALIGNMENT</small>
+            <strong>
+              {snapshot.workflow.oneHour.alignment.replaceAll("_", " ")}
+            </strong>
+          </div>
+          <div>
+            <small>30M CONFIRMATION</small>
+            <strong>
+              {snapshot.workflow.thirtyMinute.reaction.replaceAll("_", " ")}
+            </strong>
+          </div>
+          <div>
+            <small>SETUP AI</small>
+            <strong>{snapshot.workflow.gate.status}</strong>
+          </div>
+          {!compact && (
+            <div>
+              <small>MASTER STATUS</small>
+              <strong>
+                {snapshot.workflow.masterStatus.replaceAll("_", " ")}
+              </strong>
+            </div>
+          )}
+        </div>
+      )}
       <div
         ref={container}
         className="oai-lightweight-chart"

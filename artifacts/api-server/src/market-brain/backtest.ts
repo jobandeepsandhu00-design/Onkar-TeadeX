@@ -27,6 +27,7 @@ export function backtest(
     checkedAt: new Date(at).toISOString(),
     events: [],
   }),
+  symbol = "",
 ) {
   const primary = histories[strategy.timeframe] ?? [],
     duration = timeframeMs[strategy.timeframe];
@@ -99,6 +100,7 @@ export function backtest(
         account,
         historicalNews(now),
         now,
+        symbol,
       );
       signals.push({ at: now, score: a.score, state: a.status });
       if (a.status === "READY")

@@ -6,9 +6,14 @@ import {
   type SharedChartTimeframe,
   type SharedMarketSnapshot,
   type SetupDetection,
+  type Timeframe,
 } from "@workspace/api-zod";
 import { getMarketProvider } from "./providers";
 import { ScannerStore, type CandidateRow, type ConfigRow } from "./store";
+import {
+  buildGlobalTradingWorkflow,
+  GLOBAL_WORKFLOW_TIMEFRAMES,
+} from "./global-workflow";
 
 type StoredBar = {
   open_time: number;
@@ -44,7 +49,7 @@ function uniqueBars(rows: Candle[]) {
 async function sharedProviderCandles(
   service: ScannerStore,
   symbol: SharedChartSymbol,
-  timeframe: SharedChartTimeframe,
+  timeframe: Timeframe,
   now = Date.now(),
 ) {
   const cacheKey = `${symbol}:${timeframe}`;
@@ -133,7 +138,12 @@ async function sharedProviderCandles(
       };
     }
   })();
-  snapshotPromises.set(cacheKey, { expiresAt: now + 12_000, promise });
+  // One provider fetch is shared by every chart and agent. Higher-timeframe
+  // context cannot change faster than its candle, so keep it longer and avoid
+  // multiplying Twelve Data requests across the ten specialists.
+  const cacheMs =
+    timeframe === "4h" ? 5 * 60_000 : timeframe === "1h" ? 2 * 60_000 : 55_000;
+  snapshotPromises.set(cacheKey, { expiresAt: now + cacheMs, promise });
   promise.catch(() => snapshotPromises.delete(cacheKey));
   return promise;
 }
@@ -154,8 +164,15 @@ function mapDetection(candidate: CandidateRow): SetupDetection {
     Number.isFinite(Date.parse(candidate.payload.lastCandleAt)) &&
     Date.parse(candidate.payload.lastCandleAt) + interval <= Date.now();
   const computedStatus = detectionStatus(candidate);
+  const workflow = candidate.payload.globalWorkflow;
+  const setupWorkflow = candidate.payload.setupWorkflow;
   const status =
-    computedStatus === "CONFIRMED" && !closed ? "PARTIAL" : computedStatus;
+    computedStatus === "CONFIRMED" &&
+    (!closed ||
+      (candidate.payload.globalWorkflowRequired &&
+        workflow?.masterStatus !== "ENTRY_READY"))
+      ? "PARTIAL"
+      : computedStatus;
   const historical = candidate.payload.historical as
     | { sample?: number; averageR?: number | null }
     | undefined;
@@ -174,35 +191,56 @@ function mapDetection(candidate: CandidateRow): SetupDetection {
         : candidate.payload.direction === "short"
           ? "SELL"
           : "NONE",
-    conditionsMatched: rules
-      .filter((rule) => rule.passed)
-      .map((rule) => rule.explanation || rule.id),
-    conditionsMissing: rules
-      .filter((rule) => !rule.passed)
-      .map((rule) => rule.explanation || rule.id),
+    conditionsMatched:
+      setupWorkflow?.conditionsMatched ??
+      rules
+        .filter((rule) => rule.passed)
+        .map((rule) => rule.explanation || rule.id),
+    conditionsMissing:
+      setupWorkflow?.conditionsMissing ??
+      rules
+        .filter((rule) => !rule.passed)
+        .map((rule) => rule.explanation || rule.id),
     entry: candidate.plan?.entry ?? candidate.payload.entryZone?.low ?? null,
     stopLoss: candidate.plan?.stop ?? candidate.payload.invalidation ?? null,
     takeProfit:
       candidate.plan?.target ?? candidate.payload.targets?.[0] ?? null,
     riskReward: candidate.plan?.rr ?? candidate.payload.risk?.rr ?? null,
     learningInsight,
-    reason: `${candidate.payload.passed}/${candidate.payload.total} deterministic rules matched; confluence ${candidate.score}/100.`,
+    reason: `${candidate.payload.passed}/${candidate.payload.total} deterministic rules matched; confluence ${candidate.score}/100.${workflow ? ` Parent workflow: ${workflow.masterStatus.replaceAll("_", " ")}.` : ""}`,
     waitFor:
       status === "CONFIRMED"
         ? "All required confirmation must remain valid on closed candles."
-        : candidate.payload.warnings?.[0] ||
+        : setupWorkflow?.waitFor ||
+          workflow?.gate.missing[0] ||
+          candidate.payload.warnings?.[0] ||
           "Next required rule confirmation on a closed candle.",
     candleClosed: closed,
     timestamp: candidate.payload.analyzedAt,
-    zones: candidate.payload.entryZone
-      ? [
-          {
-            low: candidate.payload.entryZone.low,
-            high: candidate.payload.entryZone.high,
-            kind: "entry",
-          },
-        ]
-      : [],
+    zones: [
+      ...(candidate.payload.entryZone
+        ? [
+            {
+              low: candidate.payload.entryZone.low,
+              high: candidate.payload.entryZone.high,
+              kind: "entry",
+            },
+          ]
+        : []),
+      ...[
+        workflow?.fourHour.support,
+        workflow?.fourHour.resistance,
+        workflow?.oneHour.setupZone,
+        workflow?.thirtyMinute.support,
+        workflow?.thirtyMinute.resistance,
+      ]
+        .filter((zone): zone is NonNullable<typeof zone> => Boolean(zone))
+        .map((zone) => ({
+          low: zone.low,
+          high: zone.high,
+          kind: `${zone.timeframe}:${zone.type}`,
+        })),
+    ],
   };
 }
 
@@ -213,8 +251,20 @@ export async function getSharedMarketSnapshot(args: {
   timeframe: SharedChartTimeframe;
 }): Promise<SharedMarketSnapshot> {
   const service = ScannerStore.service();
-  const [{ candles, dataStatus, warnings }, candidates] = await Promise.all([
-    sharedProviderCandles(service, args.symbol, args.timeframe),
+  const requestedTimeframes = new Set<Timeframe>([
+    args.timeframe,
+    ...GLOBAL_WORKFLOW_TIMEFRAMES,
+  ]);
+  const [marketEntries, candidates] = await Promise.all([
+    Promise.all(
+      [...requestedTimeframes].map(
+        async (timeframe) =>
+          [
+            timeframe,
+            await sharedProviderCandles(service, args.symbol, timeframe),
+          ] as const,
+      ),
+    ),
     args.user.request<CandidateRow[]>("setup_candidates", {
       ...(args.config ? { config_id: `eq.${args.config.id}` } : {}),
       symbol: `eq.${args.symbol}`,
@@ -223,18 +273,40 @@ export async function getSharedMarketSnapshot(args: {
       limit: "30",
     }),
   ]);
+  const marketByTimeframe = new Map(marketEntries);
+  const selected = marketByTimeframe.get(args.timeframe)!;
+  const histories: Partial<Record<Timeframe, Candle[]>> = {};
+  for (const [timeframe, market] of marketEntries)
+    histories[timeframe] = market.candles
+      .filter((candle) => candle.closed)
+      .map(({ closed: _closed, ...candle }) => candle);
+  const workflow = buildGlobalTradingWorkflow({
+    symbol: args.symbol,
+    histories,
+    now: Date.now(),
+    formingThirtyMinute:
+      [...(marketByTimeframe.get("30m")?.candles ?? [])]
+        .reverse()
+        .find((candle) => !candle.closed) ?? null,
+  });
   const detections = candidates.map(mapDetection);
   return sharedMarketSnapshotSchema.parse({
     symbol: args.symbol,
     displaySymbol: DISPLAY_SYMBOLS[args.symbol],
     timeframe: args.timeframe,
     provider: "twelvedata",
-    dataStatus,
+    dataStatus: selected.dataStatus,
     fetchedAt: new Date().toISOString(),
-    candles,
+    candles: selected.candles,
     detections,
+    workflow,
     warnings: [
-      ...warnings,
+      ...selected.warnings,
+      ...(!workflow
+        ? [
+            "Global 4H → 1H → 30M workflow is waiting for sufficient closed candles.",
+          ]
+        : []),
       ...(!args.config?.enabled
         ? [
             "Continuous scanner is not enabled; chart candles can still refresh on demand.",

@@ -33,10 +33,7 @@ import { accountContext } from "../market-brain/journal";
 import { backtest } from "../market-brain/backtest";
 import { ScannerTools } from "../market-brain/tools";
 import { OpenAIExplanationProvider } from "../market-brain/ai";
-import {
-  openAIConfigured,
-  openAIHealth,
-} from "../lib/openai";
+import { openAIConfigured, openAIHealth } from "../lib/openai";
 import { runMasterAI } from "../onkar-ai/orchestrator";
 import { runNextLearningJob } from "../onkar-ai/learning-worker";
 import { getSharedMarketSnapshot } from "../market-brain/shared-market";
@@ -264,7 +261,9 @@ router.get(
   route(async (req, res) => {
     const { user, config } = await context(req);
     const symbol = sharedChartSymbolSchema.safeParse(
-      String(req.query.symbol || "").toUpperCase().replace(/[/-]/g, ""),
+      String(req.query.symbol || "")
+        .toUpperCase()
+        .replace(/[/-]/g, ""),
     );
     const timeframe = sharedChartTimeframeSchema.safeParse(
       String(req.query.timeframe || "").toLowerCase(),
@@ -397,12 +396,16 @@ router.post(
         limit: "1",
       }),
     ]);
-    if (!memberships[0]) throw new ScannerError("Existing workspace not found.", 409);
+    if (!memberships[0])
+      throw new ScannerError("Existing workspace not found.", 409);
     const compiled = records(source.setups)
       .map(compileLibrarySetup)
       .filter((value): value is NonNullable<typeof value> => Boolean(value));
     if (!compiled.length) {
-      res.json({ synced: 0, message: "No setup with explicit rules was available to compile." });
+      res.json({
+        synced: 0,
+        message: "No setup with explicit rules was available to compile.",
+      });
       return;
     }
     await ScannerStore.service().request(
@@ -422,7 +425,8 @@ router.post(
     res.json({
       synced: compiled.length,
       approval: "ai_extracted",
-      message: "Machine-readable draft versions created. Approval is still required before scanning.",
+      message:
+        "Machine-readable draft versions created. Approval is still required before scanning.",
     });
   }),
 );
@@ -642,11 +646,19 @@ router.post(
     const parsed = masterAIRequestSchema.safeParse(req.body);
     if (!parsed.success)
       throw new ScannerError(
-        parsed.error.issues.map((issue) => issue.message).slice(0, 3).join("; "),
+        parsed.error.issues
+          .map((issue) => issue.message)
+          .slice(0, 3)
+          .join("; "),
         400,
       );
-    if (!req.accepts("text/event-stream") || !req.get("accept")?.includes("text/event-stream")) {
-      res.json(await runMasterAI({ identity, user, config, input: parsed.data }));
+    if (
+      !req.accepts("text/event-stream") ||
+      !req.get("accept")?.includes("text/event-stream")
+    ) {
+      res.json(
+        await runMasterAI({ identity, user, config, input: parsed.data }),
+      );
       return;
     }
     // Same authenticated endpoint, with optional operational progress for robot animation.
@@ -655,14 +667,26 @@ router.post(
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
     const write = (event: unknown) => {
-      if (!res.destroyed && !res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
+      if (!res.destroyed && !res.writableEnded)
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
     };
     try {
-      const result = await runMasterAI({ identity, user, config, input: parsed.data, onProgress: write });
+      const result = await runMasterAI({
+        identity,
+        user,
+        config,
+        input: parsed.data,
+        onProgress: write,
+      });
       write({ type: "result", data: result });
     } catch {
-      write({ type: "error", error: "Analysis could not finish. Please retry." });
-    } finally { res.end(); }
+      write({
+        type: "error",
+        error: "Analysis could not finish. Please retry.",
+      });
+    } finally {
+      res.end();
+    }
   }),
 );
 router.post(
@@ -817,6 +841,8 @@ router.post(
       account,
       from,
       to,
+      undefined,
+      parsed.data.symbol,
     );
     res.json({
       ...replay,

@@ -25,6 +25,10 @@ import { newsCheck } from "./news";
 import { OpenAIExplanationProvider } from "./ai";
 import { openAIConfigured } from "../lib/openai";
 import { logger } from "../lib/logger";
+import {
+  GLOBAL_WORKFLOW_TIMEFRAMES,
+  globalWorkflowRequired,
+} from "./global-workflow";
 
 export const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -275,6 +279,10 @@ export async function runScannerJob(
       );
     const source = await store.source(job.user_id);
     const required = new Set<Timeframe>(config.timeframes);
+    if (globalWorkflowRequired(symbol))
+      GLOBAL_WORKFLOW_TIMEFRAMES.forEach((timeframe) =>
+        required.add(timeframe),
+      );
     for (const v of versions) {
       const d = strategyVersionSchema.parse(v.definition);
       required.add(d.timeframe);
@@ -304,9 +312,7 @@ export async function runScannerJob(
       latencyMs: now - started,
       news: news.status,
       newsAt: news.checkedAt,
-      ai: openAIConfigured()
-        ? "configured_not_checked"
-        : "unconfigured",
+      ai: openAIConfigured() ? "configured_not_checked" : "unconfigured",
     };
     const enrichedTrades = records(source.trades).map((t) => ({
       ...t,
@@ -348,6 +354,7 @@ export async function runScannerJob(
         account,
         news,
         now,
+        symbol,
       );
       if (analysis.stale) health.status = "degraded";
       health.lastCandleAt = analysis.lastCandleAt;
@@ -464,6 +471,15 @@ export async function runScannerJob(
               state,
               score: analysis.score,
               dataAt: analysis.lastCandleAt,
+              globalWorkflow: analysis.globalWorkflow
+                ? {
+                    status: analysis.globalWorkflow.masterStatus,
+                    gate: analysis.globalWorkflow.gate.status,
+                    reaction: analysis.globalWorkflow.thirtyMinute.reaction,
+                    candleClosed:
+                      analysis.globalWorkflow.thirtyMinute.candle.closed,
+                  }
+                : null,
             },
           },
         ],

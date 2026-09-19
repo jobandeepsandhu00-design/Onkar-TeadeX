@@ -4720,6 +4720,49 @@
 .oai-live-ohlc .is-closed {
   color: #39dca7;
 }
+.oai-workflow-strip {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 16px 12px;
+  overflow: hidden;
+  border: 1px solid rgba(89, 145, 208, 0.2);
+  border-radius: 13px;
+  background: rgba(54, 99, 151, 0.18);
+}
+.oai-workflow-strip > div {
+  min-width: 0;
+  padding: 9px 10px;
+  background: rgba(4, 13, 28, 0.92);
+}
+.oai-workflow-strip small,
+.oai-workflow-strip strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.oai-workflow-strip small {
+  color: #6885a7;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+.oai-workflow-strip strong {
+  margin-top: 3px;
+  color: #d6e8ff;
+  font-size: 10px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.oai-workflow-strip.is-unlocked {
+  border-color: rgba(46, 230, 166, 0.38);
+  box-shadow: inset 0 0 20px rgba(46, 230, 166, 0.05);
+}
+.oai-workflow-strip.is-unlocked > div:last-child strong {
+  color: #54e8b7;
+}
 .oai-lightweight-chart {
   position: relative;
   z-index: 1;
@@ -4815,6 +4858,13 @@
   }
   .oai-live-ohlc > span:last-child {
     margin-left: 0;
+  }
+  .oai-workflow-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-inline: 10px;
+  }
+  .oai-workflow-strip > div:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
   .oai-lightweight-chart,
   .oai-live-chart.is-compact .oai-lightweight-chart {
