@@ -80,6 +80,7 @@ test("worker pipeline persists READY, deduplicates alerts and monitors frozen in
     candidate: CandidateRow | null = null;
     events = new Set<string>();
     alerts = new Set<string>();
+    versionQuery: Record<string, string> | null = null;
     constructor() {
       super("http://test.invalid", "not-a-real-key");
     }
@@ -100,7 +101,8 @@ test("worker pipeline persists READY, deduplicates alerts and monitors frozen in
         result = [
           ...data[query.timeframe.slice(3) as keyof typeof data],
         ].reverse();
-      if (table === "scanner_strategy_versions")
+      if (table === "scanner_strategy_versions") {
+        this.versionQuery = query;
         result = [
           {
             id: config.strategyVersionIds[0],
@@ -109,6 +111,7 @@ test("worker pipeline persists READY, deduplicates alerts and monitors frozen in
             source_setup_id: "test",
           },
         ];
+      }
       if (table === "setup_candidates" && !query.expires_at && this.candidate)
         result = [this.candidate];
       if (table === "scanner_configs" && method === "PATCH") result = [];
@@ -129,6 +132,11 @@ test("worker pipeline persists READY, deduplicates alerts and monitors frozen in
   }
   const store = new MemoryStore();
   assert.equal((await runScannerJob(store, job)).success, true);
+  assert.equal(
+    store.versionQuery?.id,
+    undefined,
+    "automatic setup activation must query every approved version",
+  );
   assert.equal(store.candidate?.state, "READY");
   assert.equal(store.candidate?.score, 100);
   assert.equal(store.alerts.size, 1);

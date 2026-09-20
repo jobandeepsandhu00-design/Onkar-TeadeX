@@ -236,7 +236,11 @@ export default function OnkarAIWorkspace({
       navigate("/onkar-ai/settings");
       return;
     }
-    if (!config.enabled && !config.strategyVersionIds.length) {
+    if (
+      !config.enabled &&
+      !config.autoActivateApprovedSetups &&
+      !config.strategyVersionIds.length
+    ) {
       setNotice(
         "Select at least one approved strategy before enabling continuous analysis.",
       );

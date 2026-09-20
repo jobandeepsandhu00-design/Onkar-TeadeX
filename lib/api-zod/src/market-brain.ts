@@ -244,7 +244,7 @@ export const sharedMarketSnapshotSchema = z.object({
   displaySymbol: z.string(),
   timeframe: sharedChartTimeframeSchema,
   provider: z.enum(["mt5", "twelvedata"]),
-  dataSource: z.enum(["broker", "fallback"]),
+  dataSource: z.enum(["broker", "primary", "fallback"]),
   dataStatus: z.enum(["live", "delayed", "cached", "unavailable"]),
   fetchedAt: z.string().datetime(),
   broker: z.string().nullable().default(null),
@@ -360,6 +360,7 @@ export const scannerConfigSchema = z
       .max(8)
       .default(["15m", "30m", "1h"]),
     accountId: z.string().max(180).nullable().default(null),
+    autoActivateApprovedSetups: z.boolean().default(true),
     strategyVersionIds: z.array(z.string().uuid()).max(100).default([]),
     minimumScore: z.number().min(0).max(100).default(50),
     aiThreshold: z.number().min(60).max(100).default(75),

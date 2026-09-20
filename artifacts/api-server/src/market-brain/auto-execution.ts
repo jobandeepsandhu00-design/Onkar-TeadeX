@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import { scannerConfigSchema, strategyVersionSchema } from "@workspace/api-zod";
+import {
+  scannerConfigSchema,
+  strategyVersionSchema,
+  type Candle,
+  type Timeframe,
+} from "@workspace/api-zod";
 import {
   checkMT5Order,
   executeMT5Order,
@@ -18,6 +23,13 @@ import {
   type ConfigRow,
   type VersionRow,
 } from "./store";
+import { analyzeCandidate } from "./evaluation";
+import { accountContext } from "./journal";
+import {
+  GLOBAL_WORKFLOW_TIMEFRAMES,
+  globalWorkflowRequired,
+} from "./global-workflow";
+import { sharedProviderCandles } from "./shared-market";
 
 type RuntimeRow = {
   user_id: string;
@@ -174,6 +186,63 @@ const accountMatches = (stored: Record<string, unknown>, masked: string) => {
   return Boolean(configured && connected && configured.slice(-4) === connected.slice(-4));
 };
 
+async function revalidateWithMT5(args: {
+  store: ScannerStore;
+  candidate: CandidateRow;
+  definition: ReturnType<typeof strategyVersionSchema.parse>;
+  config: ReturnType<typeof scannerConfigSchema.parse>;
+  source: Record<string, unknown>;
+}) {
+  const required = new Set<Timeframe>(args.config.timeframes);
+  required.add(args.definition.timeframe);
+  required.add(args.definition.higherTimeframe);
+  args.definition.rules.forEach((rule) => required.add(rule.timeframe));
+  if (globalWorkflowRequired(args.candidate.symbol))
+    GLOBAL_WORKFLOW_TIMEFRAMES.forEach((timeframe) => required.add(timeframe));
+  const histories: Partial<Record<Timeframe, Candle[]>> = {};
+  for (const timeframe of required) {
+    const market = await sharedProviderCandles(
+      args.store,
+      "mt5",
+      args.candidate.symbol,
+      timeframe,
+    );
+    histories[timeframe] = market.candles
+      .filter((candle) => candle.closed)
+      .map(({ closed: _closed, ...candle }) => candle);
+  }
+  const now = Date.now();
+  const analysis = analyzeCandidate(
+    args.definition,
+    histories,
+    args.config,
+    accountContext(args.source, args.config, args.candidate.symbol, now),
+    args.candidate.payload.news,
+    now,
+    args.candidate.symbol,
+  );
+  if (
+    analysis.stale ||
+    analysis.status !== "READY" ||
+    analysis.lastCandleAt !== args.candidate.last_candle_at ||
+    !analysis.risk.allowed ||
+    analysis.risk.warnings.length
+  )
+    return null;
+  return {
+    ...args.candidate,
+    plan: analysis.risk,
+    last_candle_at: analysis.lastCandleAt,
+    payload: {
+      ...args.candidate.payload,
+      ...analysis,
+      provider: "mt5",
+      providerFallback: false,
+      providerWarning: null,
+    },
+  } satisfies CandidateRow;
+}
+
 /** Process at most one execution per invocation. The bridge remains the final broker gate. */
 export async function runNextAutoExecution() {
   const owner = bridgeOwner();
@@ -210,9 +279,10 @@ export async function runNextAutoExecution() {
     order: "updated_at.asc",
     limit: "10",
   });
-  const candidate = candidates.find(
+  let candidate = candidates.find(
     (item) =>
-      item.payload.provider === "mt5" &&
+      (item.payload.provider === "mt5" ||
+        item.payload.provider === "twelvedata") &&
       !item.payload.stale &&
       item.payload.risk.allowed &&
       item.payload.risk.warnings.length === 0,
@@ -221,17 +291,8 @@ export async function runNextAutoExecution() {
     return {
       skipped: true,
       reason:
-        "No risk-approved setup from the connected MT5 broker feed is ready. Twelve Data fallback setups are analysis-only.",
+        "No fresh, risk-approved setup is ready for broker revalidation.",
     };
-  const requestId = `auto_${createHash("sha256")
-    .update(`${candidate.fingerprint}:${candidate.last_candle_at}`)
-    .digest("hex")}`;
-  const existing = await store.request<Array<{ state: string }>>(
-    "scanner_execution_events",
-    { user_id: `eq.${owner}`, request_id: `eq.${requestId}`, limit: "1" },
-  );
-  if (existing.length)
-    return { skipped: true, reason: `Execution already recorded as ${existing[0].state}.` };
   const [version] = await store.request<VersionRow[]>("scanner_strategy_versions", {
     id: `eq.${candidate.version_id}`,
     user_id: `eq.${owner}`,
@@ -239,9 +300,46 @@ export async function runNextAutoExecution() {
   });
   const definition = version ? strategyVersionSchema.parse(version.definition) : null;
   if (!definition || definition.approval !== "approved" || !definition.autoExecutionAllowed) {
+    const requestId = `auto_validation_${candidate.id}_${candidate.last_candle_at}`;
     await event(store, runtime, candidate, requestId, "BLOCKED", "Rule version is not approved for AUTO execution.");
     return { blocked: true, reason: "Rule version is not approved for AUTO execution." };
   }
+  const source = await store.source(owner);
+  if (candidate.payload.provider === "twelvedata") {
+    const verified = await revalidateWithMT5({
+      store,
+      candidate,
+      definition,
+      config,
+      source,
+    });
+    if (!verified) {
+      const requestId = `auto_validation_${candidate.id}_${candidate.last_candle_at}`;
+      await event(
+        store,
+        runtime,
+        candidate,
+        requestId,
+        "BLOCKED",
+        "Twelve Data setup was not confirmed by fresh closed MT5 broker candles.",
+      );
+      return {
+        blocked: true,
+        reason:
+          "Twelve Data analysis was not confirmed by the connected MT5 broker feed.",
+      };
+    }
+    candidate = verified;
+  }
+  const requestId = `auto_${createHash("sha256")
+    .update(`${candidate.fingerprint}:${candidate.last_candle_at}:mt5`)
+    .digest("hex")}`;
+  const existing = await store.request<Array<{ state: string }>>(
+    "scanner_execution_events",
+    { user_id: `eq.${owner}`, request_id: `eq.${requestId}`, limit: "1" },
+  );
+  if (existing.length)
+    return { skipped: true, reason: `Execution already recorded as ${existing[0].state}.` };
   if (config.requireNews && candidate.payload.news.status !== "safe") {
     await event(store, runtime, candidate, requestId, "BLOCKED", "News safety is not verified.");
     return { blocked: true, reason: "News safety is not verified." };
@@ -251,7 +349,6 @@ export async function runNextAutoExecution() {
     await event(store, runtime, candidate, requestId, "BLOCKED", "Setup analysis is stale.");
     return { blocked: true, reason: "Setup analysis is stale." };
   }
-  const source = await store.source(owner);
   const storedAccount = records(source.tradingAccounts).find((item) => item.id === config.accountId);
   const [account, positions] = await Promise.all([getMT5Account(), getMT5Positions()]);
   if (!storedAccount || !accountMatches(storedAccount, account.account)) {

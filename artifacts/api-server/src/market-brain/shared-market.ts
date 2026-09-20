@@ -57,10 +57,10 @@ function uniqueBars(rows: ProviderBar[]) {
   );
 }
 
-async function sharedProviderCandles(
+export async function sharedProviderCandles(
   service: ScannerStore,
   providerName: "mt5" | "twelvedata",
-  symbol: SharedChartSymbol,
+  symbol: string,
   timeframe: Timeframe,
   now = Date.now(),
 ) {
@@ -270,10 +270,7 @@ export async function getSharedMarketSnapshot(args: {
 }): Promise<SharedMarketSnapshot> {
   const service = ScannerStore.service();
   const requestedProvider =
-    process.env.PRIMARY_MARKET_PROVIDER === "mt5" ||
-    args.config?.config.provider === "mt5"
-      ? "mt5"
-      : "twelvedata";
+    args.config?.config.provider === "mt5" ? "mt5" : "twelvedata";
   let activeProvider: "mt5" | "twelvedata" = requestedProvider;
   let fallbackWarning: string | null = null;
   const requestedTimeframes = new Set<Timeframe>([
@@ -367,7 +364,12 @@ export async function getSharedMarketSnapshot(args: {
     displaySymbol: DISPLAY_SYMBOLS[args.symbol],
     timeframe: args.timeframe,
     provider: activeProvider,
-    dataSource: activeProvider === "mt5" ? "broker" : "fallback",
+    dataSource:
+      activeProvider === "mt5"
+        ? "broker"
+        : fallbackWarning
+          ? "fallback"
+          : "primary",
     dataStatus,
     fetchedAt: new Date().toISOString(),
     broker: account?.broker ?? null,
@@ -406,7 +408,11 @@ export async function getSharedMarketSnapshot(args: {
         : []),
     ],
     source: [
-      activeProvider === "mt5" ? "Connected MT5 broker" : "Twelve Data fallback",
+      activeProvider === "mt5"
+        ? "Connected MT5 broker"
+        : fallbackWarning
+          ? "Twelve Data fallback"
+          : "Twelve Data primary feed",
       "market_candles",
       "approved strategy versions",
       "trade journal learning",

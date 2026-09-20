@@ -289,9 +289,16 @@ export function SetupActivationPanel({
   busy: boolean;
   onToggle: (versionId: string, enabled: boolean) => void;
 }) {
-  const enabled = new Set(snapshot.config?.config.strategyVersionIds ?? []);
   const approved = snapshot.versions.filter(
     (v) => v.definition.approval === "approved",
+  );
+  const automatic =
+    snapshot.config?.config.autoActivateApprovedSetups ??
+    snapshot.defaults.autoActivateApprovedSetups;
+  const enabled = new Set(
+    automatic
+      ? approved.map((version) => version.id)
+      : (snapshot.config?.config.strategyVersionIds ?? []),
   );
   return (
     <section className="mb-setup-activation">

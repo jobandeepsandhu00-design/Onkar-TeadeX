@@ -375,6 +375,7 @@ export default function MarketBrain({
                       snapshot.config?.config.strategyVersionIds ?? [];
                     void saveConfig(
                       {
+                        autoActivateApprovedSetups: false,
                         strategyVersionIds: enabled
                           ? [...new Set([...ids, versionId])]
                           : ids.filter((id) => id !== versionId),

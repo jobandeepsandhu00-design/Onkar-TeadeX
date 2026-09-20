@@ -196,7 +196,13 @@ async function context(req: Request) {
     user_id: `eq.${identity.userId}`,
     limit: "1",
   });
-  return { identity, user, config };
+  return {
+    identity,
+    user,
+    config: config
+      ? { ...config, config: scannerConfigSchema.parse(config.config) }
+      : undefined,
+  };
 }
 type RuntimeRow = {
   scanner_state: "RUNNING" | "PAUSED" | "STOPPED";
@@ -371,12 +377,14 @@ router.put(
       parsed.data.autoExecutionEnabled ||
       parsed.data.tradingMode === "AUTO"
     ) {
+      const versionQuery: Record<string, string> = {
+        user_id: `eq.${identity.userId}`,
+      };
+      if (!config.config.autoActivateApprovedSetups)
+        versionQuery.id = `in.(${config.config.strategyVersionIds.join(",") || "00000000-0000-0000-0000-000000000000"})`;
       const versions = await ScannerStore.service().request<VersionRow[]>(
         "scanner_strategy_versions",
-        {
-          user_id: `eq.${identity.userId}`,
-          id: `in.(${config.config.strategyVersionIds.join(",") || "00000000-0000-0000-0000-000000000000"})`,
-        },
+        versionQuery,
       );
       if (
         !versions.some(
@@ -533,7 +541,11 @@ router.put(
         "Only your approved rule versions can be scanned.",
         400,
       );
-    if (parsed.data.enabled && !parsed.data.strategyVersionIds.length)
+    if (
+      parsed.data.enabled &&
+      !parsed.data.autoActivateApprovedSetups &&
+      !parsed.data.strategyVersionIds.length
+    )
       throw new ScannerError(
         "Approve a rule version before enabling scanning.",
         400,

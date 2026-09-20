@@ -12,16 +12,15 @@ export type ProviderSelection = {
   warning: string | null;
 };
 
-const configuredPrimary = (saved: string): ScannerMarketProvider =>
-  process.env.PRIMARY_MARKET_PROVIDER === "mt5" ||
-  process.env.PRIMARY_MARKET_PROVIDER === "twelvedata" ||
-  process.env.PRIMARY_MARKET_PROVIDER === "coinbase"
-    ? process.env.PRIMARY_MARKET_PROVIDER
-    : saved === "mt5"
-      ? "mt5"
-      : saved === "coinbase"
-        ? "coinbase"
-        : "twelvedata";
+/** The environment value is a boot default; an explicit saved profile wins. */
+export const configuredPrimary = (saved?: string): ScannerMarketProvider =>
+  saved === "mt5" || saved === "twelvedata" || saved === "coinbase"
+    ? saved
+    : process.env.PRIMARY_MARKET_PROVIDER === "mt5" ||
+        process.env.PRIMARY_MARKET_PROVIDER === "twelvedata" ||
+        process.env.PRIMARY_MARKET_PROVIDER === "coinbase"
+      ? process.env.PRIMARY_MARKET_PROVIDER
+      : "twelvedata";
 
 const fallbackEnabled = () =>
   process.env.MARKET_DATA_FALLBACK_ENABLED === "true";

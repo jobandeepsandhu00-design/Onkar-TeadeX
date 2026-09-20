@@ -1,7 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CoinbaseProvider, TwelveDataProvider } from "./providers";
+import { scannerConfigSchema } from "@workspace/api-zod";
 import { indicators, marketStructure, detectZones } from "./calculations";
+import { configuredPrimary } from "./provider-selection";
+
+test("a saved provider selection overrides the deployment default", () => {
+  const previous = process.env.PRIMARY_MARKET_PROVIDER;
+  process.env.PRIMARY_MARKET_PROVIDER = "mt5";
+  try {
+    assert.equal(configuredPrimary("twelvedata"), "twelvedata");
+    assert.equal(configuredPrimary(undefined), "mt5");
+  } finally {
+    if (previous === undefined) delete process.env.PRIMARY_MARKET_PROVIDER;
+    else process.env.PRIMARY_MARKET_PROVIDER = previous;
+  }
+});
+
+test("approved Setup Library versions auto-activate by default", () => {
+  const config = scannerConfigSchema.parse({});
+  assert.equal(config.autoActivateApprovedSetups, true);
+  assert.deepEqual(config.strategyVersionIds, []);
+});
 test("unconfigured Twelve Data does not fall back to simulated candles", async () => {
   const provider = new TwelveDataProvider("");
   assert.equal((await provider.healthCheck()).status, "unconfigured");

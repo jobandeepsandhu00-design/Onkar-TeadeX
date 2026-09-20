@@ -30,6 +30,7 @@ import {
   globalWorkflowRequired,
 } from "./global-workflow";
 import { selectScannerMarketProvider } from "./provider-selection";
+import { sharedProviderCandles } from "./shared-market";
 
 export const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -264,11 +265,16 @@ export async function runScannerJob(
         p_alert: null,
       });
     }
+    const versionQuery: Record<string, string> = {
+      user_id: `eq.${job.user_id}`,
+    };
+    if (!config.autoActivateApprovedSetups)
+      versionQuery.id = `in.(${config.strategyVersionIds.join(",") || "00000000-0000-0000-0000-000000000000"})`;
     const versions = (
-      await store.request<VersionRow[]>("scanner_strategy_versions", {
-        user_id: `eq.${job.user_id}`,
-        id: `in.(${config.strategyVersionIds.join(",") || "00000000-0000-0000-0000-000000000000"})`,
-      })
+      await store.request<VersionRow[]>(
+        "scanner_strategy_versions",
+        versionQuery,
+      )
     ).filter(
       (v) =>
         v.definition.approval === "approved" &&
@@ -297,24 +303,43 @@ export async function runScannerJob(
       d.rules.forEach((r) => required.add(r.timeframe));
     }
     const histories: Partial<Record<Timeframe, Candle[]>> = {};
+    let sharedMarketCached = false;
     // Bounded resumeable warmup: fetched candles survive if this job exhausts its budget.
     for (const tf of required) {
       if (Date.now() - started > warmupBudget)
         throw new Error("History warmup continues in the next worker cycle.");
-      histories[tf] = await loadCandles(
-        store,
-        activeProvider,
-        symbol,
-        tf,
-        Date.now(),
-      );
+      if (activeProvider === "mt5" || activeProvider === "twelvedata") {
+        const market = await sharedProviderCandles(
+          store,
+          activeProvider,
+          symbol,
+          tf,
+          Date.now(),
+        );
+        if (market.dataStatus === "unavailable")
+          throw new Error(
+            `${activeProvider === "mt5" ? "MT5" : "Twelve Data"} has no verified ${tf} candles for ${symbol}.`,
+          );
+        if (market.dataStatus === "cached") sharedMarketCached = true;
+        histories[tf] = market.candles
+          .filter((candle) => candle.closed)
+          .map(({ closed: _closed, ...candle }) => candle);
+      } else {
+        histories[tf] = await loadCandles(
+          store,
+          activeProvider,
+          symbol,
+          tf,
+          Date.now(),
+        );
+      }
     }
     const now = Date.now(),
       news = await newsCheck(symbol, config, now),
       account = accountContext(source, config, symbol, now);
     health = {
       ...health,
-      status: "connected",
+      status: sharedMarketCached ? "degraded" : "connected",
       checkedAt: new Date(now).toISOString(),
       latencyMs: now - started,
       news: news.status,

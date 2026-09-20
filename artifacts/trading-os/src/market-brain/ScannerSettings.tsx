@@ -249,10 +249,28 @@ export function ScannerSettings({
       <details className="mb-settings-section" open>
         <summary>
           Setup Automation{" "}
-          <span>{draft.strategyVersionIds.length} enabled</span>
+          <span>
+            {draft.autoActivateApprovedSetups
+              ? "All approved · automatic"
+              : `${draft.strategyVersionIds.length} enabled`}
+          </span>
         </summary>
         <fieldset className="mb-panel">
           <legend>Active approved strategies</legend>
+          <label className="mb-check">
+            <input
+              type="checkbox"
+              checked={draft.autoActivateApprovedSetups}
+              onChange={(e) =>
+                update("autoActivateApprovedSetups", e.target.checked)
+              }
+            />
+            Automatically scan every approved Setup Library version
+          </label>
+          <p className="mb-muted">
+            Newly approved versions join the scanner automatically. Draft,
+            disabled and AI-extracted versions remain blocked until approved.
+          </p>
           {snapshot.versions.some(
             (version) => version.definition.approval === "approved",
           ) && (
@@ -286,7 +304,11 @@ export function ScannerSettings({
               <label className="mb-check" key={v.id}>
                 <input
                   type="checkbox"
-                  checked={draft.strategyVersionIds.includes(v.id)}
+                  disabled={draft.autoActivateApprovedSetups}
+                  checked={
+                    draft.autoActivateApprovedSetups ||
+                    draft.strategyVersionIds.includes(v.id)
+                  }
                   onChange={(e) =>
                     update(
                       "strategyVersionIds",
@@ -303,8 +325,9 @@ export function ScannerSettings({
             (v) => v.definition.approval === "approved",
           ) && <p className="mb-muted">Approve a version in Rules first.</p>}
           <p className="mb-muted">
-            {draft.strategyVersionIds.length} approved setup version
-            {draft.strategyVersionIds.length === 1 ? "" : "s"} enabled.
+            {draft.autoActivateApprovedSetups
+              ? "All approved setup versions are enabled automatically."
+              : `${draft.strategyVersionIds.length} approved setup version${draft.strategyVersionIds.length === 1 ? "" : "s"} enabled.`}
           </p>
         </fieldset>
       </details>
