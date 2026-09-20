@@ -48,6 +48,7 @@ import {
   runNextAutoExecution,
 } from "../market-brain/auto-execution";
 import { selectScannerMarketProvider } from "../market-brain/provider-selection";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 const requestTimes = new Map<string, number[]>();
@@ -80,6 +81,16 @@ function route(handler: (req: Request, res: Response) => Promise<unknown>) {
       await handler(req, res);
     } catch (e) {
       const status = e instanceof ScannerError ? e.status : 500;
+      if (status >= 500)
+        logger.error(
+          {
+            err: e,
+            method: req.method,
+            path: req.path,
+            status,
+          },
+          "Market Brain request failed",
+        );
       res.status(status).json({
         error:
           e instanceof ScannerError

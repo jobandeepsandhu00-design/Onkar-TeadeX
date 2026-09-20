@@ -592,8 +592,10 @@ export const scannerRuntimeSchema = z.object({
   autoStart: z.boolean().default(false),
   autoExecutionEnabled: z.boolean().default(false),
   emergencyStop: z.boolean().default(false),
-  reconciledAt: z.string().datetime().nullable().default(null),
-  updatedAt: z.string().datetime().nullable().default(null),
+  // Postgres/Supabase serializes timestamptz values with an explicit UTC
+  // offset (for example `+00:00`). Accept both that wire format and `Z`.
+  reconciledAt: z.string().datetime({ offset: true }).nullable().default(null),
+  updatedAt: z.string().datetime({ offset: true }).nullable().default(null),
 });
 export type ScannerRuntime = z.infer<typeof scannerRuntimeSchema>;
 
