@@ -27,6 +27,7 @@ export function RuleBuilder({
     sessions: [],
     rules: [],
     approval: "draft",
+    autoExecutionAllowed: false,
     minRR: 2,
     expiresBars: 16,
   }));
@@ -212,6 +213,20 @@ export function RuleBuilder({
             ))}
             <span className="mb-muted">No sessions selected = all</span>
           </div>
+          <label className="mb-check mb-auto-rule-permission">
+            <input
+              type="checkbox"
+              checked={draft.autoExecutionAllowed}
+              onChange={(event) =>
+                update("autoExecutionAllowed", event.target.checked)
+              }
+            />
+            Allow this approved version to be used by AUTO execution
+          </label>
+          <p className="mb-muted">
+            This permission applies only to this immutable rule version. Draft,
+            AI-extracted, disabled, or older versions remain blocked.
+          </p>
           {draft.rules.map((r, i) => (
             <fieldset className="mb-panel" key={r.id}>
               <legend>Condition {i + 1}</legend>
@@ -384,6 +399,9 @@ export function RuleBuilder({
               <strong>{v.name}</strong>
               <p className="mb-muted">
                 {v.definition.approval} · {v.definition.rules.length} rules ·{" "}
+                {v.definition.autoExecutionAllowed
+                  ? "AUTO allowed · "
+                  : "AUTO blocked · "}
                 {new Date(v.created_at).toLocaleString()} · {v.id.slice(0, 8)}
               </p>
             </div>

@@ -321,6 +321,7 @@ export const strategyVersionSchema = z
     sessions: z.array(z.string().max(40)).max(6).default([]),
     rules: z.array(ruleSchema).min(1).max(30),
     approval: z.enum(["draft", "ai_extracted", "approved"]),
+    autoExecutionAllowed: z.boolean().default(false),
     minRR: z.number().min(1).max(10).default(2),
     expiresBars: z.number().int().min(2).max(96).default(16),
   })
@@ -509,7 +510,7 @@ export type RiskResult = {
   accountId: string | null;
   allowed: boolean;
   warnings: string[];
-  executionEnabled: false;
+  executionEnabled: boolean;
 };
 export type ScannerVersion = {
   id: string;

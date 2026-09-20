@@ -226,7 +226,12 @@ export default function MarketBrain({
               <div className="mb-stack">
                 <AutomationControlBar
                   runtime={snapshot.runtime}
-                  mt5Status={snapshot.connection.market ?? "NOT CONFIGURED"}
+                  mt5Status={snapshot.connection.mt5 ?? "NOT CONFIGURED"}
+                  executionAvailable={snapshot.connection.executionWorker === "ready"}
+                  executionReason={
+                    snapshot.connection.executionReason ??
+                    "Windows MT5 Bridge and execution worker are required."
+                  }
                   markets={snapshot.config?.config.symbols.length ?? 0}
                   onChanged={(message) => {
                     setNotice(message);

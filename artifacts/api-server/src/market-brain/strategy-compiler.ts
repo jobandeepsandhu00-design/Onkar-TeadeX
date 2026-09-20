@@ -221,6 +221,7 @@ export function compileLibrarySetup(
     sessions,
     rules,
     approval: "ai_extracted",
+    autoExecutionAllowed: false,
     minRR: 2,
     expiresBars: 16,
   });

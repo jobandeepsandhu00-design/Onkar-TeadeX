@@ -1,6 +1,7 @@
 import { runNextJob } from "./scanner";
 import { ScannerStore } from "./store";
 import { logger } from "../lib/logger";
+import { runNextAutoExecution } from "./auto-execution";
 
 let stopped = false;
 process.on("SIGTERM", () => {
@@ -22,6 +23,7 @@ async function main() {
   do {
     try {
       await runNextJob();
+      await runNextAutoExecution();
       failures = 0;
       if (Date.now() - lastCleanup > 86400e3) {
         await ScannerStore.service().rpc("cleanup_scanner_cache", {});

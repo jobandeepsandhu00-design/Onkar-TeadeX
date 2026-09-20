@@ -12,11 +12,15 @@ import { brainRequest } from "./api";
 export function AutomationControlBar({
   runtime,
   mt5Status,
+  executionAvailable,
+  executionReason,
   markets,
   onChanged,
 }: {
   runtime: ScannerRuntime;
   mt5Status: string;
+  executionAvailable: boolean;
+  executionReason: string;
   markets: number;
   onChanged: (message: string) => void;
 }) {
@@ -119,8 +123,10 @@ export function AutomationControlBar({
           >
             <option value="ANALYSIS">Analysis only</option>
             <option value="CONFIRM">Confirm before execution</option>
-              <option value="AUTO" disabled>
-                Auto trading · execution worker required
+              <option value="AUTO" disabled={!executionAvailable}>
+                {executionAvailable
+                  ? "Auto trading"
+                  : "Auto trading · worker unavailable"}
               </option>
           </select>
         </label>
@@ -182,6 +188,11 @@ export function AutomationControlBar({
         <p className="mb-runtime-warning">
           Emergency Stop is persisted. AUTO cannot be re-enabled until the
           backend reconciles the MT5 account and clears the lock.
+        </p>
+      ) : null}
+      {!executionAvailable ? (
+        <p className="mb-runtime-warning">
+          AUTO unavailable: {executionReason}
         </p>
       ) : null}
       {error ? (

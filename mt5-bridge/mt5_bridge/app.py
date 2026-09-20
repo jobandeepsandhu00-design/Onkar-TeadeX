@@ -97,6 +97,11 @@ def tick(symbol: str):
     return safe(lambda: gateway.tick(symbol))
 
 
+@app.get("/symbols/{symbol:path}/spec", dependencies=[Depends(authorize)])
+def symbol_spec(symbol: str):
+    return safe(lambda: gateway.symbol_spec(symbol))
+
+
 @app.get("/candles/{symbol:path}", dependencies=[Depends(authorize)])
 def candles(symbol: str, timeframe: Timeframe, count: int = Query(default=300, ge=2, le=2000)):
     return {"symbol": symbol, "timeframe": timeframe, "candles": safe(lambda: gateway.candles(symbol, timeframe, count))}

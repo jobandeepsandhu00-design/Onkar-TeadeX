@@ -50,8 +50,8 @@ export async function mt5BridgeRequest<T>(
   return body as T;
 }
 
-export async function getMT5Account() {
-  return mt5AccountSchema.parse(await mt5BridgeRequest("/account"));
+export async function getMT5Account(signal?: AbortSignal) {
+  return mt5AccountSchema.parse(await mt5BridgeRequest("/account", { signal }));
 }
 
 export async function getMT5Positions() {
@@ -82,6 +82,47 @@ export async function getMT5TradeHistory(days = 30) {
 
 export function getMT5Orders() {
   return mt5BridgeRequest<{ orders: unknown[] }>("/orders");
+}
+
+export type MT5SymbolSpec = {
+  symbol: string;
+  brokerSymbol: string;
+  digits: number;
+  point: number;
+  tickSize: number;
+  tickValue: number;
+  tickValueProfit: number;
+  tickValueLoss: number;
+  contractSize: number;
+  volumeMin: number;
+  volumeMax: number;
+  volumeStep: number;
+  stopsLevel: number;
+  fillingMode: number;
+  executionMode: number;
+  tradeMode: number;
+};
+
+export type MT5Tick = {
+  symbol: string;
+  brokerSymbol: string;
+  bid: number;
+  ask: number;
+  last: number;
+  timestamp: number;
+  spread: number;
+  state: "CONNECTED" | "STALE" | "MARKET_CLOSED" | "DISCONNECTED";
+  approximateLatencyMs: number;
+};
+
+export function getMT5SymbolSpec(symbol: string) {
+  return mt5BridgeRequest<MT5SymbolSpec>(
+    `/symbols/${encodeURIComponent(symbol)}/spec`,
+  );
+}
+
+export function getMT5Tick(symbol: string) {
+  return mt5BridgeRequest<MT5Tick>(`/tick/${encodeURIComponent(symbol)}`);
 }
 
 export async function checkMT5Order(input: unknown) {

@@ -99,6 +99,37 @@ Recommended production controls:
 
 The bridge reconnects on demand with capped exponential backoff after MT5, VPS or network interruptions. A supervisor should restart the process after a crash; the SQLite request ledger preserves order idempotency across restarts.
 
+## Guarded AUTO execution rollout
+
+AUTO is unavailable until every server-side prerequisite is healthy. This is
+intentional; the browser cannot override these gates.
+
+1. Complete the read-only bridge setup and verify a **demo** account.
+2. On the Windows bridge set `ENABLE_MT5_TRADING=true` and keep
+   `ALLOW_LIVE_TRADING=false`, then restart the bridge.
+3. On the trusted OnkarTradex backend set:
+
+   ```dotenv
+   PRIMARY_MARKET_PROVIDER=mt5
+   MT5_BRIDGE_URL=https://your-windows-bridge.example.com
+   MT5_BRIDGE_API_KEY=the_same_32_plus_character_secret
+   MT5_BRIDGE_USER_ID=the_supabase_user_uuid_that_owns_the_terminal
+   AUTO_EXECUTION_WORKER_ENABLED=true
+   ```
+
+4. In Scanner Rules, create an approved immutable rule version and explicitly
+   enable **Allow this approved version to be used by AUTO execution**.
+5. Select the same stored trading account as the connected terminal and use
+   MT5 as the scanner's primary provider.
+6. The server reconciles account, positions and pending orders before arming.
+
+The worker processes only closed-candle `READY` candidates. It rechecks feed
+freshness, entry zone, news gate, spread, open-position limit, broker symbol
+specification, volume step, stop geometry and `order_check` before
+`order_send`. The bridge remains the final authority and keeps a durable
+idempotency ledger. Live AUTO remains blocked unless the bridge administrator
+separately enables `ALLOW_LIVE_TRADING`.
+
 ## Manual demo execution rollout
 
 1. Keep both flags false and verify read-only account, symbols, quotes, candles, positions and pending orders.

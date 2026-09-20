@@ -42,6 +42,11 @@ import { runNextLearningJob } from "../onkar-ai/learning-worker";
 import { getSharedMarketSnapshot } from "../market-brain/shared-market";
 import { compileLibrarySetup } from "../market-brain/strategy-compiler";
 import { syncConfiguredMT5Journal } from "../mt5/journal-sync";
+import {
+  getAutoExecutionCapability,
+  reconcileAutoExecution,
+  runNextAutoExecution,
+} from "../market-brain/auto-execution";
 
 const router: IRouter = Router();
 const requestTimes = new Map<string, number[]>();
@@ -134,11 +139,16 @@ const cronHandler = route(async (req, res) => {
     })),
   ]);
   const learning = await runNextLearningJob();
+  const execution = await runNextAutoExecution().catch((error) => ({
+    skipped: true,
+    reason: error instanceof Error ? error.message : "AUTO execution worker failed safely",
+  }));
   res.json({
     ok: true,
     result,
     mt5Journal,
     learning,
+    execution,
     checkedAt: new Date().toISOString(),
   });
 });
@@ -196,7 +206,7 @@ router.get(
   "/market-brain",
   route(async (req, res) => {
     const { identity, user, config } = await context(req);
-    const [candidates, alerts, versions, runs, source, runtimeRows] =
+    const [candidates, alerts, versions, runs, source, runtimeRows, executionCapability] =
       await Promise.all([
         user.request<CandidateRow[]>("setup_candidates", {
           order: "updated_at.desc",
@@ -223,6 +233,7 @@ router.get(
         user
           .request<RuntimeRow[]>("scanner_runtime_controls", { limit: "1" })
           .catch(() => []),
+        getAutoExecutionCapability(identity.userId),
       ]);
     const age = config?.last_run_at
       ? Date.now() - Date.parse(config.last_run_at)
@@ -295,6 +306,13 @@ router.get(
             : runtimeRows[0]?.trading_mode === "CONFIRM"
               ? "confirmation_required"
               : "analysis_only",
+        mt5: executionCapability.accountType
+          ? executionCapability.state === "READY"
+            ? "connected"
+            : executionCapability.state.toLowerCase()
+          : executionCapability.state.toLowerCase(),
+        executionWorker: executionCapability.ready ? "ready" : "unavailable",
+        executionReason: executionCapability.reason,
         ai:
           runs[0] && Date.now() - Date.parse(runs[0].created_at) < 300_000
             ? runs[0].status === "succeeded"
@@ -337,10 +355,31 @@ router.put(
       parsed.data.autoExecutionEnabled ||
       parsed.data.tradingMode === "AUTO"
     ) {
-      throw new ScannerError(
-        "Automatic execution is not yet enabled by the scanner worker. Use Confirm mode; the MT5 bridge will not receive an automatic order.",
-        409,
+      if (config.config.provider !== "mt5")
+        throw new ScannerError(
+          "AUTO execution requires MT5 as the primary market provider. Fallback prices cannot drive broker orders.",
+          409,
+        );
+      const versions = await ScannerStore.service().request<VersionRow[]>(
+        "scanner_strategy_versions",
+        {
+          user_id: `eq.${identity.userId}`,
+          id: `in.(${config.config.strategyVersionIds.join(",") || "00000000-0000-0000-0000-000000000000"})`,
+        },
       );
+      if (
+        !versions.some(
+          (version) =>
+            version.definition.approval === "approved" &&
+            version.definition.autoExecutionAllowed === true,
+        )
+      )
+        throw new ScannerError(
+          "Approve at least one active rule version with AUTO execution permission.",
+          409,
+        );
+      const capability = await reconcileAutoExecution(identity.userId);
+      if (!capability.ready) throw new ScannerError(capability.reason, 409);
     }
     await ScannerStore.service().request(
       "scanner_runtime_controls",
@@ -355,6 +394,8 @@ router.put(
         auto_start: parsed.data.autoStart,
         auto_execution_enabled: parsed.data.autoExecutionEnabled,
         emergency_stop: currentRuntime[0]?.emergency_stop ?? false,
+        reconciled_at:
+          parsed.data.tradingMode === "AUTO" ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),
       },
       "resolution=merge-duplicates,return=minimal",

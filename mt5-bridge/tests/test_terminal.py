@@ -50,7 +50,7 @@ class FakeMT5:
         return Record(login=12345678, company="Dynamic Broker", server="Demo-1", trade_mode=2 if self.live else 0, currency="EUR", balance=10000, equity=10010, margin=100, margin_free=9910, margin_level=10010, trade_allowed=True)
     def symbols_get(self): return [Record(name="XAUUSDm"), Record(name="GBPJPY.pro")]
     def symbol_select(self, symbol, selected): return True
-    def symbol_info(self, symbol): return Record(visible=True, trade_mode=1, volume_min=.01, volume_max=100, volume_step=.01, filling_mode=0)
+    def symbol_info(self, symbol): return Record(visible=True, trade_mode=1, volume_min=.01, volume_max=100, volume_step=.01, filling_mode=0, digits=2, point=.01, trade_tick_size=.01, trade_tick_value=1, trade_tick_value_profit=1, trade_tick_value_loss=1, trade_contract_size=100, trade_stops_level=10, trade_exemode=2)
     def symbol_info_tick(self, symbol): return Record(time=self.tick_time, time_msc=self.tick_time * 1000, bid=2000, ask=2000.2, last=0, volume=2, volume_real=0)
     def positions_get(self): return ()
     def orders_get(self): return ()
@@ -134,3 +134,13 @@ def test_manual_symbol_mapping_survives_bridge_restart(tmp_path):
     second.connect()
     assert second.resolve("XAU/USD") == "XAUUSDm"
     assert "XAU/USD" in second.manual_mappings
+
+
+def test_symbol_spec_uses_broker_values(tmp_path):
+    gateway = TerminalGateway(settings(tmp_path), FakeMT5())
+    gateway.connect()
+    spec = gateway.symbol_spec("XAU/USD")
+    assert spec["brokerSymbol"] == "XAUUSDm"
+    assert spec["tickSize"] == .01
+    assert spec["tickValueLoss"] == 1
+    assert spec["volumeStep"] == .01

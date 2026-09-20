@@ -175,6 +175,33 @@ class TerminalGateway:
                 "approximateLatencyMs": age,
             }
 
+    def symbol_spec(self, internal: str) -> dict:
+        """Return broker-native sizing and protection constraints."""
+        with self._lock:
+            self.ensure()
+            symbol = self.resolve(internal)
+            info = self.mt5.symbol_info(symbol)
+            if info is None or not info.visible:
+                raise MT5Unavailable("Broker symbol specification unavailable")
+            return {
+                "symbol": internal,
+                "brokerSymbol": symbol,
+                "digits": int(getattr(info, "digits", 0)),
+                "point": float(getattr(info, "point", 0) or 0),
+                "tickSize": float(getattr(info, "trade_tick_size", 0) or 0),
+                "tickValue": float(getattr(info, "trade_tick_value", 0) or 0),
+                "tickValueProfit": float(getattr(info, "trade_tick_value_profit", 0) or 0),
+                "tickValueLoss": float(getattr(info, "trade_tick_value_loss", 0) or 0),
+                "contractSize": float(getattr(info, "trade_contract_size", 0) or 0),
+                "volumeMin": float(getattr(info, "volume_min", 0) or 0),
+                "volumeMax": float(getattr(info, "volume_max", 0) or 0),
+                "volumeStep": float(getattr(info, "volume_step", 0) or 0),
+                "stopsLevel": int(getattr(info, "trade_stops_level", 0) or 0),
+                "fillingMode": int(getattr(info, "filling_mode", 0) or 0),
+                "executionMode": int(getattr(info, "trade_exemode", 0) or 0),
+                "tradeMode": int(getattr(info, "trade_mode", 0) or 0),
+            }
+
     def candles(self, internal: str, timeframe: str, count: int):
         with self._lock:
             self.ensure()
