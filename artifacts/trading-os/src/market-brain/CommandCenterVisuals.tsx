@@ -18,6 +18,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { latestApprovedVersions } from "./strategy-versions";
 import type { AgentId } from "../onkar-ai/agent-data";
 import { useAgentAnimationState } from "../onkar-ai/useAgentAnimationState";
 
@@ -291,9 +292,7 @@ export function SetupActivationPanel({
   busy: boolean;
   onToggle: (versionId: string, enabled: boolean) => void;
 }) {
-  const approved = snapshot.versions.filter(
-    (v) => v.definition.approval === "approved",
-  );
+  const approved = latestApprovedVersions(snapshot);
   const automatic =
     snapshot.config?.config.autoActivateApprovedSetups ??
     snapshot.defaults.autoActivateApprovedSetups;

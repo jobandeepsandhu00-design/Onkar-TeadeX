@@ -41,6 +41,7 @@ import { runMasterAI } from "../onkar-ai/orchestrator";
 import { runNextLearningJob } from "../onkar-ai/learning-worker";
 import { getSharedMarketSnapshot } from "../market-brain/shared-market";
 import { compileLibrarySetup } from "../market-brain/strategy-compiler";
+import { latestApprovedVersions } from "../market-brain/strategy-selection";
 import { syncConfiguredMT5Journal } from "../mt5/journal-sync";
 import {
   getExecutionCapability,
@@ -430,18 +431,15 @@ router.put(
       parsed.data.autoExecutionEnabled ||
       parsed.data.tradingMode === "AUTO"
     ) {
-      const versionQuery: Record<string, string> = {
-        user_id: `eq.${identity.userId}`,
-      };
-      if (!config.config.autoActivateApprovedSetups)
-        versionQuery.id = `in.(${config.config.strategyVersionIds.join(",") || "00000000-0000-0000-0000-000000000000"})`;
       const versions = await store.request<VersionRow[]>(
         "scanner_strategy_versions",
-        versionQuery,
+        { user_id: `eq.${identity.userId}` },
       );
       if (
-        !versions.some(
+        !latestApprovedVersions(versions).some(
           (version) =>
+            (config.config.autoActivateApprovedSetups ||
+              config.config.strategyVersionIds.includes(version.id)) &&
             version.definition.approval === "approved" &&
             version.definition.autoExecutionAllowed === true,
         )
@@ -616,10 +614,11 @@ router.put(
     const versions = await user.request<VersionRow[]>(
       "scanner_strategy_versions",
     );
+    const selectableVersions = latestApprovedVersions(versions);
     if (
       parsed.data.strategyVersionIds.some(
         (id) =>
-          !versions.some(
+          !selectableVersions.some(
             (v) => v.id === id && v.definition.approval === "approved",
           ),
       )

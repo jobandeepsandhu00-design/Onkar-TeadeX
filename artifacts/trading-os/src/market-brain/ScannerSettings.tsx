@@ -7,6 +7,7 @@ import {
 } from "@workspace/api-zod";
 import { brainRequest } from "./api";
 import { SymbolManager } from "./SymbolManager";
+import { latestApprovedVersions } from "./strategy-versions";
 
 export function ScannerSettings({
   snapshot,
@@ -31,6 +32,7 @@ export function ScannerSettings({
     [webhook, setWebhook] = useState<{ secret: string; path: string } | null>(
       null,
     );
+  const approvedVersions = latestApprovedVersions(snapshot);
   const update = <K extends keyof ScannerConfig>(
     key: K,
     value: ScannerConfig[K],
@@ -271,20 +273,14 @@ export function ScannerSettings({
             Newly approved versions join the scanner automatically. Draft,
             disabled and AI-extracted versions remain blocked until approved.
           </p>
-          {snapshot.versions.some(
-            (version) => version.definition.approval === "approved",
-          ) && (
+          {approvedVersions.length > 0 && (
             <div className="mb-row mb-wrap">
               <button
                 type="button"
                 onClick={() =>
                   update(
                     "strategyVersionIds",
-                    snapshot.versions
-                      .filter(
-                        (version) => version.definition.approval === "approved",
-                      )
-                      .map((version) => version.id),
+                    approvedVersions.map((version) => version.id),
                   )
                 }
               >
@@ -298,32 +294,30 @@ export function ScannerSettings({
               </button>
             </div>
           )}
-          {snapshot.versions
-            .filter((v) => v.definition.approval === "approved")
-            .map((v) => (
-              <label className="mb-check" key={v.id}>
-                <input
-                  type="checkbox"
-                  disabled={draft.autoActivateApprovedSetups}
-                  checked={
-                    draft.autoActivateApprovedSetups ||
-                    draft.strategyVersionIds.includes(v.id)
-                  }
-                  onChange={(e) =>
-                    update(
-                      "strategyVersionIds",
-                      e.target.checked
-                        ? [...draft.strategyVersionIds, v.id]
-                        : draft.strategyVersionIds.filter((id) => id !== v.id),
-                    )
-                  }
-                />
-                {v.name} · {v.id.slice(0, 8)}
-              </label>
-            ))}
-          {!snapshot.versions.some(
-            (v) => v.definition.approval === "approved",
-          ) && <p className="mb-muted">Approve a version in Rules first.</p>}
+          {approvedVersions.map((v) => (
+            <label className="mb-check" key={v.id}>
+              <input
+                type="checkbox"
+                disabled={draft.autoActivateApprovedSetups}
+                checked={
+                  draft.autoActivateApprovedSetups ||
+                  draft.strategyVersionIds.includes(v.id)
+                }
+                onChange={(e) =>
+                  update(
+                    "strategyVersionIds",
+                    e.target.checked
+                      ? [...draft.strategyVersionIds, v.id]
+                      : draft.strategyVersionIds.filter((id) => id !== v.id),
+                  )
+                }
+              />
+              {v.name} · {v.id.slice(0, 8)}
+            </label>
+          ))}
+          {!approvedVersions.length && (
+            <p className="mb-muted">Approve a version in Rules first.</p>
+          )}
           <p className="mb-muted">
             {draft.autoActivateApprovedSetups
               ? "All approved setup versions are enabled automatically."

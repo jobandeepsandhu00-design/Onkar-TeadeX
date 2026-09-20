@@ -18,30 +18,41 @@ import {
 } from "lucide-react";
 import { brainRequest } from "./api";
 
-export function RuleBuilder({
+export function RuleVersionEditor({
   snapshot,
   onSaved,
+  initialVersionId,
 }: {
   snapshot: ScannerSnapshot;
   onSaved: () => void;
+  initialVersionId?: string | null;
 }) {
-  const [draft, setDraft] = useState<StrategyVersion>(() => ({
-    sourceSetupId: snapshot.setups[0]?.id || "",
-    name: snapshot.setups[0]?.name || "",
-    direction: "long",
-    timeframe: "15m",
-    higherTimeframe: "1h",
-    symbols: [],
-    sessions: [],
-    rules: [],
-    approval: "draft",
-    autoExecutionAllowed: false,
-    minRR: 2,
-    expiresBars: 16,
-  }));
+  const initialVersion = snapshot.versions.find(
+    (version) => version.id === initialVersionId,
+  );
+  const [draft, setDraft] = useState<StrategyVersion>(() =>
+    initialVersion
+      ? { ...initialVersion.definition, approval: "draft" }
+      : {
+          sourceSetupId: snapshot.setups[0]?.id || "",
+          name: snapshot.setups[0]?.name || "",
+          direction: "long",
+          timeframe: "15m",
+          higherTimeframe: "1h",
+          symbols: [],
+          sessions: [],
+          rules: [],
+          approval: "draft",
+          autoExecutionAllowed: false,
+          minRR: 2,
+          expiresBars: 16,
+        },
+  );
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
-  const [symbolsText, setSymbolsText] = useState("");
+  const [symbolsText, setSymbolsText] = useState(
+    initialVersion?.definition.symbols.join(", ") ?? "",
+  );
   const [advanced, setAdvanced] = useState(false);
   const update = <K extends keyof StrategyVersion>(
     key: K,
@@ -80,12 +91,15 @@ export function RuleBuilder({
   return (
     <div className="mb-stack">
       <div>
-        <span className="mb-eyebrow">Setup intelligence</span>
-        <h3>Approved Strategy Center</h3>
+        <span className="mb-eyebrow">Optional setup editor</span>
+        <h3>
+          {initialVersion
+            ? `Edit ${initialVersion.name}`
+            : "Create rule version"}
+        </h3>
         <p className="mb-muted">
-          Extend an existing setup with explicit conditions. Prose, videos and
-          AI-extracted ideas do not become active rules until you approve them.
-          Each save preserves the previous version.
+          Saving creates a new immutable version. The existing approved version
+          remains unchanged until you explicitly approve the replacement.
         </p>
       </div>
       {!snapshot.setups.length ? (

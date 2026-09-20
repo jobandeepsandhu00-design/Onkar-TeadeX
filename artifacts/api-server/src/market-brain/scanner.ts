@@ -21,6 +21,7 @@ import {
   type ConfigRow,
   type VersionRow,
 } from "./store";
+import { latestApprovedVersions } from "./strategy-selection";
 import { newsCheck } from "./news";
 import { OpenAIExplanationProvider } from "./ai";
 import { openAIConfigured } from "../lib/openai";
@@ -265,19 +266,14 @@ export async function runScannerJob(
         p_alert: null,
       });
     }
-    const versionQuery: Record<string, string> = {
-      user_id: `eq.${job.user_id}`,
-    };
-    if (!config.autoActivateApprovedSetups)
-      versionQuery.id = `in.(${config.strategyVersionIds.join(",") || "00000000-0000-0000-0000-000000000000"})`;
-    const versions = (
-      await store.request<VersionRow[]>(
-        "scanner_strategy_versions",
-        versionQuery,
-      )
-    ).filter(
+    const queriedVersions = await store.request<VersionRow[]>(
+      "scanner_strategy_versions",
+      { user_id: `eq.${job.user_id}` },
+    );
+    const versions = latestApprovedVersions(queriedVersions).filter(
       (v) =>
-        v.definition.approval === "approved" &&
+        (config.autoActivateApprovedSetups ||
+          config.strategyVersionIds.includes(v.id)) &&
         (!v.definition.symbols.length || v.definition.symbols.includes(symbol)),
     );
     if (!versions.length)

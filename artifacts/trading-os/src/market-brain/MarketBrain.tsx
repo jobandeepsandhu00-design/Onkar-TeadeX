@@ -8,7 +8,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { brainRequest } from "./api";
-import { RuleBuilder } from "./RuleBuilder";
+import { RulesControlCenter } from "./RulesControlCenter";
 import { ScannerSettings } from "./ScannerSettings";
 import { CandidateDetail } from "./CandidateDetail";
 import { MT5StatusPanel } from "./MT5StatusPanel";
@@ -22,6 +22,7 @@ import {
   TradingLifecycle,
 } from "./CommandCenterVisuals";
 import type { AgentId } from "../onkar-ai/agent-data";
+import { latestApprovedVersions } from "./strategy-versions";
 import "./market-brain.css";
 
 export type MarketBrainTab =
@@ -393,8 +394,12 @@ export default function MarketBrain({
                   snapshot={snapshot}
                   busy={loading}
                   onToggle={(versionId, enabled) => {
-                    const ids =
-                      snapshot.config?.config.strategyVersionIds ?? [];
+                    const ids = snapshot.config?.config
+                      .autoActivateApprovedSetups
+                      ? latestApprovedVersions(snapshot).map(
+                          (version) => version.id,
+                        )
+                      : (snapshot.config?.config.strategyVersionIds ?? []);
                     void saveConfig(
                       {
                         autoActivateApprovedSetups: false,
@@ -566,7 +571,7 @@ export default function MarketBrain({
               </div>
             )}
             {tab === "Rules" && (
-              <RuleBuilder snapshot={snapshot} onSaved={changed} />
+              <RulesControlCenter snapshot={snapshot} onSaved={changed} />
             )}
             {tab === "Replay" && <ScannerReplay snapshot={snapshot} />}
             {tab === "Settings" && (
