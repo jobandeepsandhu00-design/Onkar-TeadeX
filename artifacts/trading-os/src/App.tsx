@@ -24,6 +24,8 @@ import { SetupLibrary } from "./trade-setups/SetupLibrary";
 import { TradeSetupDashboard } from "./trade-setups/TradeSetupBoard";
 import { DashboardVideoSection, VideoLearningHub, VideoLessonPage } from "./video-lessons";
 import { mergeDashboardSections, moveDashboardSection } from "./market-brain/dashboard-order";
+import { AccountCommandCarousel } from "./market-brain/AccountCommandCarousel";
+import "./market-brain/market-brain.css";
 const OnkarAIRecentSlider = React.lazy(() => import("./onkar-ai/RecentSlider").then(module => ({ default: module.OnkarAIRecentSlider })));
 const OnkarAIAgentCommandCenter = React.lazy(() => import("./onkar-ai/HomeAgentCommandCenter").then(module => ({ default: module.OnkarAIAgentCommandCenter })));
 const OnkarAIWorkspace = React.lazy(() => import("./onkar-ai/OnkarAIWorkspace"));
@@ -6178,33 +6180,23 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
     ),
     marketSessions: <ForexMarketClock />,
     accountOverview: (
-      <>
-        {/* Active account pill */}
-        {(data as any).activeAccountId && (() => {
-          const acct = ((data as any).tradingAccounts || []).find((ac: any) => ac.id === (data as any).activeAccountId);
-          if (!acct) return null;
-          return (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/8 border border-emerald-500/20 mb-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-              <span className="text-[11px] text-emerald-400 font-semibold flex-1">
-                {acct.alias || acct.accountNumber}
-                {acct.platform ? <span className="text-emerald-600"> · {acct.platform}</span> : null}
-              </span>
-              <span className="text-[10px] text-slate-600 font-medium">{acct.accountType}</span>
-            </div>
-          );
-        })()}
-        <AccountBalanceCard account={acc} a={a} />
-        <div className="grid grid-cols-3 gap-2">
-          {kpis.map((k, ki) => (
-            <div key={ki} className="bg-slate-900 border border-slate-800 rounded-2xl p-3 text-center hover:border-slate-700 transition">
-              <div className={cx("text-sm font-bold leading-tight", toneClass[k.tone] || "text-slate-100")}
-                style={{ fontFamily: "'Sora', sans-serif" }}>{k.value}</div>
-              <div className="text-[10px] text-slate-500 mt-1 leading-tight">{k.label}</div>
-            </div>
-          ))}
-        </div>
-      </>
+      <div className="market-brain dashboard-account-command">
+        <AccountCommandCarousel
+          accounts={accounts.map((account: any) => ({
+            id: account.id,
+            name: account.alias || account.accountNumber || "Trading account",
+            currency: account.currency || "USD",
+            type: account.accountType || "Trading Account",
+            broker: account.broker || account.platform || "Stored account",
+            accountNumber: account.accountNumber,
+            balance: Number.isFinite(Number(account.balance)) ? Number(account.balance) : null,
+          }))}
+          selectedAccountId={activeAcctId}
+          journalTrades={allTrades}
+          onSelect={switchAccount}
+          onOpenTrade={() => goTo("journal")}
+        />
+      </div>
     ),
     onkarAICommandCenter: (
       <div className="oai">

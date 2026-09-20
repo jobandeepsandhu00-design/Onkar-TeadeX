@@ -68,6 +68,8 @@ import {
   type SetupPreview,
 } from "./demo-data";
 import { brainRequest } from "../market-brain/api";
+import { AccountCommandCarousel } from "../market-brain/AccountCommandCarousel";
+import "../market-brain/market-brain.css";
 import { connectedSetups, scannerIsLive } from "./connected-setups";
 import { MasterSetupAlertBridge } from "./MasterSetupAlertBridge";
 import "./onkar-ai.css";
@@ -256,6 +258,27 @@ export default function OnkarAIWorkspace({
         error instanceof Error
           ? error.message
           : "Could not change scanner state.",
+      );
+    } finally {
+      setScannerSaving(false);
+    }
+  };
+  const selectTradingAccount = async (accountId: string) => {
+    const config = scannerSnapshot?.config?.config;
+    if (!config) {
+      setNotice("Open Scanner Settings to configure a trading account.");
+      return;
+    }
+    setScannerSaving(true);
+    try {
+      await brainRequest("/config", "PUT", { ...config, accountId });
+      await refreshScanner();
+      setNotice("Trading account selected. Scanner and risk context updated.");
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Could not select the trading account.",
       );
     } finally {
       setScannerSaving(false);
@@ -537,6 +560,16 @@ export default function OnkarAIWorkspace({
           <AgentWorkspacePresence section={segment} />
           {segment === "dashboard" ? (
             <>
+              {scannerSnapshot ? (
+                <div className="market-brain oai-account-command">
+                  <AccountCommandCarousel
+                    snapshot={scannerSnapshot}
+                    journalTrades={journalTrades}
+                    onSelect={(accountId) => void selectTradingAccount(accountId)}
+                    onOpenTrade={() => onExit("journal")}
+                  />
+                </div>
+              ) : null}
               <div className="oai-kpi-grid">
                 {[
                   [

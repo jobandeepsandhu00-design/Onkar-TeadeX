@@ -2634,6 +2634,19 @@
   }
 }
 
+.oai-account-command,
+.dashboard-account-command {
+  margin: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+}
+
+.oai-account-command .mb-account-command,
+.dashboard-account-command .mb-account-command {
+  margin: 0;
+}
+
 /* Reference-led composition: globe hero, three-column command center, compact support widgets. */
 .oai-hero:not(.oai-hero-compact) {
   background-image:

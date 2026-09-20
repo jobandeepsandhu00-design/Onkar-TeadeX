@@ -26,6 +26,15 @@ type AccountCard = ScannerSnapshot["accounts"][number] & {
   balance?: number | null;
   mt5: boolean;
 };
+export type AccountCarouselSource = {
+  id: string;
+  name: string;
+  currency: string;
+  type: string;
+  broker?: string;
+  accountNumber?: string;
+  balance?: number | null;
+};
 
 const number = (value: unknown) => {
   const parsed = Number(value);
@@ -47,11 +56,15 @@ const money = (value: number | null, currency = "USD", signed = false) => {
 
 export function AccountCommandCarousel({
   snapshot,
+  accounts: accountSource,
+  selectedAccountId,
   journalTrades,
   onSelect,
   onOpenTrade,
 }: {
-  snapshot: ScannerSnapshot;
+  snapshot?: ScannerSnapshot;
+  accounts?: AccountCarouselSource[];
+  selectedAccountId?: string | null;
   journalTrades: JournalTrade[];
   onSelect: (accountId: string) => void;
   onOpenTrade: () => void;
@@ -90,7 +103,7 @@ export function AccountCommandCarousel({
     };
   }, [refresh]);
   const accounts = useMemo(() => {
-    const configured: AccountCard[] = snapshot.accounts.map((account) => ({
+    const configured: AccountCard[] = (snapshot?.accounts ?? accountSource ?? []).map((account) => ({
       ...account,
       mt5: false,
     }));
@@ -115,13 +128,14 @@ export function AccountCommandCarousel({
     if (match >= 0) configured.splice(match, 1, liveAccount);
     else configured.unshift(liveAccount);
     return configured;
-  }, [mt5, snapshot.accounts]);
+  }, [accountSource, mt5, snapshot?.accounts]);
+  const activeAccountId = snapshot?.config?.config.accountId ?? selectedAccountId;
   useEffect(() => {
     const selected = accounts.findIndex(
-      (account) => account.id === snapshot.config?.config.accountId,
+      (account) => account.id === activeAccountId,
     );
     if (selected >= 0) setIndex(selected);
-  }, [accounts, snapshot.config?.config.accountId]);
+  }, [accounts, activeAccountId]);
   const move = (direction: number) => {
     if (!accounts.length) return;
     setIndex(
@@ -313,11 +327,11 @@ export function AccountCommandCarousel({
                   className="mb-use-account"
                   disabled={
                     account.id === "connected-mt5" ||
-                    snapshot.config?.config.accountId === account.id
+                    activeAccountId === account.id
                   }
                   onClick={() => onSelect(account.id)}
                 >
-                  {snapshot.config?.config.accountId === account.id
+                  {activeAccountId === account.id
                     ? "Selected account"
                     : "Use this account"}
                 </button>
