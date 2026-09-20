@@ -58,7 +58,8 @@ export default function MarketBrain({
     [direction, setDirection] = useState("All");
   const root = useRef<HTMLElement>(null),
     visible = useRef(false),
-    request = useRef<AbortController | null>(null);
+    request = useRef<AbortController | null>(null),
+    strategySyncAttempted = useRef(false);
   const refresh = useCallback(async () => {
     request.current?.abort();
     const controller = new AbortController();
@@ -105,6 +106,45 @@ export default function MarketBrain({
       request.current = null;
     };
   }, [refresh]);
+  useEffect(() => {
+    if (!snapshot || strategySyncAttempted.current) return;
+    const approvedBySetup = new Map(
+      latestApprovedVersions(snapshot).map((version) => [
+        version.source_setup_id,
+        version,
+      ]),
+    );
+    const needsCanonicalSync = snapshot.setups.some(
+      (setup) =>
+        !approvedBySetup.get(setup.id)?.definition.autoExecutionAllowed,
+    );
+    if (!needsCanonicalSync) return;
+    strategySyncAttempted.current = true;
+    setNotice("Preparing approved setups for the shared scanner…");
+    void brainRequest<{ synced: number; message: string }>(
+      "/strategies/sync-library",
+      "POST",
+    )
+      .then(async (result) => {
+        if (snapshot.config) {
+          await brainRequest("/config", "PUT", {
+            ...snapshot.config.config,
+            enabled: true,
+            autoActivateApprovedSetups: true,
+            strategyVersionIds: [],
+          });
+        }
+        setNotice(result.message);
+        await refresh();
+      })
+      .catch((cause) =>
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Automatic setup synchronization failed",
+        ),
+      );
+  }, [refresh, snapshot]);
   const changed = () => {
     setNotice("Saved to your account.");
     void refresh();
