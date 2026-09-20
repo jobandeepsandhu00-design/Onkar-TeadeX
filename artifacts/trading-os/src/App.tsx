@@ -10499,7 +10499,7 @@ function ForexBlueprintAcademy() {
 /* ============================================================
    LIBRARY TAB (wraps Setups / Strategies)
    ============================================================ */
-function LibraryTab({ data, setData, subTab, setSubTab, goTo }) {
+function LibraryTab({ data, setData, subTab, setSubTab, goTo, editSetupId, onEditSetupHandled }) {
   return (
     <div className="space-y-4">
       <div className="flex gap-2 bg-slate-900 border border-slate-800 rounded-xl p-1">
@@ -10510,7 +10510,7 @@ function LibraryTab({ data, setData, subTab, setSubTab, goTo }) {
           </button>
         ))}
       </div>
-      {subTab === "Setups" ? <SetupLibrary setups={data.setups || []} onChange={(setups) => setData((current: any) => ({ ...current, setups }))} />
+      {subTab === "Setups" ? <SetupLibrary setups={data.setups || []} onChange={(setups) => setData((current: any) => ({ ...current, setups }))} initialEditSetupId={editSetupId} onInitialEditHandled={onEditSetupHandled} />
         : subTab === "Strategies" ? <StrategiesPanel data={data} setData={setData} goTo={goTo} />
         : <ForexBlueprintLibrary />}
     </div>
@@ -15659,6 +15659,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   const [moreSubTab, setMoreSubTab] = useState("Plans");
   const [searchOpen, setSearchOpen] = useState(false);
   const [quickLogOpen, setQuickLogOpen] = useState(false);
+  const [setupLibraryEditId, setSetupLibraryEditId] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [onkarAIPath, setOnkarAIPath] = useState<string | null>(() => /^\/onkar-ai(?:\/|$)/.test(window.location.pathname) ? window.location.pathname : null);
   const routeLessonId = window.location.pathname.match(/^\/learn\/strategy\/([^/]+)\/?$/)?.[1] || null;
@@ -16142,7 +16143,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   if (onkarAIPath) {
     const account = (data as any).tradingAccounts?.find((item: any) => item.id === (data as any).activeAccountId);
     return <>
-      <React.Suspense fallback={<div className="min-h-screen bg-slate-950 p-8 text-blue-200">Opening Onkar AI…</div>}><OnkarAIWorkspace path={onkarAIPath} onNavigate={(path) => goTo("onkar-ai", path)} onExit={(tab) => goTo(tab || "home", undefined)} onLogout={onLogout ? handleLogout : undefined} accountName={account?.alias || account?.accountNumber} journalTrades={(data as any).trades || []} /></React.Suspense>
+      <React.Suspense fallback={<div className="min-h-screen bg-slate-950 p-8 text-blue-200">Opening Onkar AI…</div>}><OnkarAIWorkspace path={onkarAIPath} onNavigate={(path) => goTo("onkar-ai", path)} onExit={(tab, subTab, setupId) => { if (setupId) setSetupLibraryEditId(setupId); goTo(tab || "home", subTab); }} onLogout={onLogout ? handleLogout : undefined} accountName={account?.alias || account?.accountNumber} journalTrades={(data as any).trades || []} /></React.Suspense>
       {/* Account safety alerts remain visible inside the dedicated workspace. */}
       {riskAlert && <RiskAlertOverlay alert={riskAlert} onDismiss={() => {
         dismissedAtRef.current[riskAlert.accountId] = riskAlert.todayLossAmt;
@@ -16210,7 +16211,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
               {videoLessonId ? <VideoLessonPage lessonId={videoLessonId} onBack={closeVideoLesson} /> : <>
               {activeTab === "home" && <Dashboard data={effectiveData} allTrades={d.trades || []} setData={setData} goTo={goTo} onQuickLog={() => { setActiveTab("journal"); setQuickLogOpen(true); }} onOpenLesson={openVideoLesson} />}
               {activeTab === "journal" && <JournalTab data={effectiveData} allTrades={d.trades || []} setData={setData} autoOpen={quickLogOpen} onAutoOpenDone={() => setQuickLogOpen(false)} />}
-              {activeTab === "library" && <LibraryTab data={effectiveData} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} />}
+              {activeTab === "library" && <LibraryTab data={effectiveData} setData={setData} subTab={librarySubTab} setSubTab={setLibrarySubTab} goTo={goTo} editSetupId={setupLibraryEditId} onEditSetupHandled={() => setSetupLibraryEditId(null)} />}
               {activeTab === "academy" && <AcademyTab data={effectiveData} setData={setData} subTab={academySubTab} setSubTab={setAcademySubTab} goTo={goTo} onOpenLesson={openVideoLesson} />}
               {activeTab === "more" && <MoreTab data={d} setData={setData} subTab={moreSubTab} setSubTab={setMoreSubTab} goTo={goTo} onOpenLesson={openVideoLesson} />}
               {activeTab === "backtest" && (

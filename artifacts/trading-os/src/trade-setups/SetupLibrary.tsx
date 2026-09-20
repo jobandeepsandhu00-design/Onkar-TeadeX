@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Archive, Copy, Grid2X2, Heart, LayoutGrid, List, Pencil, Plus, Search, Star, Trash2 } from "lucide-react";
 import { downloadAttachment, removeAttachment, uploadAttachment } from "../api";
 import type { SetupDirection, SetupQuality, SetupSession, SetupTimeframe, TradeSetup } from "./types";
@@ -12,13 +12,19 @@ type ViewMode = "cards" | "grid" | "list";
 type Filters = { direction: "All" | SetupDirection; quality: "All" | SetupQuality; timeframe: "All" | SetupTimeframe; session: "All" | SetupSession; category: string; favorites: boolean; recent: boolean };
 const selectClass = "rounded-xl border border-white/10 bg-[#09111e] px-3 py-2 text-xs font-semibold text-slate-300 outline-none focus:border-amber-300/40";
 
-export function SetupLibrary({ setups, onChange }: { setups: TradeSetup[]; onChange: (setups: TradeSetup[]) => void }) {
+export function SetupLibrary({ setups, onChange, initialEditSetupId, onInitialEditHandled }: { setups: TradeSetup[]; onChange: (setups: TradeSetup[]) => void; initialEditSetupId?: string | null; onInitialEditHandled?: () => void }) {
   const [query, setQuery] = useState("");
   const [view, setView] = useState<ViewMode>("cards");
   const [filters, setFilters] = useState<Filters>({ direction: "All", quality: "All", timeframe: "All", session: "All", category: "All", favorites: false, recent: false });
   const [detail, setDetail] = useState<TradeSetup | null>(null);
   const [editing, setEditing] = useState<TradeSetup | null | "new">(null);
   const [toast, setToast] = useState("");
+  useEffect(() => {
+    if (!initialEditSetupId) return;
+    const setup = setups.find((item) => item.id === initialEditSetupId);
+    if (setup) setEditing(setup);
+    onInitialEditHandled?.();
+  }, [initialEditSetupId, onInitialEditHandled, setups]);
   const categories = useMemo(() => ["All", ...Array.from(new Set(setups.map((item) => item.category))).sort()], [setups]);
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();

@@ -120,7 +120,7 @@ const groups: Array<{
 type Props = {
   path: string;
   onNavigate: (path: string) => void;
-  onExit: (tab?: string) => void;
+  onExit: (tab?: string, subTab?: string, setupId?: string) => void;
   onLogout?: () => void;
   accountName?: string;
   journalTrades?: Array<{ id: string; symbol?: string; date?: string }>;
@@ -330,6 +330,7 @@ export default function OnkarAIWorkspace({
         <ConnectedScanner
           initialTab={initialTab}
           onJournal={() => onExit("journal")}
+          onEditSetup={(setupId) => onExit("library", "Setups", setupId)}
           journalTrades={journalTrades}
           onOpenAgent={(agentId) => {
             const agent = AGENT_DEFINITIONS.find((item) => item.id === agentId);

@@ -2,15 +2,14 @@ import { useMemo, useState } from "react";
 import type { ScannerConfig, ScannerSnapshot } from "@workspace/api-zod";
 import {
   CheckCheck,
-  ChevronDown,
   Edit3,
   Layers3,
   PauseCircle,
   Radar,
+  Search,
   Sparkles,
 } from "lucide-react";
 import { brainRequest } from "./api";
-import { RuleVersionEditor } from "./RuleBuilder";
 import { SymbolManager } from "./SymbolManager";
 import { latestApprovedVersions } from "./strategy-versions";
 
@@ -30,17 +29,48 @@ const MAJOR_MARKETS = [
 export function RulesControlCenter({
   snapshot,
   onSaved,
+  onEditSetup,
 }: {
   snapshot: ScannerSnapshot;
   onSaved: () => void;
+  onEditSetup?: (setupId: string) => void;
 }) {
   const config = snapshot.config?.config;
   const approved = useMemo(() => latestApprovedVersions(snapshot), [snapshot]);
   const [markets, setMarkets] = useState(config?.symbols ?? []);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editorOpen, setEditorOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const setupRows = useMemo(() => {
+    const approvedBySetup = new Map(
+      approved.map((version) => [version.source_setup_id, version]),
+    );
+    const libraryRows = snapshot.setups.map((setup) => ({
+      setup,
+      version: approvedBySetup.get(setup.id),
+    }));
+    const knownSetupIds = new Set(snapshot.setups.map((setup) => setup.id));
+    const versionOnlyRows = approved
+      .filter((version) => !knownSetupIds.has(version.source_setup_id))
+      .map((version) => ({
+        setup: { id: version.source_setup_id, name: version.name },
+        version,
+      }));
+    return [...libraryRows, ...versionOnlyRows];
+  }, [approved, snapshot.setups]);
+
+  const visibleSetups = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return setupRows;
+    return setupRows.filter(({ setup, version }) =>
+      [setup.name, version?.definition.direction, version?.definition.timeframe]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(term),
+    );
+  }, [query, setupRows]);
 
   const selected = new Set(
     config?.autoActivateApprovedSetups
@@ -92,13 +122,16 @@ export function RulesControlCenter({
           <span className="mb-eyebrow">AUTOMATIC RULE CONTROL</span>
           <h3>Setup & Market Automation</h3>
           <p>
-            Choose everything once. The scanner reads approved Setup Library
-            rules automatically; detailed editing stays optional.
+            Choose setups once. Approved Setup Library rules are loaded
+            automatically and every library setup stays visible in this list.
           </p>
         </div>
         <div className="mb-rules-counts">
           <span>
-            <b>{selected.size}</b> setups
+            <b>{selected.size}</b> active
+          </span>
+          <span>
+            <b>{setupRows.length}</b> total
           </span>
           <span>
             <b>{config?.symbols.length ?? 0}</b> markets
@@ -130,8 +163,10 @@ export function RulesControlCenter({
           >
             <CheckCheck size={19} />
             <span>
-              <b>Select all approved</b>
-              <small>New approvals join automatically</small>
+              <b>Activate all approved setups</b>
+              <small>
+                All ready setups on · new approvals join automatically
+              </small>
             </span>
           </button>
           <button
@@ -146,8 +181,10 @@ export function RulesControlCenter({
           >
             <Layers3 size={19} />
             <span>
-              <b>Custom selection</b>
-              <small>Turn individual setups on or off</small>
+              <b>Choose setups individually</b>
+              <small>
+                Start with all ready setups, then turn off any you do not want
+              </small>
             </span>
           </button>
           <button
@@ -168,62 +205,90 @@ export function RulesControlCenter({
           </button>
         </div>
 
-        {!approved.length ? (
-          <p className="mb-notice">
-            No approved setup version exists yet. Draft and old versions remain
-            unavailable to the scanner.
-          </p>
+        <label className="mb-setup-search">
+          <Search size={16} />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search all setups…"
+            aria-label="Search all setups"
+          />
+          <span>{visibleSetups.length}</span>
+        </label>
+
+        {!setupRows.length ? (
+          <p className="mb-notice">No setups exist in the Setup Library yet.</p>
         ) : (
           <div className="mb-easy-setup-list">
-            {approved.map((version, index) => {
-              const enabled = selected.has(version.id);
-              const symbolScope = version.definition.symbols.length
+            {visibleSetups.map(({ setup, version }, index) => {
+              const ready = Boolean(version);
+              const enabled = version ? selected.has(version.id) : false;
+              const symbolScope = version?.definition.symbols.length
                 ? `${version.definition.symbols.length} specified`
                 : "All scanner markets";
               return (
                 <article
-                  className={enabled ? "is-enabled" : ""}
-                  key={version.id}
+                  className={`${enabled ? "is-enabled" : ""} ${ready ? "" : "is-unavailable"}`}
+                  key={setup.id}
                 >
                   <span className="mb-setup-number">
                     {String(index + 1).padStart(2, "0")}
                   </span>
                   <div className="mb-easy-setup-copy">
-                    <strong>{version.name}</strong>
-                    <small>
-                      {version.definition.direction.toUpperCase()} ·{" "}
-                      {version.definition.higherTimeframe} →{" "}
-                      {version.definition.timeframe} · {symbolScope}
-                    </small>
-                    <div className="mb-chip-row">
-                      <span>R:R ≥ {version.definition.minRR}</span>
-                      <span>{version.definition.rules.length} rules</span>
-                      <span>
-                        {version.definition.autoExecutionAllowed
-                          ? "AUTO allowed"
-                          : "Review only"}
-                      </span>
-                    </div>
+                    <strong>{setup.name}</strong>
+                    {version ? (
+                      <>
+                        <small>
+                          {version.definition.direction.toUpperCase()} ·{" "}
+                          {version.definition.higherTimeframe} →{" "}
+                          {version.definition.timeframe} · {symbolScope}
+                        </small>
+                        <div className="mb-chip-row">
+                          <span>R:R ≥ {version.definition.minRR}</span>
+                          <span>{version.definition.rules.length} rules</span>
+                          <span>
+                            {version.definition.autoExecutionAllowed
+                              ? "AUTO allowed"
+                              : "Review only"}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <small>
+                          Saved in Setup Library · not scanner-ready
+                        </small>
+                        <div className="mb-chip-row">
+                          <span className="mb-chip-warning">
+                            Needs approved rules
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
                   <div className="mb-easy-setup-actions">
                     <button
                       type="button"
                       className="mb-switch"
                       role="switch"
-                      aria-label={`${enabled ? "Disable" : "Enable"} ${version.name}`}
+                      aria-label={
+                        ready
+                          ? `${enabled ? "Disable" : "Enable"} ${setup.name}`
+                          : `${setup.name} needs approved scanner rules`
+                      }
                       aria-checked={enabled}
-                      disabled={busy}
-                      onClick={() => toggleSetup(version.id, !enabled)}
+                      disabled={busy || !version}
+                      onClick={() =>
+                        version && toggleSetup(version.id, !enabled)
+                      }
                     >
                       <span />
                     </button>
                     <button
                       type="button"
                       className="mb-edit-rule"
-                      onClick={() => {
-                        setEditing(version.id);
-                        setEditorOpen(true);
-                      }}
+                      onClick={() => onEditSetup?.(setup.id)}
+                      disabled={!onEditSetup}
                     >
                       <Edit3 size={15} /> Edit
                     </button>
@@ -267,39 +332,6 @@ export function RulesControlCenter({
         >
           {busy ? "Saving…" : "Save market selection"}
         </button>
-      </section>
-
-      <section className="mb-rule-editor-shell">
-        <button
-          className="mb-rule-editor-toggle"
-          type="button"
-          aria-expanded={editorOpen}
-          onClick={() => {
-            if (!editorOpen) setEditing(null);
-            setEditorOpen((open) => !open);
-          }}
-        >
-          <span>
-            <Edit3 size={18} />
-            <b>Advanced setup editor</b>
-            <small>Create or revise one setup only when needed</small>
-          </span>
-          <ChevronDown size={18} />
-        </button>
-        {editorOpen ? (
-          <div className="mb-rule-editor-body">
-            <RuleVersionEditor
-              key={editing ?? "new-version"}
-              snapshot={snapshot}
-              initialVersionId={editing}
-              onSaved={() => {
-                setEditorOpen(false);
-                setEditing(null);
-                onSaved();
-              }}
-            />
-          </div>
-        ) : null}
       </section>
 
       {error ? (

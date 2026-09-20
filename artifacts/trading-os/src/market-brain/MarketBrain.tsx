@@ -37,6 +37,7 @@ export default function MarketBrain({
   journalTrades = [],
   initialTab = "Watchlist",
   onOpenAgent,
+  onEditSetup,
 }: {
   onJournal: () => void;
   journalTrades?: Array<
@@ -44,6 +45,7 @@ export default function MarketBrain({
   >;
   initialTab?: MarketBrainTab;
   onOpenAgent?: (agentId: AgentId) => void;
+  onEditSetup?: (setupId: string) => void;
 }) {
   const [snapshot, setSnapshot] = useState<ScannerSnapshot | null>(null),
     [tab, setTab] = useState<MarketBrainTab>(initialTab),
@@ -571,7 +573,11 @@ export default function MarketBrain({
               </div>
             )}
             {tab === "Rules" && (
-              <RulesControlCenter snapshot={snapshot} onSaved={changed} />
+              <RulesControlCenter
+                snapshot={snapshot}
+                onSaved={changed}
+                onEditSetup={onEditSetup}
+              />
             )}
             {tab === "Replay" && <ScannerReplay snapshot={snapshot} />}
             {tab === "Settings" && (
