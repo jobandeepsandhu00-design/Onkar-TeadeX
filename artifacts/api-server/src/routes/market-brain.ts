@@ -359,11 +359,6 @@ router.put(
       parsed.data.autoExecutionEnabled ||
       parsed.data.tradingMode === "AUTO"
     ) {
-      if (config.config.provider !== "mt5")
-        throw new ScannerError(
-          "AUTO execution requires MT5 as the primary market provider. Fallback prices cannot drive broker orders.",
-          409,
-        );
       const versions = await ScannerStore.service().request<VersionRow[]>(
         "scanner_strategy_versions",
         {
