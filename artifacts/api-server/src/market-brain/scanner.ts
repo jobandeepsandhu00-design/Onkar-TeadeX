@@ -29,6 +29,7 @@ import {
   GLOBAL_WORKFLOW_TIMEFRAMES,
   globalWorkflowRequired,
 } from "./global-workflow";
+import { selectScannerMarketProvider } from "./provider-selection";
 
 export const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -278,6 +279,12 @@ export async function runScannerJob(
         "Approve and activate at least one strategy for this symbol.",
       );
     const source = await store.source(job.user_id);
+    // Resolve one feed for the entire run. All timeframe histories, setup
+    // engines and AI evidence below use this same source.
+    const providerSelection = await selectScannerMarketProvider(
+      config.provider,
+    );
+    const activeProvider = providerSelection.active;
     const required = new Set<Timeframe>(config.timeframes);
     if (globalWorkflowRequired(symbol))
       GLOBAL_WORKFLOW_TIMEFRAMES.forEach((timeframe) =>
@@ -296,7 +303,7 @@ export async function runScannerJob(
         throw new Error("History warmup continues in the next worker cycle.");
       histories[tf] = await loadCandles(
         store,
-        config.provider,
+        activeProvider,
         symbol,
         tf,
         Date.now(),
@@ -313,6 +320,19 @@ export async function runScannerJob(
       news: news.status,
       newsAt: news.checkedAt,
       ai: openAIConfigured() ? "configured_not_checked" : "unconfigured",
+      requestedProvider: providerSelection.requested,
+      marketProvider: activeProvider,
+      fallback: providerSelection.fallback,
+      providerMessage: providerSelection.warning,
+      mt5:
+        providerSelection.requested === "mt5"
+          ? providerSelection.requestedHealth.status
+          : "standby",
+      twelveData:
+        activeProvider === "twelvedata"
+          ? providerSelection.activeHealth.status
+          : "standby",
+      liveExecution: activeProvider === "mt5",
     };
     const enrichedTrades = records(source.trades).map((t) => ({
       ...t,
@@ -423,7 +443,9 @@ export async function runScannerJob(
         payload: {
           ...analysis,
           status: state,
-          provider: config.provider,
+          provider: activeProvider,
+          providerFallback: providerSelection.fallback,
+          providerWarning: providerSelection.warning,
           strategyName: version.name,
           scopeAccountId: config.accountId,
           tradingViewEvidence,

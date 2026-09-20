@@ -47,6 +47,7 @@ import {
   reconcileAutoExecution,
   runNextAutoExecution,
 } from "../market-brain/auto-execution";
+import { selectScannerMarketProvider } from "../market-brain/provider-selection";
 
 const router: IRouter = Router();
 const requestTimes = new Map<string, number[]>();
@@ -161,11 +162,14 @@ router.post(
   "/market-brain/provider-health/cron",
   route(async (req, res) => {
     await requireCronAuthorization(req);
-    res.json(
-      await getMarketProvider(
-        process.env.PRIMARY_MARKET_PROVIDER === "mt5" ? "mt5" : "twelvedata",
-      ).healthCheck(),
-    );
+    const selection = await selectScannerMarketProvider("twelvedata");
+    res.json({
+      ...selection.activeHealth,
+      activeProvider: selection.active,
+      requestedProvider: selection.requested,
+      fallback: selection.fallback,
+      warning: selection.warning,
+    });
   }),
 );
 async function context(req: Request) {
@@ -829,7 +833,16 @@ router.get(
     const { config } = await context(req);
     if (!config) throw new ScannerError("Save scanner settings first", 400);
     rateLimit(`health:${config.id}`, 3);
-    res.json(await getMarketProvider(config.config.provider).healthCheck());
+    const selection = await selectScannerMarketProvider(
+      config.config.provider,
+    );
+    res.json({
+      ...selection.activeHealth,
+      activeProvider: selection.active,
+      requestedProvider: selection.requested,
+      fallback: selection.fallback,
+      warning: selection.warning,
+    });
   }),
 );
 router.get(

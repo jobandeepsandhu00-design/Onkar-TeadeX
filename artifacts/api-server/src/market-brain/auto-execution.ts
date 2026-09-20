@@ -203,8 +203,6 @@ export async function runNextAutoExecution() {
   });
   if (!configRow) return { skipped: true, reason: "Scanner configuration is disabled." };
   const config = scannerConfigSchema.parse(configRow.config);
-  if (config.provider !== "mt5")
-    return { skipped: true, reason: "AUTO requires MT5 as the primary market provider." };
   const candidates = await store.request<CandidateRow[]>("setup_candidates", {
     config_id: `eq.${configRow.id}`,
     user_id: `eq.${owner}`,
@@ -219,7 +217,12 @@ export async function runNextAutoExecution() {
       item.payload.risk.allowed &&
       item.payload.risk.warnings.length === 0,
   );
-  if (!candidate) return { skipped: true, reason: "No risk-approved MT5 setup is ready." };
+  if (!candidate)
+    return {
+      skipped: true,
+      reason:
+        "No risk-approved setup from the connected MT5 broker feed is ready. Twelve Data fallback setups are analysis-only.",
+    };
   const requestId = `auto_${createHash("sha256")
     .update(`${candidate.fingerprint}:${candidate.last_candle_at}`)
     .digest("hex")}`;

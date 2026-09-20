@@ -129,6 +129,8 @@ export type CandidateRow = {
   payload: Analysis & {
     historical?: unknown;
     provider?: string;
+    providerFallback?: boolean;
+    providerWarning?: string | null;
     strategyName?: string;
     scopeAccountId?: string | null;
     tradingViewEvidence?: Array<{ payload: unknown; created_at: string }>;
