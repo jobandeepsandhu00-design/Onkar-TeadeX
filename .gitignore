@@ -65,3 +65,7 @@ replit.nix
 
 # Supabase CLI local metadata
 supabase/.temp/
+
+.vercel/
+.env.local
+.env.*.local
