@@ -6190,6 +6190,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
             broker: account.broker || account.platform || "Stored account",
             accountNumber: account.accountNumber,
             balance: Number.isFinite(Number(account.balance)) ? Number(account.balance) : null,
+            source: account.source,
           }))}
           selectedAccountId={activeAcctId}
           journalTrades={allTrades}

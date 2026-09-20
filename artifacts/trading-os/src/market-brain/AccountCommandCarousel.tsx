@@ -24,6 +24,7 @@ type AccountCard = ScannerSnapshot["accounts"][number] & {
   broker?: string;
   accountNumber?: string;
   balance?: number | null;
+  source?: string;
   mt5: boolean;
 };
 export type AccountCarouselSource = {
@@ -34,12 +35,21 @@ export type AccountCarouselSource = {
   broker?: string;
   accountNumber?: string;
   balance?: number | null;
+  source?: string;
 };
 
 const number = (value: unknown) => {
+  if (
+    value === null ||
+    value === undefined ||
+    (typeof value === "string" && value.trim() === "")
+  )
+    return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
+const tradePnl = (trade: JournalTrade) =>
+  number(trade.netPnl) ?? number(trade.manualPnl) ?? number(trade.pnl);
 const money = (value: number | null, currency = "USD", signed = false) => {
   if (value === null) return "—";
   try {
@@ -123,6 +133,7 @@ export function AccountCommandCarousel({
       broker: mt5.broker,
       accountNumber: mt5.account,
       balance: mt5.balance,
+      source: "MT5",
       mt5: true,
     };
     if (match >= 0) configured.splice(match, 1, liveAccount);
@@ -154,13 +165,27 @@ export function AccountCommandCarousel({
   const wins = closed.filter((trade) =>
     /win/i.test(String(trade.result || "")),
   ).length;
+  const closedPnl = closed.reduce(
+    (sum, trade) => sum + (tradePnl(trade) ?? 0),
+    0,
+  );
+  // Stored/manual accounts keep their configured balance as the baseline.
+  // Closed journal outcomes update the displayed balance. A connected or
+  // synced MT5 account remains broker-authoritative to avoid double counting
+  // imported trade history that is already reflected in broker balance.
+  const displayedBalance =
+    current?.mt5 || String(current?.source || "").toUpperCase() === "MT5"
+      ? (current?.balance ?? null)
+      : current?.balance == null
+        ? null
+        : current.balance + closedPnl;
   const dailyPnl = closed
     .filter(
       (trade) =>
         String(trade.exitDate || trade.date || "").slice(0, 10) ===
         new Date().toISOString().slice(0, 10),
     )
-    .reduce((sum, trade) => sum + (number(trade.netPnl ?? trade.pnl) ?? 0), 0);
+    .reduce((sum, trade) => sum + (tradePnl(trade) ?? 0), 0);
   const activeTrade = current?.mt5 ? (positions[0] ?? null) : null;
   const progress = activeTrade?.takeProfit
     ? Math.max(
@@ -248,9 +273,19 @@ export function AccountCommandCarousel({
               </div>
               <div className="mb-account-balance">
                 <strong>
-                  {money(account.balance ?? null, account.currency)}
+                  {money(
+                    account.id === current.id
+                      ? displayedBalance
+                      : account.balance ?? null,
+                    account.currency,
+                  )}
                 </strong>
-                <span>ACCOUNT BALANCE</span>
+                <span>
+                  {account.mt5 ||
+                  String(account.source || "").toUpperCase() === "MT5"
+                    ? "BROKER BALANCE"
+                    : "JOURNAL BALANCE"}
+                </span>
               </div>
               {account.mt5 ? (
                 <div className="mb-account-finance-grid">

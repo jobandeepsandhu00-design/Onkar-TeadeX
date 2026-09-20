@@ -554,6 +554,7 @@ export type ScannerSnapshot = {
     type: string;
     broker?: string;
     accountNumber?: string;
+    source?: string;
     balance?: number | null;
   }>;
   setups: Array<{

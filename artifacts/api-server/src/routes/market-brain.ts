@@ -283,6 +283,7 @@ router.get(
         type: a.accountType,
         broker: a.broker,
         accountNumber: a.accountNumber,
+        source: a.source,
         balance: Number.isFinite(Number(a.balance ?? a.startingBalance))
           ? Number(a.balance ?? a.startingBalance)
           : null,
