@@ -541,6 +541,23 @@ export type ScannerSnapshot = {
     read_at: string | null;
     created_at: string;
   }>;
+  paperTrades: Array<{
+    id: string;
+    account_id: string;
+    symbol: string;
+    direction: "BUY" | "SELL";
+    entry: number;
+    current_price: number;
+    stop_loss: number;
+    take_profit: number;
+    position_size: number;
+    status: "OPEN" | "CLOSED" | "INVALIDATED";
+    pnl: number | null;
+    r_multiple: number | null;
+    opened_at: string;
+    closed_at: string | null;
+    detail: Record<string, unknown>;
+  }>;
   runs: Array<{
     id: string;
     status: string;
@@ -590,12 +607,20 @@ export type ScannerSnapshot = {
 export const scannerRuntimeSchema = z.object({
   scannerState: z.enum(["RUNNING", "PAUSED", "STOPPED"]).default("STOPPED"),
   tradingMode: z.enum(["ANALYSIS", "CONFIRM", "AUTO"]).default("ANALYSIS"),
+  tradingSource: z.enum(["MT5", "TWELVE_DATA"]).default("TWELVE_DATA"),
+  mt5DisconnectBehavior: z.enum(["LOCK", "PAPER", "ANALYSIS"]).default("LOCK"),
+  autoReturnMt5: z.boolean().default(false),
   autoStart: z.boolean().default(false),
   autoExecutionEnabled: z.boolean().default(false),
   emergencyStop: z.boolean().default(false),
   // Postgres/Supabase serializes timestamptz values with an explicit UTC
   // offset (for example `+00:00`). Accept both that wire format and `Z`.
   reconciledAt: z.string().datetime({ offset: true }).nullable().default(null),
+  sourceActivatedAt: z
+    .string()
+    .datetime({ offset: true })
+    .nullable()
+    .default(null),
   updatedAt: z.string().datetime({ offset: true }).nullable().default(null),
 });
 export type ScannerRuntime = z.infer<typeof scannerRuntimeSchema>;
@@ -603,6 +628,9 @@ export type ScannerRuntime = z.infer<typeof scannerRuntimeSchema>;
 export const scannerRuntimeUpdateSchema = scannerRuntimeSchema.pick({
   scannerState: true,
   tradingMode: true,
+  tradingSource: true,
+  mt5DisconnectBehavior: true,
+  autoReturnMt5: true,
   autoStart: true,
   autoExecutionEnabled: true,
 });

@@ -1,8 +1,4 @@
-import type {
-  ScannerCandidate,
-  ScannerConfig,
-  ScannerSnapshot,
-} from "@workspace/api-zod";
+import type { ScannerCandidate, ScannerSnapshot } from "@workspace/api-zod";
 import type { CSSProperties } from "react";
 import {
   Activity,
@@ -198,37 +194,41 @@ export function DataProviderManager({
 }: {
   snapshot: ScannerSnapshot;
   busy: boolean;
-  onSelect: (provider: ScannerConfig["provider"]) => void;
+  onSelect: (provider: "MT5" | "TWELVE_DATA") => void;
   onTest: () => void;
 }) {
-  const selected =
-    snapshot.config?.config.provider ?? snapshot.defaults.provider;
+  const selected = snapshot.runtime.tradingSource;
   const health = snapshot.config?.health ?? {};
+  const selectedAccount = snapshot.accounts.find(
+    (account) => account.id === snapshot.config?.config.accountId,
+  );
   const cards = [
     {
-      id: "mt5" as const,
+      id: "MT5" as const,
       name: "MetaTrader 5",
       icon: Network,
       status: String(health.mt5 ?? snapshot.connection.mt5 ?? "not configured"),
-      description: "Broker candles and execution context",
+      description: `Broker execution · ${snapshot.connection.executionBroker ?? "not connected"} ${snapshot.connection.executionAccountType ?? ""}`,
     },
     {
-      id: "twelvedata" as const,
+      id: "TWELVE_DATA" as const,
       name: "Twelve Data",
       icon: CloudCog,
       status: String(
         health.twelveData ??
-          (selected === "twelvedata" ? snapshot.connection.market : "standby"),
+          (selected === "TWELVE_DATA"
+            ? (snapshot.connection.twelveData ?? snapshot.connection.market)
+            : "standby"),
       ),
-      description: "Server-side analysis feed and MT5 fallback",
+      description: `Paper execution · ${selectedAccount?.name ?? "select an Onkar account"}`,
     },
   ];
   return (
     <section className="mb-provider-manager">
       <div className="mb-section-heading">
         <div>
-          <span className="mb-eyebrow">Shared market engine</span>
-          <h3>Data Provider Manager</h3>
+          <span className="mb-eyebrow">TRADING SOURCE</span>
+          <h3>MT5 or Twelve Data Paper</h3>
         </div>
         <button onClick={onTest} disabled={busy}>
           Test active feed
@@ -256,7 +256,9 @@ export function DataProviderManager({
                 {status.replaceAll("_", " ")}
               </span>
               <button disabled={busy || active} onClick={() => onSelect(id)}>
-                {active ? "Primary" : "Set primary"}
+                {active
+                  ? `✓ ${id === "MT5" ? "MT5" : "TWELVE DATA"} ACTIVE`
+                  : `USE ${id === "MT5" ? "MT5" : "TWELVE DATA"}`}
               </button>
             </article>
           );
@@ -264,7 +266,7 @@ export function DataProviderManager({
       </div>
       <div className="mb-provider-route">
         <span className="is-active">
-          {selected === "mt5" ? "MT5" : "TWELVE DATA"}
+          {selected === "MT5" ? "MT5" : "TWELVE DATA"}
         </span>
         <i />
         <span>SHARED CANDLES</span>
@@ -272,9 +274,9 @@ export function DataProviderManager({
         <span>CHART + SCANNER + 10 AIs</span>
       </div>
       <p className="mb-hub-note">
-        Choosing MT5 uses Twelve Data only as the configured fallback when the
-        bridge is unavailable. Execution always stays locked unless the real MT5
-        bridge is healthy.
+        One Market Brain and Setup Engine are shared. MT5 sends broker orders;
+        Twelve Data opens virtual trades only in the selected Onkar Paper
+        account.
       </p>
     </section>
   );

@@ -2,15 +2,20 @@ import { createHash } from "node:crypto";
 import { ScannerStore } from "../market-brain/store";
 import { getMT5Account, getMT5TradeHistory, MT5BridgeError } from "./client";
 
-const normalized = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-const dateOnly = (epochMs: number) => new Date(epochMs).toISOString().slice(0, 10);
+const normalized = (value: string) =>
+  value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+const dateOnly = (epochMs: number) =>
+  new Date(epochMs).toISOString().slice(0, 10);
 
 export function requireMT5BridgeOwner(userId: string) {
   const owner = process.env.MT5_BRIDGE_USER_ID;
   if (!owner)
     throw new MT5BridgeError("MT5 bridge owner is not configured", 503);
   if (owner !== userId)
-    throw new MT5BridgeError("This MT5 bridge is not assigned to this user", 403);
+    throw new MT5BridgeError(
+      "This MT5 bridge is not assigned to this user",
+      403,
+    );
 }
 
 export async function syncMT5JournalUser(userId: string, days = 30) {
@@ -25,7 +30,10 @@ export async function syncMT5JournalUser(userId: string, days = 30) {
     ),
   ]);
   const internalByBroker = new Map(
-    mappings.map((row) => [normalized(row.broker_symbol), row.internal_symbol.replace("/", "")]),
+    mappings.map((row) => [
+      normalized(row.broker_symbol),
+      row.internal_symbol.replace("/", ""),
+    ]),
   );
   const accountKey = createHash("sha256")
     .update(`${account.server}|${account.account}`)
@@ -48,7 +56,9 @@ export async function syncMT5JournalUser(userId: string, days = 30) {
     source: "MT5",
   };
   const trades = history.map((trade) => {
-    const symbol = internalByBroker.get(normalized(trade.symbol)) ?? normalized(trade.symbol);
+    const symbol =
+      internalByBroker.get(normalized(trade.symbol)) ??
+      normalized(trade.symbol);
     const closed = trade.status === "Closed" && trade.exitTime !== null;
     const pnl = closed && trade.profitLoss !== null ? trade.profitLoss : null;
     return {
@@ -65,10 +75,13 @@ export async function syncMT5JournalUser(userId: string, days = 30) {
       positionSize: String(trade.volume),
       pnl: pnl === null ? "" : String(pnl),
       netPnl: pnl === null ? "" : String(pnl),
-      result: pnl === null ? "" : pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Break Even",
+      result:
+        pnl === null ? "" : pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Break Even",
       broker: account.broker,
       mt5Ticket: String(trade.positionTicket),
       source: "MT5",
+      executionProvider: "MT5",
+      marketDataProvider: "MT5",
       notes: "Imported from connected MT5 account.",
     };
   });

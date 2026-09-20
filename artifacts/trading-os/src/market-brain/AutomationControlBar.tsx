@@ -26,12 +26,23 @@ export function AutomationControlBar({
 }) {
   const [mode, setMode] = useState(runtime.tradingMode);
   const [autoStart, setAutoStart] = useState(runtime.autoStart);
+  const [disconnectBehavior, setDisconnectBehavior] = useState(
+    runtime.mt5DisconnectBehavior,
+  );
+  const [autoReturnMt5, setAutoReturnMt5] = useState(runtime.autoReturnMt5);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     setMode(runtime.tradingMode);
     setAutoStart(runtime.autoStart);
-  }, [runtime.autoStart, runtime.tradingMode]);
+    setDisconnectBehavior(runtime.mt5DisconnectBehavior);
+    setAutoReturnMt5(runtime.autoReturnMt5);
+  }, [
+    runtime.autoReturnMt5,
+    runtime.autoStart,
+    runtime.mt5DisconnectBehavior,
+    runtime.tradingMode,
+  ]);
 
   const control = async (
     action: "PAUSE" | "RESUME" | "STOP" | "EMERGENCY_STOP" | "DISABLE_AUTO",
@@ -68,6 +79,9 @@ export function AutomationControlBar({
         scannerState:
           runtime.scannerState === "STOPPED" ? "RUNNING" : runtime.scannerState,
         tradingMode: mode,
+        tradingSource: runtime.tradingSource,
+        mt5DisconnectBehavior: disconnectBehavior,
+        autoReturnMt5,
         autoStart,
         autoExecutionEnabled: mode === "AUTO",
       });
@@ -103,6 +117,9 @@ export function AutomationControlBar({
         </div>
         <div className="mb-auto-facts">
           <span>
+            Source <b>{runtime.tradingSource.replace("_", " ")}</b>
+          </span>
+          <span>
             MT5 <b>{mt5Status.replaceAll("_", " ")}</b>
           </span>
           <span>
@@ -123,11 +140,11 @@ export function AutomationControlBar({
           >
             <option value="ANALYSIS">Analysis only</option>
             <option value="CONFIRM">Confirm before execution</option>
-              <option value="AUTO" disabled={!executionAvailable}>
-                {executionAvailable
-                  ? "Auto trading"
-                  : "Auto trading · worker unavailable"}
-              </option>
+            <option value="AUTO" disabled={!executionAvailable}>
+              {executionAvailable
+                ? "Auto trading"
+                : "Auto trading · worker unavailable"}
+            </option>
           </select>
         </label>
         <label className="mb-check">
@@ -139,11 +156,39 @@ export function AutomationControlBar({
           />{" "}
           Auto-start scanner
         </label>
+        <label>
+          MT5 disconnect
+          <select
+            value={disconnectBehavior}
+            disabled={busy}
+            onChange={(event) =>
+              setDisconnectBehavior(
+                event.target.value as typeof disconnectBehavior,
+              )
+            }
+          >
+            <option value="LOCK">Lock trading</option>
+            <option value="PAPER">Switch to Twelve Data Paper</option>
+            <option value="ANALYSIS">Analysis only</option>
+          </select>
+        </label>
+        <label className="mb-check">
+          <input
+            type="checkbox"
+            checked={autoReturnMt5}
+            disabled={busy || disconnectBehavior !== "PAPER"}
+            onChange={(event) => setAutoReturnMt5(event.target.checked)}
+          />{" "}
+          Return to MT5 after recovery
+        </label>
         <button
           type="button"
           disabled={
             busy ||
-            (mode === runtime.tradingMode && autoStart === runtime.autoStart)
+            (mode === runtime.tradingMode &&
+              autoStart === runtime.autoStart &&
+              disconnectBehavior === runtime.mt5DisconnectBehavior &&
+              autoReturnMt5 === runtime.autoReturnMt5)
           }
           onClick={() => void save()}
         >
@@ -187,7 +232,7 @@ export function AutomationControlBar({
       {runtime.emergencyStop ? (
         <p className="mb-runtime-warning">
           Emergency Stop is persisted. AUTO cannot be re-enabled until the
-          backend reconciles the MT5 account and clears the lock.
+          active execution provider is reconciled and the lock is cleared.
         </p>
       ) : null}
       {!executionAvailable ? (

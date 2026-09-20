@@ -1,10 +1,4 @@
-import { createHash } from "node:crypto";
-import {
-  scannerConfigSchema,
-  strategyVersionSchema,
-  type Candle,
-  type Timeframe,
-} from "@workspace/api-zod";
+import { scannerConfigSchema, strategyVersionSchema } from "@workspace/api-zod";
 import {
   checkMT5Order,
   executeMT5Order,
@@ -23,13 +17,7 @@ import {
   type ConfigRow,
   type VersionRow,
 } from "./store";
-import { analyzeCandidate } from "./evaluation";
-import { accountContext } from "./journal";
-import {
-  GLOBAL_WORKFLOW_TIMEFRAMES,
-  globalWorkflowRequired,
-} from "./global-workflow";
-import { sharedProviderCandles } from "./shared-market";
+import { executionRequestId } from "./execution-identity";
 
 type RuntimeRow = {
   user_id: string;
@@ -39,6 +27,8 @@ type RuntimeRow = {
   trading_mode: "ANALYSIS" | "CONFIRM" | "AUTO";
   auto_execution_enabled: boolean;
   emergency_stop: boolean;
+  trading_source: "MT5" | "TWELVE_DATA";
+  source_activated_at: string;
   reconciled_at: string | null;
 };
 
@@ -50,13 +40,14 @@ export type AutoExecutionCapability = {
   broker: string | null;
 };
 
-const workerEnabled = () => process.env.AUTO_EXECUTION_WORKER_ENABLED === "true";
+export const autoExecutionWorkerEnabled = () =>
+  process.env.AUTO_EXECUTION_WORKER_ENABLED === "true";
 const bridgeOwner = () => process.env.MT5_BRIDGE_USER_ID || "";
 
 export async function getAutoExecutionCapability(
   userId: string,
 ): Promise<AutoExecutionCapability> {
-  if (!workerEnabled())
+  if (!autoExecutionWorkerEnabled())
     return {
       ready: false,
       state: "DISABLED",
@@ -125,7 +116,8 @@ export async function getAutoExecutionCapability(
     return {
       ready: false,
       state: "DISCONNECTED",
-      reason: error instanceof Error ? error.message : "MT5 Bridge is unreachable.",
+      reason:
+        error instanceof Error ? error.message : "MT5 Bridge is unreachable.",
       accountType: null,
       broker: null,
     };
@@ -140,7 +132,8 @@ export function calculateBrokerVolume(
   spec: MT5SymbolSpec,
 ) {
   const tickSize = spec.tickSize || spec.point;
-  const tickValue = spec.tickValueLoss || spec.tickValue || spec.tickValueProfit;
+  const tickValue =
+    spec.tickValueLoss || spec.tickValue || spec.tickValueProfit;
   const riskMoney = (equity * riskPercent) / 100;
   const stopDistance = Math.abs(entry - stop);
   if (
@@ -155,7 +148,10 @@ export function calculateBrokerVolume(
   const riskPerLot = (stopDistance / tickSize) * tickValue;
   const raw = riskMoney / riskPerLot;
   const stepped = Math.floor((raw + 1e-12) / spec.volumeStep) * spec.volumeStep;
-  const precision = Math.max(0, String(spec.volumeStep).split(".")[1]?.length ?? 0);
+  const precision = Math.max(
+    0,
+    String(spec.volumeStep).split(".")[1]?.length ?? 0,
+  );
   const volume = Number(Math.min(spec.volumeMax, stepped).toFixed(precision));
   return volume >= spec.volumeMin ? volume : null;
 }
@@ -165,7 +161,13 @@ async function event(
   runtime: RuntimeRow,
   candidate: CandidateRow,
   requestId: string,
-  state: "RISK_CHECK" | "READY_TO_EXECUTE" | "EXECUTING" | "EXECUTED" | "BLOCKED" | "ERROR",
+  state:
+    | "RISK_CHECK"
+    | "READY_TO_EXECUTE"
+    | "EXECUTING"
+    | "EXECUTED"
+    | "BLOCKED"
+    | "ERROR",
   reason: string,
   detail: Record<string, unknown> = {},
 ) {
@@ -176,6 +178,9 @@ async function event(
     request_id: requestId,
     state,
     reason,
+    execution_provider: "MT5",
+    market_data_provider: "MT5",
+    account_id: candidate.payload.scopeAccountId ?? null,
     detail,
   });
 }
@@ -183,74 +188,21 @@ async function event(
 const accountMatches = (stored: Record<string, unknown>, masked: string) => {
   const configured = String(stored.accountNumber || "").replace(/\D/g, "");
   const connected = masked.replace(/\D/g, "");
-  return Boolean(configured && connected && configured.slice(-4) === connected.slice(-4));
-};
-
-async function revalidateWithMT5(args: {
-  store: ScannerStore;
-  candidate: CandidateRow;
-  definition: ReturnType<typeof strategyVersionSchema.parse>;
-  config: ReturnType<typeof scannerConfigSchema.parse>;
-  source: Record<string, unknown>;
-}) {
-  const required = new Set<Timeframe>(args.config.timeframes);
-  required.add(args.definition.timeframe);
-  required.add(args.definition.higherTimeframe);
-  args.definition.rules.forEach((rule) => required.add(rule.timeframe));
-  if (globalWorkflowRequired(args.candidate.symbol))
-    GLOBAL_WORKFLOW_TIMEFRAMES.forEach((timeframe) => required.add(timeframe));
-  const histories: Partial<Record<Timeframe, Candle[]>> = {};
-  for (const timeframe of required) {
-    const market = await sharedProviderCandles(
-      args.store,
-      "mt5",
-      args.candidate.symbol,
-      timeframe,
-    );
-    histories[timeframe] = market.candles
-      .filter((candle) => candle.closed)
-      .map(({ closed: _closed, ...candle }) => candle);
-  }
-  const now = Date.now();
-  const analysis = analyzeCandidate(
-    args.definition,
-    histories,
-    args.config,
-    accountContext(args.source, args.config, args.candidate.symbol, now),
-    args.candidate.payload.news,
-    now,
-    args.candidate.symbol,
+  return Boolean(
+    configured && connected && configured.slice(-4) === connected.slice(-4),
   );
-  if (
-    analysis.stale ||
-    analysis.status !== "READY" ||
-    analysis.lastCandleAt !== args.candidate.last_candle_at ||
-    !analysis.risk.allowed ||
-    analysis.risk.warnings.length
-  )
-    return null;
-  return {
-    ...args.candidate,
-    plan: analysis.risk,
-    last_candle_at: analysis.lastCandleAt,
-    payload: {
-      ...args.candidate.payload,
-      ...analysis,
-      provider: "mt5",
-      providerFallback: false,
-      providerWarning: null,
-    },
-  } satisfies CandidateRow;
-}
+};
 
 /** Process at most one execution per invocation. The bridge remains the final broker gate. */
 export async function runNextAutoExecution() {
   const owner = bridgeOwner();
-  if (!workerEnabled() || !owner)
-    return { skipped: true, reason: "AUTO execution worker is not configured." };
+  if (!autoExecutionWorkerEnabled() || !owner)
+    return {
+      skipped: true,
+      reason: "AUTO execution worker is not configured.",
+    };
   const capability = await getAutoExecutionCapability(owner);
-  if (!capability.ready)
-    return { skipped: true, reason: capability.reason };
+  if (!capability.ready) return { skipped: true, reason: capability.reason };
   const store = ScannerStore.service();
   const [runtime] = await store.request<RuntimeRow[]>(
     "scanner_runtime_controls",
@@ -260,6 +212,7 @@ export async function runNextAutoExecution() {
       trading_mode: "eq.AUTO",
       auto_execution_enabled: "eq.true",
       emergency_stop: "eq.false",
+      trading_source: "eq.MT5",
       limit: "1",
     },
   );
@@ -270,19 +223,20 @@ export async function runNextAutoExecution() {
     enabled: "eq.true",
     limit: "1",
   });
-  if (!configRow) return { skipped: true, reason: "Scanner configuration is disabled." };
+  if (!configRow)
+    return { skipped: true, reason: "Scanner configuration is disabled." };
   const config = scannerConfigSchema.parse(configRow.config);
   const candidates = await store.request<CandidateRow[]>("setup_candidates", {
     config_id: `eq.${configRow.id}`,
     user_id: `eq.${owner}`,
     state: "eq.READY",
+    last_candle_at: `gte.${runtime.source_activated_at}`,
     order: "updated_at.asc",
     limit: "10",
   });
-  let candidate = candidates.find(
+  const candidate = candidates.find(
     (item) =>
-      (item.payload.provider === "mt5" ||
-        item.payload.provider === "twelvedata") &&
+      item.payload.provider === "mt5" &&
       !item.payload.stale &&
       item.payload.risk.allowed &&
       item.payload.risk.warnings.length === 0,
@@ -290,98 +244,185 @@ export async function runNextAutoExecution() {
   if (!candidate)
     return {
       skipped: true,
-      reason:
-        "No fresh, risk-approved setup is ready for broker revalidation.",
+      reason: "No new risk-approved MT5 setup is ready.",
     };
-  const [version] = await store.request<VersionRow[]>("scanner_strategy_versions", {
-    id: `eq.${candidate.version_id}`,
-    user_id: `eq.${owner}`,
-    limit: "1",
-  });
-  const definition = version ? strategyVersionSchema.parse(version.definition) : null;
-  if (!definition || definition.approval !== "approved" || !definition.autoExecutionAllowed) {
+  const [version] = await store.request<VersionRow[]>(
+    "scanner_strategy_versions",
+    {
+      id: `eq.${candidate.version_id}`,
+      user_id: `eq.${owner}`,
+      limit: "1",
+    },
+  );
+  const definition = version
+    ? strategyVersionSchema.parse(version.definition)
+    : null;
+  if (
+    !definition ||
+    definition.approval !== "approved" ||
+    !definition.autoExecutionAllowed
+  ) {
     const requestId = `auto_validation_${candidate.id}_${candidate.last_candle_at}`;
-    await event(store, runtime, candidate, requestId, "BLOCKED", "Rule version is not approved for AUTO execution.");
-    return { blocked: true, reason: "Rule version is not approved for AUTO execution." };
+    await event(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      "BLOCKED",
+      "Rule version is not approved for AUTO execution.",
+    );
+    return {
+      blocked: true,
+      reason: "Rule version is not approved for AUTO execution.",
+    };
   }
   const source = await store.source(owner);
-  if (candidate.payload.provider === "twelvedata") {
-    const verified = await revalidateWithMT5({
-      store,
-      candidate,
-      definition,
-      config,
-      source,
-    });
-    if (!verified) {
-      const requestId = `auto_validation_${candidate.id}_${candidate.last_candle_at}`;
-      await event(
-        store,
-        runtime,
-        candidate,
-        requestId,
-        "BLOCKED",
-        "Twelve Data setup was not confirmed by fresh closed MT5 broker candles.",
-      );
-      return {
-        blocked: true,
-        reason:
-          "Twelve Data analysis was not confirmed by the connected MT5 broker feed.",
-      };
-    }
-    candidate = verified;
-  }
-  const requestId = `auto_${createHash("sha256")
-    .update(`${candidate.fingerprint}:${candidate.last_candle_at}:mt5`)
-    .digest("hex")}`;
+  const requestId = executionRequestId({
+    accountId: config.accountId ?? "",
+    executionProvider: "MT5",
+    symbol: candidate.symbol,
+    versionId: candidate.version_id,
+    direction: candidate.payload.direction,
+    confirmationCandle: candidate.last_candle_at,
+    entryEvent: candidate.fingerprint,
+  });
   const existing = await store.request<Array<{ state: string }>>(
     "scanner_execution_events",
     { user_id: `eq.${owner}`, request_id: `eq.${requestId}`, limit: "1" },
   );
   if (existing.length)
-    return { skipped: true, reason: `Execution already recorded as ${existing[0].state}.` };
+    return {
+      skipped: true,
+      reason: `Execution already recorded as ${existing[0].state}.`,
+    };
   if (config.requireNews && candidate.payload.news.status !== "safe") {
-    await event(store, runtime, candidate, requestId, "BLOCKED", "News safety is not verified.");
+    await event(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      "BLOCKED",
+      "News safety is not verified.",
+    );
     return { blocked: true, reason: "News safety is not verified." };
   }
   const analyzedAt = Date.parse(candidate.payload.analyzedAt);
-  if (!Number.isFinite(analyzedAt) || Date.now() - analyzedAt > config.frequencySeconds * 2_000) {
-    await event(store, runtime, candidate, requestId, "BLOCKED", "Setup analysis is stale.");
+  if (
+    !Number.isFinite(analyzedAt) ||
+    Date.now() - analyzedAt > config.frequencySeconds * 2_000
+  ) {
+    await event(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      "BLOCKED",
+      "Setup analysis is stale.",
+    );
     return { blocked: true, reason: "Setup analysis is stale." };
   }
-  const storedAccount = records(source.tradingAccounts).find((item) => item.id === config.accountId);
-  const [account, positions] = await Promise.all([getMT5Account(), getMT5Positions()]);
+  const storedAccount = records(source.tradingAccounts).find(
+    (item) => item.id === config.accountId,
+  );
+  const [account, positions] = await Promise.all([
+    getMT5Account(),
+    getMT5Positions(),
+  ]);
   if (!storedAccount || !accountMatches(storedAccount, account.account)) {
-    await event(store, runtime, candidate, requestId, "BLOCKED", "Selected account does not match the connected MT5 account.");
-    return { blocked: true, reason: "Selected account does not match connected MT5." };
+    await event(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      "BLOCKED",
+      "Selected account does not match the connected MT5 account.",
+    );
+    return {
+      blocked: true,
+      reason: "Selected account does not match connected MT5.",
+    };
   }
   if (positions.length >= config.risk.maxOpenPositions) {
-    await event(store, runtime, candidate, requestId, "BLOCKED", "Maximum open positions reached.");
+    await event(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      "BLOCKED",
+      "Maximum open positions reached.",
+    );
     return { blocked: true, reason: "Maximum open positions reached." };
   }
-  await event(store, runtime, candidate, requestId, "RISK_CHECK", "Broker risk validation started.");
-  const symbol = candidate.symbol === "XAUUSD" ? "XAU/USD" : `${candidate.symbol.slice(0, 3)}/${candidate.symbol.slice(3)}`;
-  const [tick, spec] = await Promise.all([getMT5Tick(symbol), getMT5SymbolSpec(symbol)]);
+  await event(
+    store,
+    runtime,
+    candidate,
+    requestId,
+    "RISK_CHECK",
+    "Broker risk validation started.",
+  );
+  const symbol =
+    candidate.symbol === "XAUUSD"
+      ? "XAU/USD"
+      : `${candidate.symbol.slice(0, 3)}/${candidate.symbol.slice(3)}`;
+  const [tick, spec] = await Promise.all([
+    getMT5Tick(symbol),
+    getMT5SymbolSpec(symbol),
+  ]);
   if (tick.state !== "CONNECTED" || tick.approximateLatencyMs > 30_000) {
-    await event(store, runtime, candidate, requestId, "BLOCKED", "MT5 price feed is stale or disconnected.");
-    return { blocked: true, reason: "MT5 price feed is stale or disconnected." };
+    await event(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      "BLOCKED",
+      "MT5 price feed is stale or disconnected.",
+    );
+    return {
+      blocked: true,
+      reason: "MT5 price feed is stale or disconnected.",
+    };
   }
   const plan = candidate.plan;
   if (!plan || !(plan.entry > 0 && plan.stop > 0 && plan.target > 0)) {
-    await event(store, runtime, candidate, requestId, "BLOCKED", "Execution plan is incomplete.");
+    await event(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      "BLOCKED",
+      "Execution plan is incomplete.",
+    );
     return { blocked: true, reason: "Execution plan is incomplete." };
   }
   const buy = candidate.payload.direction === "long";
   const currentPrice = buy ? tick.ask : tick.bid;
   const zone = candidate.payload.entryZone;
   if (currentPrice < zone.low || currentPrice > zone.high) {
-    await event(store, runtime, candidate, requestId, "BLOCKED", "Price left the verified entry zone.");
+    await event(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      "BLOCKED",
+      "Price left the verified entry zone.",
+    );
     return { blocked: true, reason: "Price left the verified entry zone." };
   }
   const stopDistance = Math.abs(currentPrice - plan.stop);
   if (!(stopDistance > 0) || tick.spread > stopDistance * 0.1) {
-    await event(store, runtime, candidate, requestId, "BLOCKED", "Spread is too large for the planned stop distance.");
-    return { blocked: true, reason: "Spread is too large for the planned stop distance." };
+    await event(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      "BLOCKED",
+      "Spread is too large for the planned stop distance.",
+    );
+    return {
+      blocked: true,
+      reason: "Spread is too large for the planned stop distance.",
+    };
   }
   const volume = calculateBrokerVolume(
     account.equity,
@@ -391,8 +432,18 @@ export async function runNextAutoExecution() {
     spec,
   );
   if (!volume) {
-    await event(store, runtime, candidate, requestId, "BLOCKED", "Broker volume could not be calculated safely.");
-    return { blocked: true, reason: "Broker volume could not be calculated safely." };
+    await event(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      "BLOCKED",
+      "Broker volume could not be calculated safely.",
+    );
+    return {
+      blocked: true,
+      reason: "Broker volume could not be calculated safely.",
+    };
   }
   const order = {
     requestId,
@@ -407,11 +458,34 @@ export async function runNextAutoExecution() {
   };
   const checked = await checkMT5Order(order);
   if (!checked.ok) {
-    await event(store, runtime, candidate, requestId, "BLOCKED", "Broker order_check rejected the plan.", { retcode: checked.retcode ?? null });
+    await event(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      "BLOCKED",
+      "Broker order_check rejected the plan.",
+      { retcode: checked.retcode ?? null },
+    );
     return { blocked: true, reason: "Broker order_check rejected the plan." };
   }
-  await event(store, runtime, candidate, requestId, "READY_TO_EXECUTE", "All deterministic checks passed.", { volume, symbol });
-  await event(store, runtime, candidate, requestId, "EXECUTING", "Order submitted to the connected MT5 bridge.");
+  await event(
+    store,
+    runtime,
+    candidate,
+    requestId,
+    "READY_TO_EXECUTE",
+    "All deterministic checks passed.",
+    { volume, symbol },
+  );
+  await event(
+    store,
+    runtime,
+    candidate,
+    requestId,
+    "EXECUTING",
+    "Order submitted to the connected MT5 bridge.",
+  );
   const result = await executeMT5Order(order);
   const succeeded = Boolean(result.ok);
   await event(

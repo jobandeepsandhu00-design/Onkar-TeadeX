@@ -113,7 +113,11 @@ export function AccountCommandCarousel({
     };
   }, [refresh]);
   const accounts = useMemo(() => {
-    const configured: AccountCard[] = (snapshot?.accounts ?? accountSource ?? []).map((account) => ({
+    const configured: AccountCard[] = (
+      snapshot?.accounts ??
+      accountSource ??
+      []
+    ).map((account) => ({
       ...account,
       mt5: false,
     }));
@@ -140,7 +144,8 @@ export function AccountCommandCarousel({
     else configured.unshift(liveAccount);
     return configured;
   }, [accountSource, mt5, snapshot?.accounts]);
-  const activeAccountId = snapshot?.config?.config.accountId ?? selectedAccountId;
+  const activeAccountId =
+    snapshot?.config?.config.accountId ?? selectedAccountId;
   useEffect(() => {
     const selected = accounts.findIndex(
       (account) => account.id === activeAccountId,
@@ -154,16 +159,34 @@ export function AccountCommandCarousel({
     );
   };
   const current = accounts[index] ?? null;
+  const paperJournalTrades: JournalTrade[] = (snapshot?.paperTrades ?? []).map(
+    (trade) => ({
+      id: trade.id,
+      accountId: trade.account_id,
+      symbol: trade.symbol,
+      date: trade.opened_at.slice(0, 10),
+      exitDate: trade.closed_at?.slice(0, 10),
+      status: trade.status,
+      netPnl: trade.pnl,
+    }),
+  );
+  const allJournalTrades = [
+    ...journalTrades,
+    ...paperJournalTrades.filter(
+      (paper) => !journalTrades.some((trade) => trade.id === paper.id),
+    ),
+  ];
   const scopedTrades = current
-    ? journalTrades.filter(
+    ? allJournalTrades.filter(
         (trade) => String(trade.accountId || "") === current.id,
       )
     : [];
   const closed = scopedTrades.filter((trade) =>
     /closed|win|loss|break/i.test(String(trade.status || trade.result || "")),
   );
-  const wins = closed.filter((trade) =>
-    /win/i.test(String(trade.result || "")),
+  const wins = closed.filter(
+    (trade) =>
+      /win/i.test(String(trade.result || "")) || (tradePnl(trade) ?? 0) > 0,
   ).length;
   const closedPnl = closed.reduce(
     (sum, trade) => sum + (tradePnl(trade) ?? 0),
@@ -186,7 +209,26 @@ export function AccountCommandCarousel({
         new Date().toISOString().slice(0, 10),
     )
     .reduce((sum, trade) => sum + (tradePnl(trade) ?? 0), 0);
-  const activeTrade = current?.mt5 ? (positions[0] ?? null) : null;
+  const openPaper = (snapshot?.paperTrades ?? []).find(
+    (trade) => trade.account_id === current?.id && trade.status === "OPEN",
+  );
+  const activeTrade = current?.mt5
+    ? (positions[0] ?? null)
+    : openPaper
+      ? {
+          direction: openPaper.direction,
+          symbol: openPaper.symbol,
+          entryPrice: openPaper.entry,
+          currentPrice: openPaper.current_price,
+          stopLoss: openPaper.stop_loss,
+          takeProfit: openPaper.take_profit,
+          profitLoss:
+            (openPaper.current_price - openPaper.entry) *
+            (openPaper.direction === "BUY" ? 1 : -1) *
+            openPaper.position_size *
+            Number(openPaper.detail.valuePerPriceUnit || 0),
+        }
+      : null;
   const progress = activeTrade?.takeProfit
     ? Math.max(
         0,
@@ -204,7 +246,7 @@ export function AccountCommandCarousel({
     : null;
   const floating = current?.mt5
     ? positions.reduce((sum, position) => sum + position.profitLoss, 0)
-    : null;
+    : (activeTrade?.profitLoss ?? null);
   const floatingPct =
     current?.balance && floating !== null
       ? (floating / current.balance) * 100
@@ -276,7 +318,7 @@ export function AccountCommandCarousel({
                   {money(
                     account.id === current.id
                       ? displayedBalance
-                      : account.balance ?? null,
+                      : (account.balance ?? null),
                     account.currency,
                   )}
                 </strong>
@@ -313,7 +355,11 @@ export function AccountCommandCarousel({
               >
                 <span>ACTIVE TRADE</span>
                 <strong>
-                  {activeTrade ? activeTrade.symbol : "No open broker position"}
+                  {activeTrade
+                    ? activeTrade.symbol
+                    : current.mt5
+                      ? "No open broker position"
+                      : "No open Paper position"}
                 </strong>
                 {activeTrade ? (
                   <em
@@ -406,7 +452,7 @@ export function AccountCommandCarousel({
       <div className="mb-account-stats">
         <div>
           <Activity size={18} />
-          <b>{current.mt5 ? positions.length : 0}</b>
+          <b>{current.mt5 ? positions.length : openPaper ? 1 : 0}</b>
           <span>Active trades</span>
         </div>
         <div>
@@ -426,7 +472,13 @@ export function AccountCommandCarousel({
         </div>
         <div>
           <RadioTower size={18} />
-          <b>{current.mt5 ? mt5?.connection : "NOT LIVE"}</b>
+          <b>
+            {current.mt5
+              ? mt5?.connection
+              : snapshot?.runtime.tradingSource === "TWELVE_DATA"
+                ? "PAPER"
+                : "STANDBY"}
+          </b>
           <span>{current.mt5 ? "Broker system" : "Journal account"}</span>
         </div>
       </div>

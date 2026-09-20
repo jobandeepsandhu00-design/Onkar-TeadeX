@@ -19,4 +19,7 @@ test("scanner runtime keeps Z timestamps and null defaults", () => {
 
   assert.equal(runtime.reconciledAt, null);
   assert.equal(runtime.updatedAt, "2026-09-20T12:00:00Z");
+  assert.equal(runtime.tradingSource, "TWELVE_DATA");
+  assert.equal(runtime.mt5DisconnectBehavior, "LOCK");
+  assert.equal(runtime.autoReturnMt5, false);
 });

@@ -147,6 +147,33 @@ export default function MarketBrain({
       setLoading(false);
     }
   };
+  const switchTradingSource = async (source: "MT5" | "TWELVE_DATA") => {
+    if (!snapshot) return;
+    setLoading(true);
+    try {
+      await brainRequest("/runtime", "PUT", {
+        scannerState: snapshot.runtime.scannerState,
+        tradingMode: snapshot.runtime.tradingMode,
+        tradingSource: source,
+        mt5DisconnectBehavior: snapshot.runtime.mt5DisconnectBehavior,
+        autoReturnMt5: snapshot.runtime.autoReturnMt5,
+        autoStart: snapshot.runtime.autoStart,
+        autoExecutionEnabled: snapshot.runtime.autoExecutionEnabled,
+      });
+      setNotice(
+        source === "MT5"
+          ? "MT5 is active for new analysis and broker execution."
+          : "Twelve Data is active for new analysis and Paper execution.",
+      );
+      await refresh();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Trading source switch failed",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
   const candidates = snapshot?.candidates ?? [];
   const active = candidates.filter(
     (c) => !["EXPIRED", "INVALIDATED", "COMPLETED"].includes(c.state),
@@ -207,7 +234,7 @@ export default function MarketBrain({
             ? "AUTO armed by server · approved rules and risk checks remain mandatory"
             : snapshot?.runtime.tradingMode === "CONFIRM"
               ? "Confirmation required before every execution"
-              : "Analysis-only · broker execution disabled"}
+              : "Analysis-only · execution disabled"}
         {" · "}score is confluence, not win probability
       </div>
       <nav className="mb-tabs" aria-label="Scanner views">
@@ -278,12 +305,7 @@ export default function MarketBrain({
                 <DataProviderManager
                   snapshot={snapshot}
                   busy={loading}
-                  onSelect={(provider) =>
-                    void saveConfig(
-                      { provider },
-                      `${provider === "mt5" ? "MT5" : "Twelve Data"} selected as the scanner's primary feed.`,
-                    )
-                  }
+                  onSelect={(provider) => void switchTradingSource(provider)}
                   onTest={async () => {
                     try {
                       const health = await brainRequest<{

@@ -43,10 +43,10 @@ import { getSharedMarketSnapshot } from "../market-brain/shared-market";
 import { compileLibrarySetup } from "../market-brain/strategy-compiler";
 import { syncConfiguredMT5Journal } from "../mt5/journal-sync";
 import {
-  getAutoExecutionCapability,
-  reconcileAutoExecution,
-  runNextAutoExecution,
-} from "../market-brain/auto-execution";
+  getExecutionCapability,
+  reconcileExecution,
+  runNextExecution,
+} from "../market-brain/execution-router";
 import { selectScannerMarketProvider } from "../market-brain/provider-selection";
 import { logger } from "../lib/logger";
 
@@ -151,9 +151,12 @@ const cronHandler = route(async (req, res) => {
     })),
   ]);
   const learning = await runNextLearningJob();
-  const execution = await runNextAutoExecution().catch((error) => ({
+  const execution = await runNextExecution().catch((error) => ({
     skipped: true,
-    reason: error instanceof Error ? error.message : "AUTO execution worker failed safely",
+    reason:
+      error instanceof Error
+        ? error.message
+        : "AUTO execution worker failed safely",
   }));
   res.json({
     ok: true,
@@ -210,6 +213,11 @@ type RuntimeRow = {
   auto_start: boolean;
   auto_execution_enabled: boolean;
   emergency_stop: boolean;
+  trading_source: "MT5" | "TWELVE_DATA";
+  mt5_disconnect_behavior: "LOCK" | "PAPER" | "ANALYSIS";
+  auto_return_mt5: boolean;
+  fallback_from_mt5: boolean;
+  source_activated_at: string;
   reconciled_at: string | null;
   updated_at: string;
 };
@@ -217,45 +225,64 @@ const runtimeValue = (row?: RuntimeRow) =>
   scannerRuntimeSchema.parse({
     scannerState: row?.scanner_state,
     tradingMode: row?.trading_mode,
+    tradingSource: row?.trading_source,
+    mt5DisconnectBehavior: row?.mt5_disconnect_behavior,
+    autoReturnMt5: row?.auto_return_mt5,
     autoStart: row?.auto_start,
     autoExecutionEnabled: row?.auto_execution_enabled,
     emergencyStop: row?.emergency_stop,
     reconciledAt: row?.reconciled_at,
+    sourceActivatedAt: row?.source_activated_at,
     updatedAt: row?.updated_at ?? null,
   });
 router.get(
   "/market-brain",
   route(async (req, res) => {
     const { identity, user, config } = await context(req);
-    const [candidates, alerts, versions, runs, source, runtimeRows, executionCapability] =
-      await Promise.all([
-        user.request<CandidateRow[]>("setup_candidates", {
-          order: "updated_at.desc",
-          limit: "100",
-        }),
-        user.request("scanner_alerts", {
+    const [
+      candidates,
+      alerts,
+      paperTrades,
+      versions,
+      runs,
+      source,
+      runtimeRows,
+    ] = await Promise.all([
+      user.request<CandidateRow[]>("setup_candidates", {
+        order: "updated_at.desc",
+        limit: "100",
+      }),
+      user.request("scanner_alerts", {
+        order: "created_at.desc",
+        limit: "50",
+      }),
+      user.request("paper_trades", {
+        order: "opened_at.desc",
+        limit: "100",
+      }),
+      user.request<VersionRow[]>("scanner_strategy_versions", {
+        order: "created_at.desc",
+        limit: "100",
+      }),
+      user.request<Array<{ status: string; created_at: string }>>(
+        "scanner_ai_runs",
+        {
+          select: "id,status,model,latency_ms,created_at",
+          created_at: `gte.${new Date().toISOString().slice(0, 10)}T00:00:00Z`,
           order: "created_at.desc",
-          limit: "50",
-        }),
-        user.request<VersionRow[]>("scanner_strategy_versions", {
-          order: "created_at.desc",
           limit: "100",
-        }),
-        user.request<Array<{ status: string; created_at: string }>>(
-          "scanner_ai_runs",
-          {
-            select: "id,status,model,latency_ms,created_at",
-            created_at: `gte.${new Date().toISOString().slice(0, 10)}T00:00:00Z`,
-            order: "created_at.desc",
-            limit: "100",
-          },
-        ),
-        user.source(identity.userId),
-        user
-          .request<RuntimeRow[]>("scanner_runtime_controls", { limit: "1" })
-          .catch(() => []),
-        getAutoExecutionCapability(identity.userId),
-      ]);
+        },
+      ),
+      user.source(identity.userId),
+      user
+        .request<RuntimeRow[]>("scanner_runtime_controls", { limit: "1" })
+        .catch(() => []),
+    ]);
+    const runtime = runtimeValue(runtimeRows[0]);
+    const executionCapability = await getExecutionCapability(
+      identity.userId,
+      runtime.tradingSource,
+    );
     const age = config?.last_run_at
       ? Date.now() - Date.parse(config.last_run_at)
       : Infinity;
@@ -291,6 +318,7 @@ router.get(
           };
         }),
       alerts,
+      paperTrades,
       versions,
       runs,
       accounts: records(source.tradingAccounts).map((a) => ({
@@ -328,11 +356,22 @@ router.get(
             : runtimeRows[0]?.trading_mode === "CONFIRM"
               ? "confirmation_required"
               : "analysis_only",
-        mt5: executionCapability.accountType
-          ? executionCapability.state === "READY"
-            ? "connected"
-            : executionCapability.state.toLowerCase()
-          : executionCapability.state.toLowerCase(),
+        mt5:
+          runtime.tradingSource === "MT5"
+            ? executionCapability.state === "READY"
+              ? "connected"
+              : executionCapability.state.toLowerCase()
+            : String(config?.health.mt5 ?? "standby"),
+        twelveData:
+          runtime.tradingSource === "TWELVE_DATA"
+            ? executionCapability.state === "READY"
+              ? "connected"
+              : executionCapability.state.toLowerCase()
+            : String(config?.health.twelveData ?? "standby"),
+        tradingSource: runtime.tradingSource.toLowerCase(),
+        executionProvider: runtime.tradingSource === "MT5" ? "mt5" : "paper",
+        executionBroker: executionCapability.broker ?? "not connected",
+        executionAccountType: executionCapability.accountType ?? "unknown",
         executionWorker: executionCapability.ready ? "ready" : "unavailable",
         executionReason: executionCapability.reason,
         ai:
@@ -349,14 +388,14 @@ router.get(
             : "unavailable",
         storage: "existing_R2_not_checked_by_scanner",
       },
-      runtime: runtimeValue(runtimeRows[0]),
+      runtime,
     });
   }),
 );
 router.put(
   "/market-brain/runtime",
   route(async (req, res) => {
-    const { identity, config } = await context(req);
+    const { identity, user, config } = await context(req);
     if (!config) throw new ScannerError("Save scanner settings first.", 409);
     const parsed = scannerRuntimeUpdateSchema.safeParse(req.body);
     if (!parsed.success)
@@ -364,13 +403,27 @@ router.put(
         parsed.error.issues.map((issue) => issue.message).join("; "),
         400,
       );
-    const currentRuntime = await ScannerStore.service().request<RuntimeRow[]>(
+    const store = ScannerStore.service();
+    const currentRuntime = await store.request<RuntimeRow[]>(
       "scanner_runtime_controls",
       { user_id: `eq.${identity.userId}`, limit: "1" },
     );
     if (currentRuntime[0]?.emergency_stop && parsed.data.autoExecutionEnabled)
       throw new ScannerError(
         "Emergency Stop is active. Reconciliation is required before AUTO can be armed again.",
+        409,
+      );
+    const sourceChanged =
+      currentRuntime[0]?.trading_source !== parsed.data.tradingSource;
+    const appSource = await user.source(identity.userId);
+    if (
+      parsed.data.tradingSource === "TWELVE_DATA" &&
+      !records(appSource.tradingAccounts).some(
+        (account) => account.id === config.config.accountId,
+      )
+    )
+      throw new ScannerError(
+        "Select an Onkar Paper account before using Twelve Data Paper trading.",
         409,
       );
     if (
@@ -382,7 +435,7 @@ router.put(
       };
       if (!config.config.autoActivateApprovedSetups)
         versionQuery.id = `in.(${config.config.strategyVersionIds.join(",") || "00000000-0000-0000-0000-000000000000"})`;
-      const versions = await ScannerStore.service().request<VersionRow[]>(
+      const versions = await store.request<VersionRow[]>(
         "scanner_strategy_versions",
         versionQuery,
       );
@@ -397,10 +450,36 @@ router.put(
           "Approve at least one active rule version with AUTO execution permission.",
           409,
         );
-      const capability = await reconcileAutoExecution(identity.userId);
+    }
+    if (sourceChanged) {
+      const provider = getMarketProvider(
+        parsed.data.tradingSource === "MT5" ? "mt5" : "twelvedata",
+      );
+      const health = await provider.healthCheck();
+      if (health.status !== "connected")
+        throw new ScannerError(health.message, 409);
+    }
+    if (
+      parsed.data.autoExecutionEnabled ||
+      parsed.data.tradingMode === "AUTO"
+    ) {
+      const capability = await reconcileExecution(
+        identity.userId,
+        parsed.data.tradingSource,
+      );
       if (!capability.ready) throw new ScannerError(capability.reason, 409);
     }
-    await ScannerStore.service().request(
+    if (sourceChanged) {
+      await store.rpc("configure_scanner", {
+        p_user: identity.userId,
+        p_workspace: config.workspace_id,
+        p_config: {
+          ...config.config,
+          provider: parsed.data.tradingSource === "MT5" ? "mt5" : "twelvedata",
+        },
+      });
+    }
+    await store.request(
       "scanner_runtime_controls",
       { on_conflict: "user_id" },
       "POST",
@@ -410,11 +489,19 @@ router.put(
         scanner_config_id: config.id,
         scanner_state: parsed.data.scannerState,
         trading_mode: parsed.data.tradingMode,
+        trading_source: parsed.data.tradingSource,
+        mt5_disconnect_behavior: parsed.data.mt5DisconnectBehavior,
+        auto_return_mt5: parsed.data.autoReturnMt5,
+        fallback_from_mt5: false,
         auto_start: parsed.data.autoStart,
         auto_execution_enabled: parsed.data.autoExecutionEnabled,
         emergency_stop: currentRuntime[0]?.emergency_stop ?? false,
         reconciled_at:
           parsed.data.tradingMode === "AUTO" ? new Date().toISOString() : null,
+        source_activated_at: sourceChanged
+          ? new Date().toISOString()
+          : (currentRuntime[0]?.source_activated_at ??
+            new Date().toISOString()),
         updated_at: new Date().toISOString(),
       },
       "resolution=merge-duplicates,return=minimal",
@@ -852,9 +939,7 @@ router.get(
     const { config } = await context(req);
     if (!config) throw new ScannerError("Save scanner settings first", 400);
     rateLimit(`health:${config.id}`, 3);
-    const selection = await selectScannerMarketProvider(
-      config.config.provider,
-    );
+    const selection = await selectScannerMarketProvider(config.config.provider);
     res.json({
       ...selection.activeHealth,
       activeProvider: selection.active,
