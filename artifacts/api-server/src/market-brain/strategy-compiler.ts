@@ -147,16 +147,18 @@ function compileRule(
 
 export function compileLibrarySetup(
   setup: LibrarySetup,
+  options: { approveCanonical?: boolean } = {},
 ): StrategyVersion | null {
   const sourceSetupId = String(setup.id || "").trim();
   const name = String(setup.name || "").trim();
   const rawRules = Array.isArray(setup.rules)
     ? (setup.rules as LibraryRule[])
     : [];
+  const canonical = canonicalSetupWorkflow(name);
   if (
     !sourceSetupId ||
     !name ||
-    !rawRules.length ||
+    (!rawRules.length && !canonical) ||
     String(setup.status || "active") !== "active"
   )
     return null;
@@ -167,7 +169,6 @@ export function compileLibrarySetup(
     String(setup.session || "").toLowerCase() === "any" || !setup.session
       ? []
       : [String(setup.session)];
-  const canonical = canonicalSetupWorkflow(name);
   const rules: MachineRule[] = canonical
     ? [
         {
@@ -220,7 +221,8 @@ export function compileLibrarySetup(
     symbols: [],
     sessions,
     rules,
-    approval: "ai_extracted",
+    approval:
+      canonical && options.approveCanonical ? "approved" : "ai_extracted",
     autoExecutionAllowed: false,
     minRR: 2,
     expiresBars: 16,

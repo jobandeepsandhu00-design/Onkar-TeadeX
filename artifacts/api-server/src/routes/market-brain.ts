@@ -710,7 +710,9 @@ router.post(
     if (!memberships[0])
       throw new ScannerError("Existing workspace not found.", 409);
     const compiled = records(source.setups)
-      .map(compileLibrarySetup)
+      .map((setup) =>
+        compileLibrarySetup(setup, { approveCanonical: true }),
+      )
       .filter((value): value is NonNullable<typeof value> => Boolean(value));
     if (!compiled.length) {
       res.json({
@@ -735,9 +737,9 @@ router.post(
     );
     res.json({
       synced: compiled.length,
-      approval: "ai_extracted",
+      approval: "approved_canonical",
       message:
-        "Machine-readable draft versions created. Approval is still required before scanning.",
+        "Canonical Onkar workflows are approved and scanner-ready. Custom extracted rules still require explicit approval.",
     });
   }),
 );

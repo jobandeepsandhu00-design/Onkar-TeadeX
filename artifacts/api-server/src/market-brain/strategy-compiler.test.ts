@@ -62,9 +62,7 @@ test("all 16 canonical workflows compile to closed-candle machine gates", () => 
       direction: "Both",
       timeframe: "M30",
       session: "Any",
-      rules: [
-        { id: "source", type: "condition", content: "Source workflow rule" },
-      ],
+      rules: [],
     });
     assert.ok(compiled, name);
     assert.equal(compiled.approval, "ai_extracted");
@@ -96,4 +94,40 @@ test("legacy split setup names map to their canonical workflow without auto-appr
   assert.equal(compiled.direction, "long");
   assert.equal(compiled.approval, "ai_extracted");
   assert.equal(compiled.rules[0]?.feature, "setupPatternMatched");
+});
+
+test("canonical workflows can be explicitly auto-approved for scanner sync", () => {
+  const compiled = compileLibrarySetup(
+    {
+      id: "breakout-impulse",
+      name: "Breakout Impulse",
+      direction: "Both",
+      timeframe: "M30",
+      session: "Any",
+      rules: [
+        { id: "source", type: "condition", content: "Source workflow rule" },
+      ],
+    },
+    { approveCanonical: true },
+  );
+  assert.ok(compiled);
+  assert.equal(compiled.approval, "approved");
+  assert.equal(compiled.autoExecutionAllowed, false);
+});
+
+test("custom extracted setups never become approved through canonical sync", () => {
+  const compiled = compileLibrarySetup(
+    {
+      id: "custom-setup",
+      name: "My discretionary setup",
+      direction: "Buy",
+      timeframe: "M30",
+      rules: [
+        { id: "trend", type: "condition", content: "Bullish trend" },
+      ],
+    },
+    { approveCanonical: true },
+  );
+  assert.ok(compiled);
+  assert.equal(compiled.approval, "ai_extracted");
 });

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ScannerConfig, ScannerSnapshot } from "@workspace/api-zod";
 import {
   CheckCheck,
@@ -40,7 +40,9 @@ export function RulesControlCenter({
   const [markets, setMarkets] = useState(config?.symbols ?? []);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
+  const syncAttempted = useRef(false);
 
   const setupRows = useMemo(() => {
     const approvedBySetup = new Map(
@@ -77,6 +79,43 @@ export function RulesControlCenter({
       ? approved.map((version) => version.id)
       : (config?.strategyVersionIds ?? []),
   );
+
+  useEffect(() => {
+    const approvedSetupIds = new Set(
+      approved.map((version) => version.source_setup_id),
+    );
+    const hasUnsyncedSetups = snapshot.setups.some(
+      (setup) => !approvedSetupIds.has(setup.id),
+    );
+    if (!hasUnsyncedSetups || syncAttempted.current) return;
+    syncAttempted.current = true;
+    setSyncing(true);
+    setError("");
+    void brainRequest<{ synced: number; message: string }>(
+      "/strategies/sync-library",
+      "POST",
+    )
+      .then(async (result) => {
+        if (config) {
+          await brainRequest("/config", "PUT", {
+            ...config,
+            enabled: true,
+            autoActivateApprovedSetups: true,
+            strategyVersionIds: [],
+          });
+        }
+        setError(result.message);
+        onSaved();
+      })
+      .catch((cause) =>
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Automatic setup synchronization failed",
+        ),
+      )
+      .finally(() => setSyncing(false));
+  }, [approved, config, onSaved, snapshot.setups]);
 
   async function saveConfig(
     patch: Partial<ScannerConfig>,
@@ -146,7 +185,11 @@ export function RulesControlCenter({
             <h3>Choose setups</h3>
           </div>
           <span className="mb-badge mb-positive">
-            {config?.autoActivateApprovedSetups ? "AUTO SYNC" : "CUSTOM"}
+            {syncing
+              ? "SYNCING"
+              : config?.autoActivateApprovedSetups
+                ? "AUTO SYNC"
+                : "CUSTOM"}
           </span>
         </div>
         <div className="mb-rule-presets">
@@ -256,11 +299,13 @@ export function RulesControlCenter({
                     ) : (
                       <>
                         <small>
-                          Saved in Setup Library · not scanner-ready
+                          {syncing
+                            ? "Approving canonical workflow…"
+                            : "Saved in Setup Library · not scanner-ready"}
                         </small>
                         <div className="mb-chip-row">
                           <span className="mb-chip-warning">
-                            Needs approved rules
+                            {syncing ? "Preparing" : "Needs approved rules"}
                           </span>
                         </div>
                       </>
