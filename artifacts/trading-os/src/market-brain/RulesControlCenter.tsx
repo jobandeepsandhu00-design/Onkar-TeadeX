@@ -81,11 +81,12 @@ export function RulesControlCenter({
   );
 
   useEffect(() => {
-    const approvedSetupIds = new Set(
-      approved.map((version) => version.source_setup_id),
+    const approvedBySetup = new Map(
+      approved.map((version) => [version.source_setup_id, version]),
     );
     const hasUnsyncedSetups = snapshot.setups.some(
-      (setup) => !approvedSetupIds.has(setup.id),
+      (setup) =>
+        !approvedBySetup.get(setup.id)?.definition.autoExecutionAllowed,
     );
     if (!hasUnsyncedSetups || syncAttempted.current) return;
     syncAttempted.current = true;

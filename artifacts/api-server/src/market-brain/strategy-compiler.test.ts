@@ -77,6 +77,20 @@ test("all 16 canonical workflows compile to closed-candle machine gates", () => 
         ?.required,
       true,
     );
+    const autoReady = compileLibrarySetup(
+      {
+        id: `workflow-auto-${index + 1}`,
+        name,
+        direction: "Both",
+        timeframe: "M30",
+        session: "Any",
+        rules: [],
+      },
+      { approveCanonical: true },
+    );
+    assert.ok(autoReady, name);
+    assert.equal(autoReady.approval, "approved", name);
+    assert.equal(autoReady.autoExecutionAllowed, true, name);
   }
 });
 
@@ -112,7 +126,7 @@ test("canonical workflows can be explicitly auto-approved for scanner sync", () 
   );
   assert.ok(compiled);
   assert.equal(compiled.approval, "approved");
-  assert.equal(compiled.autoExecutionAllowed, false);
+  assert.equal(compiled.autoExecutionAllowed, true);
 });
 
 test("custom extracted setups never become approved through canonical sync", () => {

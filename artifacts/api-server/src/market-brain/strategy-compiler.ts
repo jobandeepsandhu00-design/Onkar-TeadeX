@@ -223,7 +223,7 @@ export function compileLibrarySetup(
     rules,
     approval:
       canonical && options.approveCanonical ? "approved" : "ai_extracted",
-    autoExecutionAllowed: false,
+    autoExecutionAllowed: Boolean(canonical && options.approveCanonical),
     minRR: 2,
     expiresBars: 16,
   });

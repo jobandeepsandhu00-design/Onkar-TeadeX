@@ -181,6 +181,12 @@ export default function MarketBrain({
   const active = candidates.filter(
     (c) => !["EXPIRED", "INVALIDATED", "COMPLETED"].includes(c.state),
   );
+  const approvedRules = snapshot ? latestApprovedVersions(snapshot) : [];
+  const activeRuleCount = snapshot?.config?.config.autoActivateApprovedSetups
+    ? approvedRules.length
+    : approvedRules.filter((version) =>
+        snapshot?.config?.config.strategyVersionIds.includes(version.id),
+      ).length;
   const ranked = [...(status === "History" ? candidates : active)]
     .filter(
       (c) =>
@@ -331,14 +337,17 @@ export default function MarketBrain({
                   onSelect={(accountId) => void selectAccount(accountId)}
                   onOpenTrade={onJournal}
                 />
-                <TradingLifecycle candidate={ranked[0] ?? active[0] ?? null} />
+                <TradingLifecycle
+                  candidate={ranked[0] ?? active[0] ?? null}
+                  monitoringCount={activeRuleCount}
+                />
                 <div className="mb-kpis">
                   {[
                     [
                       "Configured markets",
                       snapshot.config?.config.symbols.length ?? 0,
                     ],
-                    ["Active setups", active.length],
+                    ["Active setups", activeRuleCount],
                     [
                       "Ready · fresh",
                       active.filter((c) => c.state === "READY" && !c.staleNow)

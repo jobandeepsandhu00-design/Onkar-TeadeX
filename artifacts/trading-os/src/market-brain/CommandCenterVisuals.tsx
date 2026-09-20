@@ -38,11 +38,14 @@ const stageIndex = (state?: string) => {
 
 export function TradingLifecycle({
   candidate,
+  monitoringCount = 0,
 }: {
   candidate?: ScannerCandidate | null;
+  monitoringCount?: number;
 }) {
   const current = stageIndex(candidate?.state);
   const invalid = ["INVALIDATED", "EXPIRED"].includes(candidate?.state ?? "");
+  const monitoring = !candidate && monitoringCount > 0;
   return (
     <section className={`mb-lifecycle ${invalid ? "is-invalid" : ""}`}>
       <div className="mb-section-heading">
@@ -55,7 +58,10 @@ export function TradingLifecycle({
           </h3>
         </div>
         <span className={`mb-badge ${invalid ? "mb-danger" : "mb-positive"}`}>
-          {candidate?.state ?? "AWAITING CANDIDATE"}
+          {candidate?.state ??
+            (monitoring
+              ? `${monitoringCount} SETUPS MONITORING`
+              : "AWAITING CANDIDATE")}
         </span>
       </div>
       <div className="mb-life-scroll">
@@ -69,7 +75,7 @@ export function TradingLifecycle({
         >
           {lifecycle.map(([id, label, Icon], index) => (
             <div
-              className={`mb-life-stage ${index < current ? "is-complete" : ""} ${index === current && candidate ? "is-current" : ""}`}
+              className={`mb-life-stage ${index < current ? "is-complete" : ""} ${index === current && (candidate || monitoring) ? "is-current" : ""}`}
               key={id}
             >
               <span className="mb-life-node">
@@ -81,7 +87,9 @@ export function TradingLifecycle({
                   ? "Complete"
                   : index === current && candidate
                     ? "Current stage"
-                    : "Pending"}
+                    : index === 0 && monitoring
+                      ? "Real data monitoring"
+                      : "Pending"}
               </small>
             </div>
           ))}
