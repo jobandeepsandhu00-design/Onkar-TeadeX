@@ -7,7 +7,15 @@ import {
   type ScannerSnapshot,
   type StrategyVersion,
 } from "@workspace/api-zod";
-import { Plus, Trash2 } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  GitBranch,
+  Plus,
+  ShieldCheck,
+  Target,
+  Trash2,
+} from "lucide-react";
 import { brainRequest } from "./api";
 
 export function RuleBuilder({
@@ -34,6 +42,7 @@ export function RuleBuilder({
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const [symbolsText, setSymbolsText] = useState("");
+  const [advanced, setAdvanced] = useState(false);
   const update = <K extends keyof StrategyVersion>(
     key: K,
     value: StrategyVersion[K],
@@ -71,7 +80,8 @@ export function RuleBuilder({
   return (
     <div className="mb-stack">
       <div>
-        <h3>Strategy rule versions</h3>
+        <span className="mb-eyebrow">Setup intelligence</span>
+        <h3>Approved Strategy Center</h3>
         <p className="mb-muted">
           Extend an existing setup with explicit conditions. Prose, videos and
           AI-extracted ideas do not become active rules until you approve them.
@@ -227,145 +237,217 @@ export function RuleBuilder({
             This permission applies only to this immutable rule version. Draft,
             AI-extracted, disabled, or older versions remain blocked.
           </p>
-          {draft.rules.map((r, i) => (
-            <fieldset className="mb-panel" key={r.id}>
-              <legend>Condition {i + 1}</legend>
-              <div className="mb-grid">
-                <label>
-                  Feature
-                  <select
-                    value={r.feature}
-                    onChange={(e) =>
-                      rule(r.id, {
-                        feature: e.target.value as MachineRule["feature"],
-                      })
-                    }
-                  >
-                    {FEATURES.map((f) => (
-                      <option key={f}>{f}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Timeframe
-                  <select
-                    value={r.timeframe}
-                    onChange={(e) =>
-                      rule(r.id, {
-                        timeframe: e.target.value as MachineRule["timeframe"],
-                      })
-                    }
-                  >
-                    {TIMEFRAMES.map((t) => (
-                      <option key={t}>{t}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Comparison
-                  <select
-                    value={r.operator}
-                    onChange={(e) =>
-                      rule(r.id, {
-                        operator: e.target.value as MachineRule["operator"],
-                      })
-                    }
-                  >
-                    {["eq", "neq", "gt", "gte", "lt", "lte"].map((o) => (
-                      <option key={o}>{o}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Expected value
-                  <input
-                    value={String(r.expected)}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      rule(r.id, {
-                        expected:
-                          v === "true"
-                            ? true
-                            : v === "false"
-                              ? false
-                              : v.trim() && Number.isFinite(Number(v))
-                                ? Number(v)
-                                : v,
-                      });
-                    }}
-                    placeholder="bullish, true, or a number"
-                  />
-                </label>
-                <label>
-                  Weight
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={r.weight}
-                    onChange={(e) =>
-                      rule(r.id, { weight: Number(e.target.value) })
-                    }
-                  />
-                </label>
-                <label>
-                  Explanation
-                  <input
-                    value={r.explanation}
-                    onChange={(e) =>
-                      rule(r.id, { explanation: e.target.value })
-                    }
-                    maxLength={500}
-                  />
-                </label>
+          <div className="mb-rule-mode">
+            <button
+              className={!advanced ? "is-active" : ""}
+              onClick={() => setAdvanced(false)}
+            >
+              Simple view
+            </button>
+            <button
+              className={advanced ? "is-active" : ""}
+              onClick={() => setAdvanced(true)}
+            >
+              Advanced rule engine
+            </button>
+          </div>
+          {!advanced ? (
+            <section className="mb-rule-flow">
+              {[
+                [
+                  "Trend context",
+                  "Higher-timeframe direction and alignment",
+                  GitBranch,
+                ],
+                [
+                  "Structure & zone",
+                  "Support, resistance, supply and demand evidence",
+                  Target,
+                ],
+                [
+                  "Candle-close validation",
+                  "Required confirmation must be on closed candle data",
+                  Check,
+                ],
+                [
+                  "Risk & execution",
+                  `Minimum R:R ${draft.minRR} · ${draft.autoExecutionAllowed ? "AUTO permitted" : "manual review"}`,
+                  ShieldCheck,
+                ],
+              ].map(([title, detail, Icon], index) => (
+                <article key={String(title)}>
+                  <span className="mb-rule-step">{index + 1}</span>
+                  <Icon size={18} />
+                  <div>
+                    <strong>{String(title)}</strong>
+                    <p>{String(detail)}</p>
+                  </div>
+                  <ChevronRight size={16} />
+                </article>
+              ))}
+              <div className="mb-rule-chip-cloud">
+                {draft.rules.length ? (
+                  draft.rules.map((item) => (
+                    <span key={item.id}>
+                      {item.timeframe} · {item.feature} {item.operator}{" "}
+                      {String(item.expected)}
+                      {item.required ? " · required" : ""}
+                    </span>
+                  ))
+                ) : (
+                  <span>No explicit machine conditions yet</span>
+                )}
               </div>
-              <div className="mb-row">
-                <label className="mb-check">
-                  <input
-                    type="checkbox"
-                    checked={r.required}
-                    onChange={(e) => rule(r.id, { required: e.target.checked })}
-                  />
-                  Required
-                </label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    update(
-                      "rules",
-                      draft.rules.filter((x) => x.id !== r.id),
-                    )
-                  }
-                  aria-label={`Remove condition ${i + 1}`}
-                >
-                  <Trash2 size={16} />
-                  Remove
-                </button>
-              </div>
-            </fieldset>
-          ))}
-          <button
-            type="button"
-            disabled={draft.rules.length >= 30}
-            onClick={() =>
-              update("rules", [
-                ...draft.rules,
-                {
-                  id: crypto.randomUUID(),
-                  feature: "trend",
-                  timeframe: draft.higherTimeframe,
-                  operator: "eq",
-                  expected: "bullish",
-                  required: true,
-                  weight: 15,
-                  explanation: "",
-                },
-              ])
-            }
-          >
-            <Plus size={16} />
-            Add condition
-          </button>
+              <p className="mb-muted">
+                Use Advanced mode only when you need to edit feature
+                comparisons, weights, or required flags.
+              </p>
+            </section>
+          ) : (
+            draft.rules.map((r, i) => (
+              <fieldset className="mb-panel" key={r.id}>
+                <legend>Condition {i + 1}</legend>
+                <div className="mb-grid">
+                  <label>
+                    Feature
+                    <select
+                      value={r.feature}
+                      onChange={(e) =>
+                        rule(r.id, {
+                          feature: e.target.value as MachineRule["feature"],
+                        })
+                      }
+                    >
+                      {FEATURES.map((f) => (
+                        <option key={f}>{f}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Timeframe
+                    <select
+                      value={r.timeframe}
+                      onChange={(e) =>
+                        rule(r.id, {
+                          timeframe: e.target.value as MachineRule["timeframe"],
+                        })
+                      }
+                    >
+                      {TIMEFRAMES.map((t) => (
+                        <option key={t}>{t}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Comparison
+                    <select
+                      value={r.operator}
+                      onChange={(e) =>
+                        rule(r.id, {
+                          operator: e.target.value as MachineRule["operator"],
+                        })
+                      }
+                    >
+                      {["eq", "neq", "gt", "gte", "lt", "lte"].map((o) => (
+                        <option key={o}>{o}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Expected value
+                    <input
+                      value={String(r.expected)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        rule(r.id, {
+                          expected:
+                            v === "true"
+                              ? true
+                              : v === "false"
+                                ? false
+                                : v.trim() && Number.isFinite(Number(v))
+                                  ? Number(v)
+                                  : v,
+                        });
+                      }}
+                      placeholder="bullish, true, or a number"
+                    />
+                  </label>
+                  <label>
+                    Weight
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={r.weight}
+                      onChange={(e) =>
+                        rule(r.id, { weight: Number(e.target.value) })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Explanation
+                    <input
+                      value={r.explanation}
+                      onChange={(e) =>
+                        rule(r.id, { explanation: e.target.value })
+                      }
+                      maxLength={500}
+                    />
+                  </label>
+                </div>
+                <div className="mb-row">
+                  <label className="mb-check">
+                    <input
+                      type="checkbox"
+                      checked={r.required}
+                      onChange={(e) =>
+                        rule(r.id, { required: e.target.checked })
+                      }
+                    />
+                    Required
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      update(
+                        "rules",
+                        draft.rules.filter((x) => x.id !== r.id),
+                      )
+                    }
+                    aria-label={`Remove condition ${i + 1}`}
+                  >
+                    <Trash2 size={16} />
+                    Remove
+                  </button>
+                </div>
+              </fieldset>
+            ))
+          )}
+          {advanced ? (
+            <button
+              type="button"
+              disabled={draft.rules.length >= 30}
+              onClick={() =>
+                update("rules", [
+                  ...draft.rules,
+                  {
+                    id: crypto.randomUUID(),
+                    feature: "trend",
+                    timeframe: draft.higherTimeframe,
+                    operator: "eq",
+                    expected: "bullish",
+                    required: true,
+                    weight: 15,
+                    explanation: "",
+                  },
+                ])
+              }
+            >
+              <Plus size={16} />
+              Add condition
+            </button>
+          ) : null}
           <p className="mb-muted">
             Score = passed weights / all weights. “neq” means not equal;
             unavailable values always fail. Trend/pattern values: bullish,

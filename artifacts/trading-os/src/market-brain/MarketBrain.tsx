@@ -15,6 +15,13 @@ import { MT5StatusPanel } from "./MT5StatusPanel";
 import { ScannerReplay } from "./ScannerReplay";
 import { AccountCommandCarousel } from "./AccountCommandCarousel";
 import { AutomationControlBar } from "./AutomationControlBar";
+import {
+  DataProviderManager,
+  MasterAIOrbitalHub,
+  SetupActivationPanel,
+  TradingLifecycle,
+} from "./CommandCenterVisuals";
+import type { AgentId } from "../onkar-ai/agent-data";
 import "./market-brain.css";
 
 export type MarketBrainTab =
@@ -28,12 +35,14 @@ export default function MarketBrain({
   onJournal,
   journalTrades = [],
   initialTab = "Watchlist",
+  onOpenAgent,
 }: {
   onJournal: () => void;
   journalTrades?: Array<
     Record<string, unknown> & { id: string; symbol?: string; date?: string }
   >;
   initialTab?: MarketBrainTab;
+  onOpenAgent?: (agentId: AgentId) => void;
 }) {
   const [snapshot, setSnapshot] = useState<ScannerSnapshot | null>(null),
     [tab, setTab] = useState<MarketBrainTab>(initialTab),
@@ -110,6 +119,32 @@ export default function MarketBrain({
       setError(
         cause instanceof Error ? cause.message : "Account selection failed",
       );
+    }
+  };
+  const saveConfig = async (
+    patch: Record<string, unknown>,
+    message: string,
+  ) => {
+    if (!snapshot?.config) {
+      setError(
+        "Save scanner settings before changing command-center controls.",
+      );
+      return;
+    }
+    setLoading(true);
+    try {
+      await brainRequest("/config", "PUT", {
+        ...snapshot.config.config,
+        ...patch,
+      });
+      setNotice(message);
+      await refresh();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Scanner update failed",
+      );
+    } finally {
+      setLoading(false);
     }
   };
   const candidates = snapshot?.candidates ?? [];
@@ -227,7 +262,9 @@ export default function MarketBrain({
                 <AutomationControlBar
                   runtime={snapshot.runtime}
                   mt5Status={snapshot.connection.mt5 ?? "NOT CONFIGURED"}
-                  executionAvailable={snapshot.connection.executionWorker === "ready"}
+                  executionAvailable={
+                    snapshot.connection.executionWorker === "ready"
+                  }
                   executionReason={
                     snapshot.connection.executionReason ??
                     "Windows MT5 Bridge and execution worker are required."
@@ -238,12 +275,38 @@ export default function MarketBrain({
                     void refresh();
                   }}
                 />
+                <DataProviderManager
+                  snapshot={snapshot}
+                  busy={loading}
+                  onSelect={(provider) =>
+                    void saveConfig(
+                      { provider },
+                      `${provider === "mt5" ? "MT5" : "Twelve Data"} selected as the scanner's primary feed.`,
+                    )
+                  }
+                  onTest={async () => {
+                    try {
+                      const health = await brainRequest<{
+                        status: string;
+                        message: string;
+                      }>("/provider-health");
+                      setNotice(`${health.status}: ${health.message}`);
+                    } catch (cause) {
+                      setError(
+                        cause instanceof Error
+                          ? cause.message
+                          : "Provider test failed",
+                      );
+                    }
+                  }}
+                />
                 <AccountCommandCarousel
                   snapshot={snapshot}
                   journalTrades={journalTrades}
                   onSelect={(accountId) => void selectAccount(accountId)}
                   onOpenTrade={onJournal}
                 />
+                <TradingLifecycle candidate={ranked[0] ?? active[0] ?? null} />
                 <div className="mb-kpis">
                   {[
                     [
@@ -304,6 +367,24 @@ export default function MarketBrain({
                     </select>
                   </label>
                 </div>
+                <SetupActivationPanel
+                  snapshot={snapshot}
+                  busy={loading}
+                  onToggle={(versionId, enabled) => {
+                    const ids =
+                      snapshot.config?.config.strategyVersionIds ?? [];
+                    void saveConfig(
+                      {
+                        strategyVersionIds: enabled
+                          ? [...new Set([...ids, versionId])]
+                          : ids.filter((id) => id !== versionId),
+                      },
+                      enabled
+                        ? "Approved setup enabled for automatic detection."
+                        : "Setup detection disabled. The approved version remains in your Library.",
+                    );
+                  }}
+                />
                 {!ranked.length ? (
                   <div className="mb-empty">
                     <ScanLine size={32} />
@@ -329,8 +410,14 @@ export default function MarketBrain({
                         key={c.id}
                         onClick={() => setSelected(c.id)}
                       >
-                        <div className="mb-row mb-between">
+                        <div className="mb-candidate-topline">
+                          <span className="mb-market-pulse" />
                           <strong>{c.symbol}</strong>
+                          <span
+                            className={`mb-direction is-${c.payload.direction}`}
+                          >
+                            {c.payload.direction.toUpperCase()}
+                          </span>
                           <span className="mb-score">
                             {c.score}
                             <small>/100</small>
@@ -338,8 +425,7 @@ export default function MarketBrain({
                         </div>
                         <h3>{c.payload.strategyName}</h3>
                         <p className="mb-muted">
-                          {c.timeframe} · {c.payload.direction} · HTF{" "}
-                          {c.payload.marketBias}
+                          {c.timeframe} · HTF {c.payload.marketBias}
                         </p>
                         <div className="mb-row mb-between">
                           <span
@@ -354,16 +440,38 @@ export default function MarketBrain({
                         <p className="mb-muted">
                           {c.payload.session} · News {c.payload.news.status}
                         </p>
+                        <div className="mb-trade-plan">
+                          <span>
+                            <small>ENTRY</small>
+                            {c.plan?.entry ?? "—"}
+                          </span>
+                          <span>
+                            <small>SL</small>
+                            {c.plan?.stop ?? "—"}
+                          </span>
+                          <span>
+                            <small>TP</small>
+                            {c.plan?.target ?? "—"}
+                          </span>
+                          <span>
+                            <small>R:R</small>
+                            {c.plan?.rr?.toFixed(2) ?? "—"}
+                          </span>
+                        </div>
                         <div className="mb-meter">
                           <span style={{ width: `${c.score}%` }} />
                         </div>
-                        <p className="mb-muted">
+                        <p className="mb-candidate-time">
                           Data {new Date(c.last_candle_at).toLocaleString()}
                         </p>
+                        <span className="mb-open-analysis">
+                          Open full analysis →
+                        </span>
                       </button>
                     ))}
                   </div>
                 )}
+                <MasterAIOrbitalHub onOpen={onOpenAgent} />
                 <div className="mb-row mb-wrap">
                   <button
                     disabled={!snapshot.config?.enabled}
@@ -443,11 +551,37 @@ export default function MarketBrain({
             )}
             {tab === "Connections" && (
               <div className="mb-stack">
+                <DataProviderManager
+                  snapshot={snapshot}
+                  busy={loading}
+                  onSelect={(provider) =>
+                    void saveConfig(
+                      { provider },
+                      "Primary market provider updated.",
+                    )
+                  }
+                  onTest={() =>
+                    void brainRequest<{ status: string; message: string }>(
+                      "/provider-health",
+                    )
+                      .then((health) =>
+                        setNotice(`${health.status}: ${health.message}`),
+                      )
+                      .catch((cause) =>
+                        setError(
+                          cause instanceof Error
+                            ? cause.message
+                            : "Provider test failed",
+                        ),
+                      )
+                  }
+                />
                 <MT5StatusPanel />
                 <h3>Data & integrations</h3>
-                <div className="mb-grid">
+                <div className="mb-connection-grid">
                   {Object.entries(snapshot.connection).map(([label, value]) => (
-                    <div className="mb-panel" key={label}>
+                    <div className="mb-connection-card" key={label}>
+                      <span className="mb-connection-orb" />
                       <span className="mb-muted">{label}</span>
                       <strong className="mb-value mb-status">
                         {value.replaceAll("_", " ")}

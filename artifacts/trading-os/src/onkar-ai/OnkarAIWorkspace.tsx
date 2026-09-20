@@ -69,9 +69,11 @@ import {
 } from "./demo-data";
 import { brainRequest } from "../market-brain/api";
 import { AccountCommandCarousel } from "../market-brain/AccountCommandCarousel";
+import { TradingLifecycle } from "../market-brain/CommandCenterVisuals";
 import "../market-brain/market-brain.css";
 import { connectedSetups, scannerIsLive } from "./connected-setups";
 import { MasterSetupAlertBridge } from "./MasterSetupAlertBridge";
+import { AGENT_DEFINITIONS } from "./agent-data";
 import "./onkar-ai.css";
 import {
   Dialog,
@@ -325,6 +327,10 @@ export default function OnkarAIWorkspace({
           initialTab={initialTab}
           onJournal={() => onExit("journal")}
           journalTrades={journalTrades}
+          onOpenAgent={(agentId) => {
+            const agent = AGENT_DEFINITIONS.find((item) => item.id === agentId);
+            if (agent) navigate(agent.destination);
+          }}
         />
       </Suspense>
     </>
@@ -565,8 +571,13 @@ export default function OnkarAIWorkspace({
                   <AccountCommandCarousel
                     snapshot={scannerSnapshot}
                     journalTrades={journalTrades}
-                    onSelect={(accountId) => void selectTradingAccount(accountId)}
+                    onSelect={(accountId) =>
+                      void selectTradingAccount(accountId)
+                    }
                     onOpenTrade={() => onExit("journal")}
+                  />
+                  <TradingLifecycle
+                    candidate={scannerSnapshot.candidates[0] ?? null}
                   />
                 </div>
               ) : null}
