@@ -1,46 +1,47 @@
-# Design QA — Onkar AI Rules Control Center
+# Design QA — Onkar AI Setup Selection
 
-- Source visual truth: `C:\Users\joban\.codex\codex-remote-attachments\01a07180-c785-7692-9b30-a7c170f1481f\5F79469D-D6F2-4FA2-8ABD-14322E252AA4\3-Photo-3.jpg`
-- Implementation screenshot: unavailable because the Rules route requires the user's authenticated Supabase session and the verification browser is signed out.
-- Intended viewport: mobile-first, approximately 589 × 1280 source pixels; responsive desktop layout retained.
-- State: Rules tab with existing approved Setup Library versions and scanner configuration.
+- Source visual truth: `C:\Users\joban\.codex\codex-remote-attachments\01a07180-c785-7692-9b30-a7c170f1481f\D9EA4D36-200C-4891-AED6-B6920AC4C542\3-Photo-3.jpg`
+- Implementation URL: `https://onkartradex.com/onkar-ai/strategies`
+- Implementation screenshot: unavailable because the route requires an authenticated Supabase session and the verification browser is signed out.
+- Source pixels: 589 × 1280. Intended CSS viewport: iPhone/mobile responsive. Density normalization: not applicable because an implementation capture could not be obtained.
+- State: Onkar AI → AI Scanner → Rules, setup activation list.
 
 ## Full-view comparison evidence
 
-The source was opened at original resolution. Its main P1 usability issue is that immutable-version authoring fields appear immediately after the Rules tab, forcing users through direction, timeframe, R:R, symbols, sessions, and execution permission before they can manage which setups are active.
+The source was opened at original resolution. It shows the requested bulk activation panel and setup cards, but the Edit action opens the unwanted Advanced Setup Editor and only scanner-ready versions appear. The implementation removes that editor from the scanner, keeps bulk activation, lists every Setup Library item, and routes Edit to the existing Setup Library editor.
 
-The implementation changes the information hierarchy in code to: automatic rule summary, three bulk setup actions, compact newest-version setup rows, bulk market selection, and a collapsed advanced editor. A browser-rendered authenticated screenshot was not available, so an actual combined visual comparison could not be completed.
+A combined source/implementation comparison could not be created because the in-app verification browser displayed the login screen at the production route.
 
 ## Focused-region comparison evidence
 
-Source evidence confirms the lengthy setup form and simple/advanced rule cards occupy multiple mobile screens. The corresponding rendered implementation region could not be captured without an authenticated session.
+The source confirms the setup cards, switches, Edit buttons, and Advanced Setup Editor behavior. The authenticated implementation region could not be captured, so typography, spacing, and touch density remain unverified visually.
 
 ## Findings
 
 - [P1] Authenticated implementation capture unavailable.
   - Location: Onkar AI → AI Scanner → Rules.
-  - Evidence: the verification browser displays the login screen; no credentials were used or requested.
-  - Impact: final typography, fold position, and touch-density cannot be visually signed off.
-  - Fix: after deployment, capture the signed-in Rules tab at the user's iPhone viewport and compare it with the source screenshot.
+  - Evidence: production opens the Onkar TradeX login screen in the verification browser.
+  - Impact: final mobile visual fidelity and the authenticated Edit transition cannot be signed off from browser evidence.
+  - Fix: capture the signed-in Rules tab on the user's iPhone after refresh and compare it with the source.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: existing Onkar typography and token hierarchy are reused; runtime visual verification blocked.
-- Spacing and layout rhythm: bulk cards use the existing scanner grid, radius, and mobile breakpoints; runtime visual verification blocked.
-- Colors and visual tokens: existing navy, cyan, teal, border, and glass tokens are reused.
-- Image quality and asset fidelity: no new imagery or replacement assets are introduced.
-- Copy and content: bulk actions are explicit; detailed rule language remains in the optional editor.
-- Accessibility and interaction: semantic buttons, labelled switches, disabled/loading states, and reduced-motion behavior are retained; authenticated interaction verification blocked.
+- Fonts and typography: existing Onkar typography is retained; authenticated runtime verification is blocked.
+- Spacing and layout rhythm: existing glass cards and mobile breakpoints are retained; a search row and unavailable-state rows were added.
+- Colors and visual tokens: existing navy, cyan, teal, amber, border, and glass tokens are reused.
+- Image quality and asset fidelity: no images or visual identity assets were replaced.
+- Copy and content: setup activation is now the primary task; the advanced editor and historical version cards are removed from the scanner.
+- Accessibility and interaction: labelled switches, disabled not-ready states, search, bulk actions, and direct edit navigation are implemented; authenticated interaction verification is blocked.
 
 ## Comparison history
 
-- Pass 1: source inspected; implementation build and typechecks passed. Visual comparison blocked by authenticated state.
+- Pass 1: source inspected; production build, focused TypeScript check, and scanner tests passed. Production returned HTTP 200. Visual comparison blocked by authentication.
 
 ## Implementation checklist
 
-1. Deploy the verified build.
-2. Open the authenticated Rules tab on iPhone.
-3. Verify Select all approved, Custom selection, Pause all setups, setup Edit, market chips, and advanced-editor expansion.
-4. Capture and perform final visual comparison.
+1. Sign in on an iPhone and refresh the Rules tab.
+2. Verify Activate all approved setups and individual setup switches.
+3. Verify every Setup Library setup appears, including items that still need approved rules.
+4. Verify Edit opens the selected item in the existing Setup Library.
 
 final result: blocked
