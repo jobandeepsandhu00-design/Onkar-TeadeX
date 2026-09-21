@@ -38,7 +38,6 @@ const OnkarAIRecentSlider = React.lazy(() => import("./onkar-ai/RecentSlider").t
 const OnkarAIAgentCommandCenter = React.lazy(() => import("./onkar-ai/HomeAgentCommandCenter").then(module => ({ default: module.OnkarAIAgentCommandCenter })));
 const loadOnkarAIWorkspace = () => import("./onkar-ai/OnkarAIWorkspace");
 const OnkarAIWorkspace = React.lazy(loadOnkarAIWorkspace);
-const MasterSetupAlertMonitor = React.lazy(() => import("./onkar-ai/MasterSetupAlertMonitor"));
 import "./onkar-ai/onkar-ai.css";
 import { NotificationCenterBell, RecentAlertsWidget } from "./notifications/NotificationCenter";
 
@@ -16229,7 +16228,6 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   }
   return (
     <div className="w-full bg-slate-950" style={{ fontFamily: "'Inter', sans-serif", minHeight: "100dvh" }}>
-      <React.Suspense fallback={null}><MasterSetupAlertMonitor /></React.Suspense>
       {/* Scrollable content — header scrolls with content, only bottom nav is fixed */}
       <div className="mx-auto max-w-[1800px] overflow-y-auto px-4 py-4"
         style={{
