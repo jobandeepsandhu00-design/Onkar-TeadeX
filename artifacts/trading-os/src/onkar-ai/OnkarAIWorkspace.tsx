@@ -11,7 +11,6 @@ import type { ScannerSnapshot } from "@workspace/api-zod";
 import {
   Activity,
   ArrowLeft,
-  ArrowRight,
   ArrowUpRight,
   Bell,
   BookOpen,
@@ -47,20 +46,13 @@ import { AIButton, AIScoreBadge, AIStatusBadge, KeyValue, Panel } from "./ui";
 import { MarketChart } from "./charts";
 import { SharedMarketChart } from "./SharedMarketChart";
 import {
-  AlertsPanel,
-  IntegrationsPanel,
-  NewsPanel,
-  PerformancePanel,
-  SessionPanel,
   SetupAnalysis,
   SetupTable,
 } from "./DashboardPanels";
 import { AssistantPage, JournalPage, RiskPage } from "./WorkspacePages";
-import { AgentCommandCenter } from "./AgentCommandCenter";
 import { AgentWorkspacePresence } from "./AgentWorkspacePresence";
 import { AnimatedMetricValue, MotionReveal } from "./motion";
 import {
-  demoSetups,
   price,
   sectionPath,
   setupPath,
@@ -69,12 +61,23 @@ import {
 } from "./demo-data";
 import { brainRequest } from "../market-brain/api";
 import { AccountCommandCarousel } from "../market-brain/AccountCommandCarousel";
-import { TradingLifecycle } from "../market-brain/CommandCenterVisuals";
+import {
+  BossBriefing,
+  CommandCenterHero,
+  JournalLearningPanel,
+  LiveCandidateCarousel,
+  MarketSessionTimeline,
+  MasterAIOrbitalHub,
+  SystemActivityTimeline,
+  TradeCommandCenter,
+  TradingLifecycle,
+} from "../market-brain/CommandCenterVisuals";
 import { latestApprovedVersions } from "../market-brain/strategy-versions";
 import "../market-brain/market-brain.css";
 import { connectedSetups, scannerIsLive } from "./connected-setups";
 import { MasterSetupAlertBridge } from "./MasterSetupAlertBridge";
 import { AGENT_DEFINITIONS } from "./agent-data";
+import { agentRuntime } from "./agent-runtime";
 import "./onkar-ai.css";
 import {
   Dialog,
@@ -141,17 +144,11 @@ export default function OnkarAIWorkspace({
     groups.some((g) => g.items.some(([key]) => key === segment)) ||
     segment === "connected" ||
     segment === "setup";
-  const [selected, setSelected] = useState(demoSetups[0]);
-  const [saved, setSaved] = useState<string[]>([
-    "gold-rejection",
-    "btc-pullback",
-  ]);
+  const [selected, setSelected] = useState<SetupPreview | null>(null);
+  const [saved, setSaved] = useState<string[]>([]);
   const [menu, setMenu] = useState(false);
   const [notice, setNotice] = useState("");
   const [assetFilter, setAssetFilter] = useState("All");
-  const [alertOpen, setAlertOpen] = useState(false);
-  const [alertSymbol, setAlertSymbol] = useState(demoSetups[0].symbol);
-  const [alertScore, setAlertScore] = useState(80);
   const [preferences, setPreferences] = useState({
     compact: false,
     news: true,
@@ -168,15 +165,23 @@ export default function OnkarAIWorkspace({
     [scannerSnapshot],
   );
   const detail = detailId
-    ? (liveSetups.find((s) => s.id === detailId) ??
-      demoSetups.find((s) => s.id === detailId))
+    ? liveSetups.find((s) => s.id === detailId)
     : null;
-  const current = detail || selected;
+  const current = detail || selected || liveSetups[0] || null;
   const dashboardSelected =
-    liveSetups.find((setup) => setup.id === selected.id) ??
+    liveSetups.find((setup) => setup.id === selected?.id) ??
     liveSetups[0] ??
     null;
   const scannerLive = scannerIsLive(scannerSnapshot);
+  const activeSetupCount = scannerSnapshot
+    ? scannerSnapshot.config?.config.autoActivateApprovedSetups
+      ? latestApprovedVersions(scannerSnapshot).length
+      : latestApprovedVersions(scannerSnapshot).filter((version) =>
+          scannerSnapshot.config?.config.strategyVersionIds.includes(
+            version.id,
+          ),
+        ).length
+    : 0;
   const refreshScanner = useCallback(async (signal?: AbortSignal) => {
     try {
       const data = await brainRequest<ScannerSnapshot>(
@@ -206,7 +211,7 @@ export default function OnkarAIWorkspace({
         ? previous.filter((x) => x !== id)
         : [...previous, id],
     );
-    setNotice("Preview watchlist updated for this open session.");
+    setNotice("Watchlist updated for this open session.");
   };
   useEffect(() => {
     setMenu(false);
@@ -228,6 +233,91 @@ export default function OnkarAIWorkspace({
       window.clearInterval(timer);
     };
   }, [refreshScanner]);
+  useEffect(() => {
+    if (!scannerSnapshot) return;
+    const candidate = scannerSnapshot.candidates[0];
+    const workflow = candidate?.payload.globalWorkflow;
+    const activePaper = scannerSnapshot.paperTrades.filter(
+      (trade) => trade.status === "OPEN",
+    ).length;
+    const connected = scannerIsLive(scannerSnapshot);
+    agentRuntime.report(
+      "master",
+      connected ? "monitoring" : "warning",
+      connected
+        ? `${scannerSnapshot.candidates.length} candidates · ${activePaper} active trades`
+        : "Waiting for a fresh scanner heartbeat",
+      connected,
+    );
+    agentRuntime.report(
+      "trend",
+      candidate ? "scanning" : "idle",
+      workflow
+        ? `${candidate.symbol} 4H ${workflow.fourHour.bias} · 1H ${workflow.oneHour.alignment.replaceAll("_", " ")}`
+        : "Waiting for deterministic market evidence",
+      Boolean(workflow),
+    );
+    agentRuntime.report(
+      "zone",
+      candidate ? "mapping" : "idle",
+      workflow
+        ? `${candidate.symbol} · ${workflow.priceLocation.replaceAll("_", " ")}`
+        : "Waiting for mapped structure",
+      Boolean(workflow),
+    );
+    agentRuntime.report(
+      "setup",
+      candidate ? "matching" : "idle",
+      candidate
+        ? `${candidate.symbol} · ${candidate.payload.passed}/${candidate.payload.total} rules · ${candidate.state}`
+        : `${latestApprovedVersions(scannerSnapshot).length} approved setups monitoring`,
+      true,
+    );
+    agentRuntime.report(
+      "risk",
+      candidate?.plan?.allowed ? "success" : "checking",
+      candidate?.plan
+        ? `${candidate.plan.riskPercent}% risk · ${candidate.plan.rr.toFixed(2)}R · ${candidate.plan.allowed ? "PASS" : "BLOCKED"}`
+        : "Waiting for a complete entry plan",
+      Boolean(candidate?.plan),
+    );
+    agentRuntime.report(
+      "news",
+      candidate?.payload.news.status === "blocked" ? "warning" : "monitoring",
+      candidate
+        ? `News clearance ${candidate.payload.news.status}`
+        : (scannerSnapshot.connection.economicCalendar ?? "unavailable").replaceAll("_", " "),
+      candidate?.payload.news.status === "safe",
+    );
+    agentRuntime.report(
+      "journal",
+      "reviewing",
+      `${scannerSnapshot.journal?.trades ?? 0} account trades available`,
+      Boolean(scannerSnapshot.journal),
+    );
+    agentRuntime.report(
+      "backtest",
+      "idle",
+      "Ready on request · no continuous token usage",
+      true,
+    );
+    agentRuntime.report(
+      "insight",
+      scannerSnapshot.runs.length ? "reviewing" : "idle",
+      scannerSnapshot.runs.length
+        ? `${scannerSnapshot.runs.length} AI explanations today`
+        : "Deterministic evidence available without an LLM call",
+      true,
+    );
+    agentRuntime.report(
+      "execution",
+      scannerSnapshot.runtime.autoExecutionEnabled ? "monitoring" : "idle",
+      scannerSnapshot.runtime.emergencyStop
+        ? "LOCKED · Emergency Stop"
+        : `${scannerSnapshot.runtime.tradingSource} · ${scannerSnapshot.connection.execution}`,
+      scannerSnapshot.connection.executionWorker === "ready",
+    );
+  }, [scannerSnapshot]);
   const toggleScanner = async () => {
     const config = scannerSnapshot?.config?.config;
     if (!config) {
@@ -302,7 +392,7 @@ export default function OnkarAIWorkspace({
     setSelected(setup);
     navigate(setupPath(setup.id));
   };
-  const analysis = (
+  const analysis = current ? (
     <SetupAnalysis
       setup={current}
       saved={saved.includes(current.id)}
@@ -310,7 +400,7 @@ export default function OnkarAIWorkspace({
       onNavigate={navigate}
       onJournal={() => onExit("journal")}
     />
-  );
+  ) : null;
   const connectedPanel = (
     initialTab:
       | "Watchlist"
@@ -385,7 +475,16 @@ export default function OnkarAIWorkspace({
         <div className="oai-sidebar-footer">
           <ShieldCheck size={18} />
           <span>
-            Analysis only<small>No live order execution</small>
+            {scannerSnapshot?.runtime.autoExecutionEnabled
+              ? "AUTO armed"
+              : scannerSnapshot?.runtime.tradingMode === "CONFIRM"
+                ? "Confirmation mode"
+                : "Analysis only"}
+            <small>
+              {scannerSnapshot
+                ? `${scannerSnapshot.runtime.tradingSource.replaceAll("_", " ")} · ${scannerSnapshot.connection.execution.replaceAll("_", " ")}`
+                : "Checking execution state"}
+            </small>
           </span>
         </div>
         <div className="oai-user">
@@ -433,11 +532,11 @@ export default function OnkarAIWorkspace({
             </button>
             <button
               className="oai-icon-button"
-              aria-label="View preview alerts"
+              aria-label="View scanner alerts"
               onClick={() => {
-                navigate("/onkar-ai");
+                navigate("/onkar-ai/scanner");
                 setNotice(
-                  "The Recent Alerts panel shows illustrative activity, not live notifications.",
+                  `${scannerSnapshot?.alerts.length ?? 0} stored scanner alerts are available.`,
                 );
               }}
             >
@@ -509,8 +608,8 @@ export default function OnkarAIWorkspace({
           ))}
         </div>
         <main id="onkar-ai-main" className="oai-main" tabIndex={-1} ref={main}>
-          <section
-            className={`oai-hero ${segment === "dashboard" ? "" : "oai-hero-compact"}`}
+          {segment !== "dashboard" ? <section
+            className="oai-hero oai-hero-compact"
           >
             <div>
               <div className="oai-row">
@@ -525,55 +624,27 @@ export default function OnkarAIWorkspace({
                 </span>
               </div>
               <h1>
-                {segment === "dashboard" ? (
-                  <>
-                    ONKAR <span>AI</span>
-                  </>
-                ) : (
-                  label
-                )}
+                {label}
               </h1>
               <div className="oai-hero-subtitle">
-                {segment === "dashboard"
-                  ? "MARKET SCANNER"
-                  : "YOUR EDGE, CLEARLY ORGANIZED."}
+                YOUR EDGE, CLEARLY ORGANIZED.
               </div>
               <p>
-                {segment === "dashboard"
-                  ? "Ten specialist agents. One disciplined AI trading command center."
-                  : "One connected workspace for markets, strategy and your trading process."}
+                One connected workspace for markets, strategy and your trading process.
               </p>
             </div>
-            {segment === "dashboard" && (
-              <div className="oai-hero-actions">
-                <AIButton primary onClick={() => navigate("/onkar-ai/scanner")}>
-                  <ScanLine size={18} />
-                  Explore scanner
-                  <ArrowUpRight size={16} />
-                </AIButton>
-                <button
-                  className="oai-text-button"
-                  onClick={() =>
-                    document
-                      .getElementById("agent-network-title")
-                      ?.scrollIntoView({ behavior: "smooth", block: "start" })
-                  }
-                >
-                  Meet the agents <ArrowRight size={15} />
-                </button>
-                <span className="oai-muted">
-                  {scannerLive
-                    ? "Twelve Data candles · approved Setup Library rules"
-                    : "Open scanner settings to verify the market worker and approved rules"}
-                </span>
-              </div>
-            )}
-          </section>
+          </section> : null}
           <AgentWorkspacePresence section={segment} />
           {segment === "dashboard" ? (
             <>
               {scannerSnapshot ? (
-                <div className="market-brain oai-account-command">
+                <div className="market-brain oai-account-command mb-stack">
+                  <CommandCenterHero
+                    snapshot={scannerSnapshot}
+                    activeSetups={activeSetupCount}
+                    onOpenScanner={() => navigate("/onkar-ai/scanner")}
+                    onRefresh={() => void refreshScanner()}
+                  />
                   <AccountCommandCarousel
                     snapshot={scannerSnapshot}
                     journalTrades={journalTrades}
@@ -584,17 +655,32 @@ export default function OnkarAIWorkspace({
                   />
                   <TradingLifecycle
                     candidate={scannerSnapshot.candidates[0] ?? null}
-                    monitoringCount={
-                      scannerSnapshot.config?.config.autoActivateApprovedSetups
-                        ? latestApprovedVersions(scannerSnapshot).length
-                        : latestApprovedVersions(scannerSnapshot).filter(
-                            (version) =>
-                              scannerSnapshot.config?.config.strategyVersionIds.includes(
-                                version.id,
-                              ),
-                          ).length
-                    }
+                    monitoringCount={activeSetupCount}
+                    candidates={scannerSnapshot.candidates}
+                    onStageSelect={() => navigate("/onkar-ai/scanner")}
                   />
+                  <LiveCandidateCarousel
+                    snapshot={scannerSnapshot}
+                    onOpen={(id) => navigate(setupPath(id))}
+                  />
+                  <TradeCommandCenter
+                    snapshot={scannerSnapshot}
+                    onOpenJournal={() => onExit("journal")}
+                  />
+                  <MasterAIOrbitalHub
+                    onOpen={(agentId) => {
+                      const agent = AGENT_DEFINITIONS.find(
+                        (item) => item.id === agentId,
+                      );
+                      if (agent) navigate(agent.destination);
+                    }}
+                  />
+                  <BossBriefing snapshot={scannerSnapshot} />
+                  <MarketSessionTimeline snapshot={scannerSnapshot} />
+                  <div className="mb-os-two-column">
+                    <SystemActivityTimeline snapshot={scannerSnapshot} />
+                    <JournalLearningPanel snapshot={scannerSnapshot} />
+                  </div>
                 </div>
               ) : null}
               <div className="oai-kpi-grid">
@@ -689,7 +775,6 @@ export default function OnkarAIWorkspace({
                   );
                 })}
               </div>
-              <AgentCommandCenter onNavigate={navigate} />
               <div className="oai-dashboard-command">
                 <Panel
                   title="Top AI Setups"
@@ -778,16 +863,26 @@ export default function OnkarAIWorkspace({
                   </Panel>
                 )}
               </div>
-              <div className="oai-dashboard-widgets">
-                <SessionPanel />
-                {preferences.news && <NewsPanel onNavigate={navigate} />}
-                <AlertsPanel onNavigate={navigate} />
-                <PerformancePanel onNavigate={navigate} />
-              </div>
               <div className="oai-two-columns oai-support-grid">
-                <IntegrationsPanel
-                  onConnect={() => navigate("/onkar-ai/connected")}
-                />
+                <Panel title="Connected Systems" kicker="REAL HEALTH CHECKS">
+                  <div className="oai-quick-grid">
+                    {Object.entries(scannerSnapshot?.connection ?? {}).map(
+                      ([name, status]) => (
+                        <button
+                          key={name}
+                          onClick={() => navigate("/onkar-ai/integrations")}
+                        >
+                          <ShieldCheck size={18} />
+                          <span>
+                            {name.replaceAll("_", " ")}
+                            <small>{status.replaceAll("_", " ")}</small>
+                          </span>
+                          <ArrowUpRight size={14} />
+                        </button>
+                      ),
+                    )}
+                  </div>
+                </Panel>
                 <Panel
                   title="Quick Actions"
                   kicker="MOVE FROM CONTEXT TO PROCESS"
@@ -796,7 +891,7 @@ export default function OnkarAIWorkspace({
                     {[
                       ["Scanner", Radar, "scanner"],
                       ["Open chart", ChartCandlestick, "charts"],
-                      ["Create alert", Bell, "integrations"],
+                      ["Scanner alerts", Bell, "scanner"],
                       ["Journal", ClipboardList, "journal"],
                       ["AI analysis", Sparkles, "assistant"],
                       ["Backtest", FlaskConical, "backtesting"],
@@ -805,11 +900,7 @@ export default function OnkarAIWorkspace({
                       return (
                         <button
                           key={String(title)}
-                          onClick={() =>
-                            title === "Create alert"
-                              ? setAlertOpen(true)
-                              : navigate(sectionPath(String(target)))
-                          }
+                          onClick={() => navigate(sectionPath(String(target)))}
                         >
                           <ActionIcon size={20} />
                           <span>{String(title)}</span>
@@ -972,20 +1063,24 @@ export default function OnkarAIWorkspace({
           ) : segment === "backtesting" ? (
             connectedPanel("Replay")
           ) : segment === "news" ? (
-            <>
-              <div className="oai-news-banner">
-                <ShieldCheck size={25} />
-                <div>
-                  <h3>Know what is moving the market.</h3>
-                  <p>
-                    These events demonstrate the design. They are not a live
-                    economic calendar.
-                  </p>
-                </div>
+            scannerSnapshot ? (
+              <div className="market-brain mb-stack">
+                <MarketSessionTimeline snapshot={scannerSnapshot} />
+                <Panel title="News Clearance" kicker="CONNECTED SCANNER STATE">
+                  <div className="oai-empty">
+                    <Newspaper size={28} />
+                    <h3>
+                      {(scannerSnapshot.connection.economicCalendar ?? "unavailable").replaceAll("_", " ")}
+                    </h3>
+                    <p>
+                      Candidate-specific verified news checks appear in the
+                      scanner and full analysis. Unavailable data is never
+                      presented as safe.
+                    </p>
+                  </div>
+                </Panel>
               </div>
-              <NewsPanel full />
-              <SessionPanel />
-            </>
+            ) : <div className="oai-empty">Loading connected news status…</div>
           ) : segment === "integrations" ? (
             connectedPanel("Connections")
           ) : segment === "settings" ? (
@@ -998,7 +1093,7 @@ export default function OnkarAIWorkspace({
                 <CircleHelp size={35} />
                 <h3>
                   {validSection
-                    ? "This sample setup was not found"
+                    ? "This verified setup was not found"
                     : "Workspace page not found"}
                 </h3>
                 <AIButton onClick={() => navigate("/onkar-ai")}>
@@ -1012,10 +1107,23 @@ export default function OnkarAIWorkspace({
               <BrainCircuit size={14} />
               ONKAR AI · Part of OnkarTradex
             </span>
-            <span>Design preview · Sample data · No trading signals</span>
+            <span>
+              {scannerSnapshot
+                ? `${scannerSnapshot.runtime.tradingSource.replaceAll("_", " ")} · ${scannerSnapshot.runtime.scannerState} · ${activeSetupCount} approved setups`
+                : "Authenticated workspace · awaiting scanner state"}
+            </span>
           </footer>
         </main>
       </div>
+      <button
+        className="oai-master-command-orb"
+        onClick={() => navigate("/onkar-ai/assistant")}
+        aria-label="Open Master AI command assistant"
+      >
+        <span><BrainCircuit size={24} /></span>
+        <strong>MASTER AI</strong>
+        <small>{scannerSnapshot ? scannerSnapshot.runtime.scannerState : "CHECKING"}</small>
+      </button>
       {notice && (
         <div className="oai-toast" role="status">
           <Check size={17} />
@@ -1025,50 +1133,6 @@ export default function OnkarAIWorkspace({
           </button>
         </div>
       )}
-      <Dialog open={alertOpen} onOpenChange={setAlertOpen}>
-        <DialogContent className="oai oai-alert-dialog">
-          <DialogTitle>Create a preview alert</DialogTitle>
-          <DialogDescription>
-            Try the alert workflow. This design preview does not monitor markets
-            or send notifications.
-          </DialogDescription>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setAlertOpen(false);
-              setNotice(
-                `Preview alert created: ${alertSymbol}, score ≥ ${alertScore}. No live monitoring enabled.`,
-              );
-            }}
-          >
-            <label>
-              Market
-              <select
-                value={alertSymbol}
-                onChange={(e) => setAlertSymbol(e.target.value)}
-              >
-                {demoSetups.map((s) => (
-                  <option key={s.id}>{s.symbol}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Minimum confluence score
-              <input
-                type="number"
-                min={0}
-                max={100}
-                required
-                value={alertScore}
-                onChange={(e) => setAlertScore(Number(e.target.value))}
-              />
-            </label>
-            <AIButton primary type="submit">
-              Create preview alert
-            </AIButton>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

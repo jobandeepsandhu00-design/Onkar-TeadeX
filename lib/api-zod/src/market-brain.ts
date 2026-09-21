@@ -349,6 +349,26 @@ export const riskProfileSchema = z
     valuePerPriceUnit: z.record(z.string(), z.number().positive()).default({}),
   })
   .strict();
+export const scannerPermissionsSchema = z
+  .object({
+    automaticScanning: z.boolean().default(true),
+    automaticSetupDetection: z.boolean().default(true),
+    automaticCandidateCreation: z.boolean().default(true),
+    automaticWatchlist: z.boolean().default(true),
+    automaticAlerts: z.boolean().default(true),
+    automaticRiskCalculation: z.boolean().default(true),
+    automaticOrderPreparation: z.boolean().default(true),
+    paperTradeExecution: z.boolean().default(true),
+    mt5LiveExecution: z.boolean().default(false),
+    aiAnalysis: z.boolean().default(true),
+    journalInsights: z.boolean().default(true),
+    autoBreakEven: z.boolean().default(false),
+    autoPartialClose: z.boolean().default(false),
+    autoStopModification: z.boolean().default(false),
+    autoTradeClose: z.boolean().default(false),
+  })
+  .strict();
+export type ScannerPermissions = z.infer<typeof scannerPermissionsSchema>;
 export const scannerConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
@@ -374,6 +394,7 @@ export const scannerConfigSchema = z
     requireNews: z.boolean().default(true),
     visionEnabled: z.boolean().default(false),
     risk: riskProfileSchema.default({}),
+    permissions: scannerPermissionsSchema.default({}),
   })
   .strict();
 export type ScannerConfig = z.infer<typeof scannerConfigSchema>;
@@ -539,6 +560,15 @@ export type ScannerSnapshot = {
     message: string;
     kind: string;
     read_at: string | null;
+    created_at: string;
+  }>;
+  activity?: Array<{
+    id: string;
+    candidate_id: string | null;
+    kind: string;
+    source: "SCANNER" | "EXECUTION";
+    reason: string | null;
+    detail: Record<string, unknown>;
     created_at: string;
   }>;
   paperTrades: Array<{

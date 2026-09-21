@@ -1,20 +1,38 @@
-import type { ScannerCandidate, ScannerSnapshot } from "@workspace/api-zod";
-import type { CSSProperties } from "react";
+import {
+  timeframeMs,
+  type ScannerCandidate,
+  type ScannerConfig,
+  type ScannerPermissions,
+  type ScannerSnapshot,
+} from "@workspace/api-zod";
+import { useState, type CSSProperties } from "react";
 import {
   Activity,
+  AlertTriangle,
+  BellRing,
   BrainCircuit,
+  CandlestickChart,
   Check,
+  ChevronRight,
   CircleDot,
   CloudCog,
   Database,
+  Gauge,
   GitBranch,
   History,
   Lightbulb,
+  LockKeyhole,
   Network,
+  Newspaper,
+  PauseCircle,
   Radio,
+  RotateCcw,
   ScanLine,
   ShieldCheck,
+  SlidersHorizontal,
   Target,
+  TrendingUp,
+  UserRoundCheck,
   X,
   Zap,
 } from "lucide-react";
@@ -39,9 +57,13 @@ const stageIndex = (state?: string) => {
 export function TradingLifecycle({
   candidate,
   monitoringCount = 0,
+  candidates = [],
+  onStageSelect,
 }: {
   candidate?: ScannerCandidate | null;
   monitoringCount?: number;
+  candidates?: ScannerCandidate[];
+  onStageSelect?: (stage: string) => void;
 }) {
   const current = stageIndex(candidate?.state);
   const invalid = ["INVALIDATED", "EXPIRED"].includes(candidate?.state ?? "");
@@ -73,15 +95,23 @@ export function TradingLifecycle({
             } as CSSProperties
           }
         >
-          {lifecycle.map(([id, label, Icon], index) => (
-            <div
+          {lifecycle.map(([id, label, Icon], index) => {
+            const count =
+              id === "SCANNING"
+                ? monitoringCount
+                : candidates.filter((item) => item.state === id).length;
+            const Element = onStageSelect ? "button" : "div";
+            return (
+            <Element
+              type={onStageSelect ? "button" : undefined}
               className={`mb-life-stage ${index < current ? "is-complete" : ""} ${index === current && (candidate || monitoring) ? "is-current" : ""}`}
               key={id}
+              onClick={() => onStageSelect?.(id)}
             >
               <span className="mb-life-node">
                 <Icon size={17} />
               </span>
-              <strong>{label}</strong>
+              <strong>{label} <b>{count}</b></strong>
               <small>
                 {index < current
                   ? "Complete"
@@ -91,8 +121,8 @@ export function TradingLifecycle({
                       ? "Real data monitoring"
                       : "Pending"}
               </small>
-            </div>
-          ))}
+            </Element>
+          )})}
         </div>
       </div>
       {invalid ? (
@@ -383,6 +413,350 @@ export function SetupActivationPanel({
           })}
         </div>
       )}
+    </section>
+  );
+}
+
+const titleState = (value: string) => value.replaceAll("_", " ");
+const localTime = (value?: string | null) =>
+  value
+    ? new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/Vienna",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(new Date(value))
+    : "—";
+
+export function CommandCenterHero({
+  snapshot,
+  activeSetups,
+  onOpenScanner,
+  onRefresh,
+}: {
+  snapshot: ScannerSnapshot;
+  activeSetups: number;
+  onOpenScanner: () => void;
+  onRefresh: () => void;
+}) {
+  const config = snapshot.config?.config;
+  const account = snapshot.accounts.find(
+    (item) => item.id === config?.accountId,
+  );
+  const fresh =
+    snapshot.connection.market === "connected" &&
+    snapshot.connection.worker === "recent_heartbeat";
+  return (
+    <section className="mb-os-hero">
+      <div className="mb-os-grid" aria-hidden="true" />
+      <div className="mb-os-hero-copy">
+        <span className="mb-eyebrow">ONKAR AI · TRADING OPERATING SYSTEM</span>
+        <h1>MARKET <em>SCANNER</em></h1>
+        <p>
+          One shared market brain coordinating approved setups, deterministic
+          risk, specialist intelligence and provider-safe execution.
+        </p>
+        <div className="mb-os-actions">
+          <button onClick={onOpenScanner}>
+            <ScanLine size={17} /> Open command scanner
+          </button>
+          <button className="is-secondary" onClick={onRefresh}>
+            <RotateCcw size={16} /> Refresh system
+          </button>
+        </div>
+      </div>
+      <div className="mb-os-status-grid">
+        {[
+          ["Scanner", snapshot.runtime.scannerState, ScanLine, snapshot.runtime.scannerState === "RUNNING"],
+          ["Market data", fresh ? "FRESH" : snapshot.connection.market, Radio, fresh],
+          ["Source", snapshot.runtime.tradingSource.replace("_", " "), CloudCog, true],
+          ["Execution", snapshot.runtime.emergencyStop ? "LOCKED" : snapshot.runtime.autoExecutionEnabled ? "AUTO ARMED" : snapshot.runtime.tradingMode, Zap, snapshot.runtime.autoExecutionEnabled],
+          ["Account", account?.name ?? "NOT SELECTED", UserRoundCheck, Boolean(account)],
+          ["Setups", `${activeSetups} ENABLED`, Target, activeSetups > 0],
+          ["Markets", `${config?.symbols.length ?? 0} ACTIVE`, CandlestickChart, Boolean(config?.symbols.length)],
+          ["Master AI", snapshot.connection.ai ?? "UNAVAILABLE", BrainCircuit, /connected|configured/i.test(snapshot.connection.ai ?? "")],
+        ].map(([label, value, Icon, healthy]) => {
+          const StatusIcon = Icon as typeof ScanLine;
+          return (
+            <div className={healthy ? "is-healthy" : ""} key={String(label)}>
+              <StatusIcon size={15} />
+              <span>{String(label)}</span>
+              <strong>{titleState(String(value))}</strong>
+            </div>
+          );
+        })}
+      </div>
+      <footer>
+        <span><i className={fresh ? "is-live" : ""} /> Last scanner update {localTime(snapshot.config?.last_run_at)}</span>
+        <span>Europe/Vienna · {snapshot.runtime.tradingSource === "MT5" ? snapshot.connection.executionBroker : "Onkar Paper"}</span>
+      </footer>
+    </section>
+  );
+}
+
+export function LiveCandidateCarousel({
+  snapshot,
+  onOpen,
+}: {
+  snapshot: ScannerSnapshot;
+  onOpen: (id: string) => void;
+}) {
+  const candidates = snapshot.candidates
+    .filter((item) => !["COMPLETED", "EXPIRED"].includes(item.state))
+    .sort((a, b) => b.score - a.score);
+  return (
+    <section className="mb-os-panel">
+      <div className="mb-section-heading">
+        <div>
+          <span className="mb-eyebrow">LIVE OPPORTUNITIES</span>
+          <h3>Candidate command rail</h3>
+        </div>
+        <span className="mb-badge">{candidates.length} DETECTED</span>
+      </div>
+      {!candidates.length ? (
+        <div className="mb-os-empty">
+          <ScanLine size={24} />
+          <div><strong>No qualifying candidate yet</strong><p>Approved setups continue monitoring real closed-candle data.</p></div>
+        </div>
+      ) : (
+        <div className="mb-os-candidate-rail">
+          {candidates.map((candidate) => {
+            const timeframe = timeframeMs[candidate.timeframe as keyof typeof timeframeMs] ?? 0;
+            const nextClose = Date.parse(candidate.last_candle_at) + timeframe;
+            const remaining = Math.max(0, nextClose - Date.now());
+            const minutes = Math.floor(remaining / 60_000);
+            const seconds = Math.floor((remaining % 60_000) / 1000);
+            const passed = candidate.payload.rules.filter((rule) => rule.passed).length;
+            return (
+              <article className={`mb-os-candidate is-${candidate.state.toLowerCase()}`} key={candidate.id}>
+                <header>
+                  <div><strong>{candidate.symbol}</strong><span>{candidate.payload.direction.toUpperCase()}</span></div>
+                  <b>{candidate.score}<small>/100</small></b>
+                </header>
+                <h4>{candidate.payload.strategyName}</h4>
+                <p>{candidate.timeframe.toUpperCase()} · {titleState(candidate.state)}</p>
+                <div className="mb-os-confluence"><span style={{ width: `${candidate.score}%` }} /></div>
+                <div className="mb-os-evidence">
+                  <span>Rules <b>{passed}/{candidate.payload.rules.length}</b></span>
+                  <span>News <b>{candidate.payload.news.status}</b></span>
+                  <span>Risk <b>{candidate.plan?.allowed ? "PASS" : "PENDING"}</b></span>
+                  <span>Close <b>{remaining ? `${minutes}:${String(seconds).padStart(2, "0")}` : "CLOSED"}</b></span>
+                </div>
+                <div className="mb-trade-plan">
+                  <span><small>ENTRY</small>{candidate.plan?.entry ?? "—"}</span>
+                  <span><small>SL</small>{candidate.plan?.stop ?? "—"}</span>
+                  <span><small>TP</small>{candidate.plan?.target ?? "—"}</span>
+                  <span><small>R:R</small>{candidate.plan?.rr?.toFixed(2) ?? "—"}</span>
+                </div>
+                <button onClick={() => onOpen(candidate.id)}>View full analysis <ChevronRight size={15} /></button>
+              </article>
+            );
+          })}
+        </div>
+      )}
+      <p className="mb-hub-note">Scores measure rule confluence—not probability. Every required rule must still pass.</p>
+    </section>
+  );
+}
+
+export function BossBriefing({ snapshot }: { snapshot: ScannerSnapshot }) {
+  const waiting = snapshot.candidates.filter((item) => item.state === "WATCH");
+  const ready = snapshot.candidates.filter((item) => item.state === "READY");
+  const blocked = snapshot.candidates.filter((item) =>
+    item.payload.warnings.length > 0 || item.staleNow,
+  );
+  const open = snapshot.paperTrades.filter((item) => item.status === "OPEN");
+  const closed = snapshot.paperTrades.filter((item) => item.status === "CLOSED");
+  const latest = [...snapshot.candidates].sort((a, b) =>
+    String(b.updated_at ?? b.payload.analyzedAt).localeCompare(
+      String(a.updated_at ?? a.payload.analyzedAt),
+    ),
+  )[0];
+  const notes = [
+    ready.length ? `${ready.length} setup${ready.length === 1 ? " is" : "s are"} confirmed and ready for execution checks.` : null,
+    waiting.length ? `${waiting.length} setup${waiting.length === 1 ? " is" : "s are"} waiting for required candle confirmation.` : null,
+    blocked.length ? `${blocked.length} candidate${blocked.length === 1 ? " has" : "s have"} stale-data, news or risk warnings.` : null,
+    open.length ? `${open.length} Paper trade${open.length === 1 ? " is" : "s are"} currently managed by its saved plan.` : null,
+    !snapshot.candidates.length ? "No setup has crossed the deterministic candidate threshold yet." : null,
+  ].filter(Boolean) as string[];
+  return (
+    <section className="mb-os-panel mb-boss-briefing">
+      <div className="mb-section-heading">
+        <div><span className="mb-eyebrow">MASTER AI · BOSS BRIEFING</span><h3>What needs attention</h3></div>
+        <span className="mb-badge mb-positive">VERIFIED DATA</span>
+      </div>
+      <div className="mb-boss-layout">
+        <div className="mb-boss-core"><BrainCircuit size={31} /><span>MASTER AI</span><strong>{snapshot.runtime.scannerState}</strong></div>
+        <div className="mb-boss-notes">
+          {notes.map((note) => <p key={note}><Check size={14} />{note}</p>)}
+          {latest ? <small>Latest: {latest.symbol} · {latest.payload.strategyName} · {titleState(latest.state)} at {localTime(latest.updated_at ?? latest.payload.analyzedAt)}</small> : null}
+        </div>
+        <div className="mb-boss-kpis">
+          <span><b>{ready.length}</b> Confirmed</span>
+          <span><b>{waiting.length}</b> Waiting close</span>
+          <span><b>{open.length}</b> Active</span>
+          <span><b>{closed.length}</b> Closed</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function TradeCommandCenter({
+  snapshot,
+  onOpenJournal,
+}: {
+  snapshot: ScannerSnapshot;
+  onOpenJournal: () => void;
+}) {
+  const preparing = snapshot.candidates.filter((item) =>
+    ["DEVELOPING", "WATCH", "READY"].includes(item.state),
+  );
+  const active = snapshot.paperTrades.filter((item) => item.status === "OPEN");
+  const closed = snapshot.paperTrades.filter((item) => item.status === "CLOSED");
+  const [view, setView] = useState<"PREPARING" | "ACTIVE" | "CLOSED">("PREPARING");
+  return (
+    <section className="mb-os-panel">
+      <div className="mb-section-heading"><div><span className="mb-eyebrow">TRADE COMMAND</span><h3>Preparing · Active · Closed</h3></div></div>
+      <div className="mb-os-segments">
+        {(["PREPARING", "ACTIVE", "CLOSED"] as const).map((item) => (
+          <button className={view === item ? "is-active" : ""} onClick={() => setView(item)} key={item}>{item}<b>{item === "PREPARING" ? preparing.length : item === "ACTIVE" ? active.length : closed.length}</b></button>
+        ))}
+      </div>
+      <div className="mb-os-trade-list">
+        {view === "PREPARING" && preparing.map((item) => (
+          <article key={item.id}><Target size={18} /><div><strong>{item.symbol} · {item.payload.strategyName}</strong><small>{titleState(item.state)} · {item.timeframe.toUpperCase()} · {item.payload.passed}/{item.payload.total} rules</small></div><span>{item.score}/100</span></article>
+        ))}
+        {view === "ACTIVE" && active.map((item) => (
+          <article key={item.id}><TrendingUp size={18} /><div><strong>{item.symbol} · {item.direction}</strong><small>Entry {item.entry} · Current {item.current_price} · SL {item.stop_loss} · TP {item.take_profit}</small></div><span>{item.pnl == null ? "—" : item.pnl.toFixed(2)}</span></article>
+        ))}
+        {view === "CLOSED" && closed.map((item) => (
+          <article key={item.id}><History size={18} /><div><strong>{item.symbol} · {item.direction}</strong><small>Closed {localTime(item.closed_at)} · Paper execution</small></div><span>{item.r_multiple == null ? "—" : `${item.r_multiple.toFixed(2)}R`}</span></article>
+        ))}
+        {((view === "PREPARING" && !preparing.length) || (view === "ACTIVE" && !active.length) || (view === "CLOSED" && !closed.length)) ? <div className="mb-os-empty"><PauseCircle size={20} /><p>No real records in this stage.</p></div> : null}
+      </div>
+      <button className="mb-os-link" onClick={onOpenJournal}>Open trade journal <ChevronRight size={15} /></button>
+    </section>
+  );
+}
+
+const permissionRows: Array<[
+  keyof ScannerPermissions,
+  string,
+  string,
+  typeof ScanLine,
+]> = [
+  ["automaticScanning", "Automatic scanning", "Run the shared market worker", ScanLine],
+  ["automaticSetupDetection", "Setup detection", "Evaluate approved deterministic rules", Target],
+  ["automaticCandidateCreation", "Candidate creation", "Persist lifecycle candidates", CircleDot],
+  ["automaticWatchlist", "Automatic watchlist", "Surface new candidates in command views", CandlestickChart],
+  ["automaticAlerts", "Automatic alerts", "Create deduplicated scanner alerts", BellRing],
+  ["automaticRiskCalculation", "Risk calculation", "Use the selected account and risk profile", ShieldCheck],
+  ["automaticOrderPreparation", "Order preparation", "Prepare an execution plan after all gates pass", SlidersHorizontal],
+  ["paperTradeExecution", "Paper execution", "Allow Twelve Data virtual orders", CloudCog],
+  ["mt5LiveExecution", "MT5 live execution", "Allow broker routing when server policy also permits it", Network],
+  ["aiAnalysis", "AI explanations", "Call specialists only after deterministic detection", BrainCircuit],
+  ["journalInsights", "Journal insights", "Use stored outcomes for coaching and comparisons", Database],
+  ["autoBreakEven", "Auto break-even", "Only when an approved setup management rule supports it", LockKeyhole],
+  ["autoPartialClose", "Auto partial close", "Only when saved management rules support it", Gauge],
+  ["autoStopModification", "Auto SL modification", "Only approved structural changes", ShieldCheck],
+  ["autoTradeClose", "Auto trade close", "Only saved invalidation or target rules", X],
+];
+
+export function PermissionCenter({
+  config,
+  busy,
+  onChange,
+}: {
+  config: ScannerConfig;
+  busy: boolean;
+  onChange: (permissions: ScannerPermissions) => void;
+}) {
+  return (
+    <section className="mb-os-panel">
+      <div className="mb-section-heading"><div><span className="mb-eyebrow">SERVER-RESPECTED CONTROLS</span><h3>Permission Center</h3></div><span className="mb-badge">USER CONTROL</span></div>
+      <div className="mb-permission-grid">
+        {permissionRows.map(([key, label, help, Icon]) => {
+          const enabled = config.permissions[key];
+          const management = ["autoBreakEven", "autoPartialClose", "autoStopModification", "autoTradeClose"].includes(key);
+          return (
+            <div className={enabled ? "is-on" : ""} key={key}>
+              <Icon size={17} />
+              <span><strong>{label}</strong><small>{help}</small>{management && <em>Requires an approved management rule</em>}</span>
+              <button className="mb-switch" role="switch" aria-checked={enabled} disabled={busy} onClick={() => onChange({ ...config.permissions, [key]: !enabled })}><span /></button>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mb-hub-note"><AlertTriangle size={14} /> Emergency Stop and server-side live-trading policy always override these permissions.</p>
+    </section>
+  );
+}
+
+export function SystemActivityTimeline({ snapshot }: { snapshot: ScannerSnapshot }) {
+  const items = (snapshot.activity ?? []).slice(0, 12).map((event) => {
+    const candidate = snapshot.candidates.find(
+      (item) => item.id === event.candidate_id,
+    );
+    return {
+      id: event.id,
+      at: event.created_at,
+      source: event.source === "EXECUTION" ? "Execution AI" : "Setup AI",
+      text:
+        event.reason ||
+        `${candidate?.symbol ?? "Market"} · ${candidate?.payload.strategyName ?? titleState(event.kind)}`,
+      tone: event.kind,
+    };
+  });
+  return (
+    <section className="mb-os-panel">
+      <div className="mb-section-heading"><div><span className="mb-eyebrow">AUDITABLE ACTIVITY</span><h3>System timeline</h3></div></div>
+      <div className="mb-os-timeline">
+        {items.map((item) => <div key={item.id}><time>{localTime(item.at)}</time><i /><span><strong>{item.source}</strong>{item.text}</span><em>{titleState(item.tone)}</em></div>)}
+        {!items.length && <div className="mb-os-empty"><History size={20} /><p>No scanner activity has been stored yet.</p></div>}
+      </div>
+    </section>
+  );
+}
+
+export function JournalLearningPanel({ snapshot }: { snapshot: ScannerSnapshot }) {
+  const journal = snapshot.journal;
+  const resolved = journal ? journal.wins + journal.losses : 0;
+  const winRate = resolved && journal ? Math.round((journal.wins / resolved) * 100) : null;
+  const best = [...(journal?.bySetup ?? [])].sort((a, b) => b.pnl - a.pnl)[0];
+  const worst = [...(journal?.bySetup ?? [])].sort((a, b) => a.pnl - b.pnl)[0];
+  return (
+    <section className="mb-os-panel">
+      <div className="mb-section-heading"><div><span className="mb-eyebrow">JOURNAL + LEARNING</span><h3>Evidence, not silent rule changes</h3></div></div>
+      <div className="mb-learning-grid">
+        <span><small>Total trades</small><strong>{journal?.trades ?? 0}</strong></span>
+        <span><small>Win rate</small><strong>{winRate == null ? "—" : `${winRate}%`}</strong></span>
+        <span><small>Known P/L</small><strong>{journal?.knownPnl ?? 0}</strong></span>
+        <span><small>Best setup</small><strong>{best?.key ?? "—"}</strong></span>
+        <span><small>Needs review</small><strong>{worst?.key ?? "—"}</strong></span>
+      </div>
+      <p>{journal?.caution ?? "Select a risk account to connect journal statistics."}</p>
+    </section>
+  );
+}
+
+export function MarketSessionTimeline({ snapshot }: { snapshot: ScannerSnapshot }) {
+  const hour = new Date().getUTCHours();
+  const sessions = [
+    ["Asia", hour >= 0 && hour < 8],
+    ["London", hour >= 7 && hour < 16],
+    ["London / NY", hour >= 12 && hour < 16],
+    ["New York", hour >= 12 && hour < 21],
+  ] as const;
+  return (
+    <section className="mb-os-panel">
+      <div className="mb-section-heading"><div><span className="mb-eyebrow">UTC MARKET CLOCK</span><h3>Session intelligence</h3></div><span className="mb-badge">{new Date().toLocaleTimeString("en-GB", { timeZone: "Europe/Vienna", hour: "2-digit", minute: "2-digit" })} VIENNA</span></div>
+      <div className="mb-session-line">
+        {sessions.map(([name, active]) => {
+          const count = snapshot.candidates.filter((item) => item.payload.session.toLowerCase().includes(name.split(" ")[0].toLowerCase())).length;
+          return <div className={active ? "is-active" : ""} key={name}><i /><strong>{name}</strong><small>{active ? "OPEN" : "CLOSED"} · {count} setups</small></div>;
+        })}
+      </div>
     </section>
   );
 }

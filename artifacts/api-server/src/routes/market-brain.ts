@@ -243,6 +243,8 @@ router.get(
     const [
       candidates,
       alerts,
+      setupEvents,
+      executionEvents,
       paperTrades,
       versions,
       runs,
@@ -257,6 +259,33 @@ router.get(
         order: "created_at.desc",
         limit: "50",
       }),
+      user.request<
+        Array<{
+          id: string;
+          candidate_id: string;
+          kind: string;
+          detail: Record<string, unknown>;
+          created_at: string;
+        }>
+      >("setup_events", {
+        order: "created_at.desc",
+        limit: "100",
+      }),
+      user
+        .request<
+          Array<{
+            id: string;
+            candidate_id: string | null;
+            state: string;
+            reason: string | null;
+            detail: Record<string, unknown>;
+            created_at: string;
+          }>
+        >("scanner_execution_events", {
+          order: "created_at.desc",
+          limit: "100",
+        })
+        .catch(() => []),
       user.request("paper_trades", {
         order: "opened_at.desc",
         limit: "100",
@@ -319,6 +348,28 @@ router.get(
           };
         }),
       alerts,
+      activity: [
+        ...setupEvents.map((event) => ({
+          id: event.id,
+          candidate_id: event.candidate_id,
+          kind: event.kind,
+          source: "SCANNER" as const,
+          reason: null,
+          detail: event.detail,
+          created_at: event.created_at,
+        })),
+        ...executionEvents.map((event) => ({
+          id: event.id,
+          candidate_id: event.candidate_id,
+          kind: event.state,
+          source: "EXECUTION" as const,
+          reason: event.reason,
+          detail: event.detail,
+          created_at: event.created_at,
+        })),
+      ]
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(0, 100),
       paperTrades,
       versions,
       runs,
@@ -431,6 +482,34 @@ router.put(
       parsed.data.autoExecutionEnabled ||
       parsed.data.tradingMode === "AUTO"
     ) {
+      const permissions = config.config.permissions;
+      if (
+        !permissions.automaticScanning ||
+        !permissions.automaticSetupDetection ||
+        !permissions.automaticCandidateCreation ||
+        !permissions.automaticRiskCalculation ||
+        !permissions.automaticOrderPreparation
+      )
+        throw new ScannerError(
+          "Enable scanning, setup detection, candidate creation, risk calculation and order preparation in Permission Center before arming AUTO.",
+          409,
+        );
+      if (
+        parsed.data.tradingSource === "TWELVE_DATA" &&
+        !permissions.paperTradeExecution
+      )
+        throw new ScannerError(
+          "Enable Paper-trade execution in Permission Center before arming Twelve Data AUTO.",
+          409,
+        );
+      if (
+        parsed.data.tradingSource === "MT5" &&
+        !permissions.mt5LiveExecution
+      )
+        throw new ScannerError(
+          "Enable MT5 live execution in Permission Center before arming MT5 AUTO.",
+          409,
+        );
       const versions = await store.request<VersionRow[]>(
         "scanner_strategy_versions",
         { user_id: `eq.${identity.userId}` },

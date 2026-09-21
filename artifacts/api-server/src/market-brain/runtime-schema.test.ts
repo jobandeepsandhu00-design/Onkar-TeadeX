@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { scannerRuntimeSchema } from "@workspace/api-zod";
+import { scannerConfigSchema, scannerRuntimeSchema } from "@workspace/api-zod";
 
 test("scanner runtime accepts Supabase timestamptz offsets", () => {
   const runtime = scannerRuntimeSchema.parse({
@@ -22,4 +22,15 @@ test("scanner runtime keeps Z timestamps and null defaults", () => {
   assert.equal(runtime.tradingSource, "TWELVE_DATA");
   assert.equal(runtime.mt5DisconnectBehavior, "LOCK");
   assert.equal(runtime.autoReturnMt5, false);
+});
+
+test("permission center defaults keep analysis and Paper safe while MT5 live is explicit", () => {
+  const config = scannerConfigSchema.parse({});
+
+  assert.equal(config.permissions.automaticScanning, true);
+  assert.equal(config.permissions.automaticSetupDetection, true);
+  assert.equal(config.permissions.automaticRiskCalculation, true);
+  assert.equal(config.permissions.paperTradeExecution, true);
+  assert.equal(config.permissions.mt5LiveExecution, false);
+  assert.equal(config.permissions.autoTradeClose, false);
 });

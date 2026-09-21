@@ -238,6 +238,20 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
       reason: "Paper scanner configuration is disabled.",
     };
   const config = scannerConfigSchema.parse(configRow.config);
+  if (!config.permissions.paperTradeExecution)
+    return {
+      skipped: true,
+      reason: "Paper-trade execution is disabled in Permission Center.",
+    };
+  if (
+    !config.permissions.automaticRiskCalculation ||
+    !config.permissions.automaticOrderPreparation
+  )
+    return {
+      skipped: true,
+      reason:
+        "Automatic risk calculation or order preparation is disabled in Permission Center.",
+    };
   const [candidate] = await store.request<CandidateRow[]>("setup_candidates", {
     config_id: `eq.${configRow.id}`,
     user_id: `eq.${runtime.user_id}`,

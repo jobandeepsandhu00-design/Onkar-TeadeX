@@ -240,6 +240,12 @@ export async function runScannerJob(
     liveExecution: false,
   };
   try {
+    if (!config.permissions.automaticScanning)
+      throw new Error("Automatic scanning is disabled in Permission Center.");
+    if (!config.permissions.automaticSetupDetection)
+      throw new Error(
+        "Automatic setup detection is disabled in Permission Center.",
+      );
     // Expiry does not require a working provider. Preserve the last known data timestamp.
     const expired = await store.request<CandidateRow[]>("setup_candidates", {
       config_id: `eq.${job.id}`,
@@ -493,13 +499,16 @@ export async function runScannerJob(
         "entry_zone_reached",
       ];
       const alert =
-        alertKinds.includes(event) && !analysis.stale
+        config.permissions.automaticAlerts &&
+        alertKinds.includes(event) &&
+        !analysis.stale
           ? {
               kind: event,
               key: `${candidate.id}:${event}`,
               message: `${symbol} · ${version.name} · ${event.replaceAll("_", " ")} · rule confluence ${analysis.score}/100. Review risk and news before making any decision.`,
             }
           : null;
+      if (!config.permissions.automaticCandidateCreation) continue;
       await store.rpc("commit_scanner_candidate", {
         p_config: job.id,
         p_lease: job.lease_token,
@@ -528,7 +537,11 @@ export async function runScannerJob(
         ],
         p_alert: alert,
       });
-      if (!terminal(state) && Date.now() - started < aiBudget)
+      if (
+        config.permissions.aiAnalysis &&
+        !terminal(state) &&
+        Date.now() - started < aiBudget
+      )
         await explain(store, candidate, { ...job, config });
       logger.info(
         { event, candidateId: candidate.id, symbol, score: candidate.score },

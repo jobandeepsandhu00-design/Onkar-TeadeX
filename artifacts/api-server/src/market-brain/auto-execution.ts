@@ -226,6 +226,20 @@ export async function runNextAutoExecution() {
   if (!configRow)
     return { skipped: true, reason: "Scanner configuration is disabled." };
   const config = scannerConfigSchema.parse(configRow.config);
+  if (!config.permissions.mt5LiveExecution)
+    return {
+      skipped: true,
+      reason: "MT5 live execution is disabled in Permission Center.",
+    };
+  if (
+    !config.permissions.automaticRiskCalculation ||
+    !config.permissions.automaticOrderPreparation
+  )
+    return {
+      skipped: true,
+      reason:
+        "Automatic risk calculation or order preparation is disabled in Permission Center.",
+    };
   const candidates = await store.request<CandidateRow[]>("setup_candidates", {
     config_id: `eq.${configRow.id}`,
     user_id: `eq.${owner}`,

@@ -16,9 +16,17 @@ import { ScannerReplay } from "./ScannerReplay";
 import { AccountCommandCarousel } from "./AccountCommandCarousel";
 import { AutomationControlBar } from "./AutomationControlBar";
 import {
+  BossBriefing,
+  CommandCenterHero,
   DataProviderManager,
+  JournalLearningPanel,
+  LiveCandidateCarousel,
+  MarketSessionTimeline,
   MasterAIOrbitalHub,
+  PermissionCenter,
   SetupActivationPanel,
+  SystemActivityTimeline,
+  TradeCommandCenter,
   TradingLifecycle,
 } from "./CommandCenterVisuals";
 import type { AgentId } from "../onkar-ai/agent-data";
@@ -335,6 +343,12 @@ export default function MarketBrain({
             )}
             {tab === "Watchlist" && (
               <div className="mb-stack">
+                <CommandCenterHero
+                  snapshot={snapshot}
+                  activeSetups={activeRuleCount}
+                  onOpenScanner={() => root.current?.scrollIntoView({ behavior: "smooth" })}
+                  onRefresh={() => void refresh()}
+                />
                 <AutomationControlBar
                   runtime={snapshot.runtime}
                   mt5Status={snapshot.connection.mt5 ?? "NOT CONFIGURED"}
@@ -380,6 +394,10 @@ export default function MarketBrain({
                 <TradingLifecycle
                   candidate={ranked[0] ?? active[0] ?? null}
                   monitoringCount={activeRuleCount}
+                  candidates={snapshot.candidates}
+                  onStageSelect={(stage) =>
+                    setStatus(stage === "SCANNING" ? "All" : stage)
+                  }
                 />
                 <div className="mb-kpis">
                   {[
@@ -463,6 +481,10 @@ export default function MarketBrain({
                         : "Setup detection disabled. The approved version remains in your Library.",
                     );
                   }}
+                />
+                <LiveCandidateCarousel
+                  snapshot={snapshot}
+                  onOpen={setSelected}
                 />
                 {!ranked.length ? (
                   <div className="mb-empty">
@@ -551,6 +573,28 @@ export default function MarketBrain({
                   </div>
                 )}
                 <MasterAIOrbitalHub onOpen={onOpenAgent} />
+                <BossBriefing snapshot={snapshot} />
+                <TradeCommandCenter
+                  snapshot={snapshot}
+                  onOpenJournal={onJournal}
+                />
+                {snapshot.config?.config ? (
+                  <PermissionCenter
+                    config={snapshot.config.config}
+                    busy={loading}
+                    onChange={(permissions) =>
+                      void saveConfig(
+                        { permissions },
+                        "Permission Center updated for the shared scanner and execution router.",
+                      )
+                    }
+                  />
+                ) : null}
+                <MarketSessionTimeline snapshot={snapshot} />
+                <div className="mb-os-two-column">
+                  <SystemActivityTimeline snapshot={snapshot} />
+                  <JournalLearningPanel snapshot={snapshot} />
+                </div>
                 <div className="mb-row mb-wrap">
                   <button
                     disabled={!snapshot.config?.enabled}
