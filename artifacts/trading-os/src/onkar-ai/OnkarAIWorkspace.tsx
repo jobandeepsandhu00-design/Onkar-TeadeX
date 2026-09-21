@@ -21,8 +21,10 @@ import {
   ChevronRight,
   CircleHelp,
   ClipboardList,
+  Database,
   FlaskConical,
   Globe2,
+  GitBranch,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -83,6 +85,7 @@ import {
   DialogDescription,
 } from "../components/ui/dialog";
 const ConnectedScanner = lazy(() => import("../market-brain/MarketBrain"));
+const EvolutionLab = lazy(() => import("../knowledge/EvolutionLab"));
 const groups: Array<{
   label: string;
   items: Array<[AISection, string, LucideIcon]>;
@@ -105,6 +108,8 @@ const groups: Array<{
       ["journal", "Trading Journal", ClipboardList],
       ["backtesting", "Backtesting", FlaskConical],
       ["analytics", "Analytics", ChartNoAxesCombined],
+      ["knowledge", "Knowledge Center", Database],
+      ["evolution", "Evolution Lab", GitBranch],
     ],
   },
   {
@@ -1092,6 +1097,10 @@ export default function OnkarAIWorkspace({
             <JournalPage onJournal={() => onExit("journal")} />
           ) : segment === "analytics" ? (
             connectedPanel("Journal insights")
+          ) : segment === "knowledge" || segment === "evolution" ? (
+            <Suspense fallback={<section className="oai-command-loading" role="status"><div className="oai-command-loading-orb"><BrainCircuit size={34} /></div><h2>Loading the Library brain</h2><p>Connecting stored knowledge, provenance and trading evidence.</p></section>}>
+              <EvolutionLab mode={segment === "knowledge" ? "knowledge" : "evolution"} onOpenLibrary={() => onExit("library")} />
+            </Suspense>
           ) : segment === "assistant" ? (
             <AssistantPage onNavigate={navigate} />
           ) : segment === "risk" ? (

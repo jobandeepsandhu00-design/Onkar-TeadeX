@@ -40,6 +40,7 @@ import { OpenAIExplanationProvider } from "../market-brain/ai";
 import { openAIConfigured, openAIHealth } from "../lib/openai";
 import { runMasterAI } from "../onkar-ai/orchestrator";
 import { runNextLearningJob } from "../onkar-ai/learning-worker";
+import { runNextKnowledgeJob } from "../onkar-ai/knowledge-service";
 import { getSharedMarketSnapshot } from "../market-brain/shared-market";
 import { compileLibrarySetup } from "../market-brain/strategy-compiler";
 import { latestApprovedVersions } from "../market-brain/strategy-selection";
@@ -153,6 +154,7 @@ const cronHandler = route(async (req, res) => {
     })),
   ]);
   const learning = await runNextLearningJob();
+  const knowledge = await runNextKnowledgeJob();
   const execution = await runNextExecution().catch((error) => ({
     skipped: true,
     reason:
@@ -165,6 +167,7 @@ const cronHandler = route(async (req, res) => {
     result,
     mt5Journal,
     learning,
+    knowledge,
     execution,
     checkedAt: new Date().toISOString(),
   });

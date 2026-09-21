@@ -55,7 +55,7 @@ export function planMasterRequest(question: string): MasterPlan {
       intent: "similar_trades",
       agents: ["journal", "setup", "insight"],
     };
-  if (/strategy|rules?|library|valid setup/.test(q))
+  if (/strategy|rules?|library|valid setup|video|lesson|knowledge|learned|conflict|confirmation/.test(q))
     return {
       ...base,
       intent: "strategy_question",

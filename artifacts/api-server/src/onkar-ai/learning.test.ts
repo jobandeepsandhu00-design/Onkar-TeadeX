@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeTrades, sampleConfidence, similarTrades, summarizeTrades } from "./learning";
+import { classifyTradeAutopsy } from "./learning-worker";
+import { setupApproved } from "./knowledge-service";
 
 const source = {
   setups: [{ id: "src", name: "SRC Support Rejection" }],
@@ -33,4 +35,20 @@ test("minimum sample thresholds remain conservative", () => {
   assert.equal(sampleConfidence(19).level, "early");
   assert.equal(sampleConfidence(49).level, "moderate");
   assert.equal(sampleConfidence(50).level, "stronger");
+});
+
+test("trade autopsy separates a valid loss from a rule violation", () => {
+  const [win, loss] = normalizeTrades(source);
+  assert.equal(classifyTradeAutopsy(win).classification, "VALID_WIN");
+  assert.equal(classifyTradeAutopsy(loss).classification, "EARLY_ENTRY");
+  const validLoss = { ...loss, mistakes: [], rulesFailed: [] };
+  assert.equal(classifyTradeAutopsy(validLoss).classification, "VALID_LOSS");
+  assert.equal(classifyTradeAutopsy(validLoss).strategyChangeNeeded, "NO");
+});
+
+test("knowledge ingestion never treats enabled or active drafts as approved", () => {
+  assert.equal(setupApproved({ enabled: true, status: "active" }), false);
+  assert.equal(setupApproved({ approval: "ai_extracted", enabled: true }), false);
+  assert.equal(setupApproved({ approval: "approved" }), true);
+  assert.equal(setupApproved({ approved: true }), true);
 });

@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import express from "express";
 import type { AddressInfo } from "node:net";
 import router from "../routes/market-brain";
+import knowledgeRouter from "../routes/knowledge";
 import { scannerToolInputSchema } from "@workspace/api-zod";
 
 test("all private scanner APIs reject anonymous requests", async () => {
   const app = express();
   app.use(express.json());
   app.use(router);
+  app.use(knowledgeRouter);
   const server = app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -22,6 +24,11 @@ test("all private scanner APIs reject anonymous requests", async () => {
       ["DELETE", "/market-brain/notifications"],
       ["DELETE", "/market-brain/notifications/read"],
       ["PUT", "/market-brain/notification-preferences"],
+      ["GET", "/onkar-ai/knowledge"],
+      ["GET", "/onkar-ai/knowledge/search?q=wickfill"],
+      ["POST", "/onkar-ai/knowledge/sync"],
+      ["PATCH", "/onkar-ai/knowledge/00000000-0000-4000-8000-000000000001"],
+      ["PUT", "/onkar-ai/learning/preferences"],
       ["GET", "/market-brain/shared-market?symbol=XAUUSD&timeframe=15m"],
       ["PUT", "/market-brain/config"],
       ["POST", "/market-brain/strategies"],

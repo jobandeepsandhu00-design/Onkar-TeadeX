@@ -10,6 +10,8 @@ export type AISection =
   | "journal"
   | "backtesting"
   | "analytics"
+  | "knowledge"
+  | "evolution"
   | "assistant"
   | "news"
   | "risk"

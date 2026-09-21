@@ -140,7 +140,13 @@ export async function runMasterAI(args: {
       summary: "Authenticated request received.",
     },
   ];
-  const [source, candidates, versions] = await Promise.all([
+  const knowledgeTerms = [...new Set(args.input.question.toLowerCase().match(/[a-z0-9]{4,}/g) ?? [])]
+    .filter((term) => !["what","does","about","show","from","with","that","this","have","your","onkar"].includes(term))
+    .slice(0, 6);
+  const knowledgeQuery: Record<string, string> = knowledgeTerms.length
+    ? { status: "neq.REJECTED", or: `(${knowledgeTerms.flatMap((term) => [`title.ilike.*${term}*`,`summary.ilike.*${term}*`]).join(",")})`, order: "confidence.desc,updated_at.desc", limit: "20" }
+    : { status: "neq.REJECTED", order: "updated_at.desc", limit: "12" };
+  const [source, candidates, versions, knowledgeItems] = await Promise.all([
     args.user.source(args.identity.userId),
     args.user.request<CandidateRow[]>("setup_candidates", {
       order: "updated_at.desc",
@@ -150,7 +156,14 @@ export async function runMasterAI(args: {
       order: "created_at.desc",
       limit: "100",
     }),
+    args.user.request<Array<Record<string, unknown>>>("onkar_knowledge_items", knowledgeQuery).catch(() => []),
   ]);
+  const knowledgeIds = knowledgeItems.map((item) => String(item.id)).filter(Boolean);
+  const knowledgeSources = knowledgeIds.length
+    ? await args.user.request<Array<Record<string, unknown>>>("onkar_knowledge_sources", {
+        knowledge_id: `in.(${knowledgeIds.join(",")})`, order: "created_at.asc", limit: "100",
+      }).catch(() => [])
+    : [];
   const trades = normalizeTrades(source),
     journal = summarizeTrades(trades);
   const compactJournal = {
@@ -244,6 +257,18 @@ export async function runMasterAI(args: {
         rules: row.rules,
       }))
       .slice(0, 30),
+    sharedLibraryKnowledge: knowledgeItems.map((item) => ({
+      id: item.id, kind: item.kind, status: item.status, title: item.title, summary: item.summary,
+      tags: item.tags, symbols: item.symbols, timeframes: item.timeframes, confidence: item.confidence,
+      mayInfluenceProduction: item.may_influence_production,
+      structuredData: item.structured_data,
+      sources: knowledgeSources.filter((source) => source.knowledge_id === item.id).map((source) => ({
+        type: source.source_type, id: source.source_id, title: source.source_title,
+        startSeconds: source.start_seconds, endSeconds: source.end_seconds, page: source.page_number,
+        confidence: source.confidence, verification: source.verification_status,
+      })),
+    })),
+    knowledgeSafety: "Only rows with mayInfluenceProduction=true may support a production trading decision. Review-only knowledge may be explained but cannot unlock execution.",
   };
   const results: AgentResult[] = [];
   progress("master", "delegating");
