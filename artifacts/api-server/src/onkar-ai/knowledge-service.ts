@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { NotificationService } from "../notifications/service";
 import { ScannerStore, records } from "../market-brain/store";
+import { persistLearningEvidence } from "./learning-worker";
 
 export type KnowledgeStatus =
   | "UNVERIFIED" | "AI_EXTRACTED" | "HUMAN_VERIFIED" | "HISTORICALLY_SUPPORTED"
@@ -233,6 +234,14 @@ export async function runNextKnowledgeJob() {
       await store.request("onkar_ingestion_jobs", { id: `eq.${job.id}` }, "PATCH", { knowledge_id: learned.base.id, stage: "READY", locked_until: null, failed_stage: null, last_error: null, processing_log: [{ at: new Date().toISOString(), event: "READY", rules: learned.rules.length }], updated_at: new Date().toISOString() });
       await new NotificationService(store).upsert({ userId: job.user_id, eventKey: `learning:video:${video.id}`, eventVersion: `${video.updated_at}:ready`, category: "AI", priority: "IMPORTANT", agentSource: "MASTER_AI", lifecycleState: "READY", title: `${video.title} · learned`, message: `Library AI linked ${learned.rules.length} extracted rules to their source. Unverified rules remain review-only.`, recommendedAction: "Review extracted knowledge before it can influence production.", actions: [{ id: "knowledge", label: "Open Knowledge Center", href: "/onkar-ai/knowledge", intent: "NAVIGATE", confirm: false }], metadata: { voiceEligible: learned.rules.length > 0, knowledgeId: learned.base.id } });
       return { status: "complete" as const, jobId, sourceType: job.source_type, rules: learned.rules.length };
+    }
+    if (job.source_type === "TRADE_RESULTS") {
+      const learned = await persistLearningEvidence(store, job.user_id, await store.source(job.user_id));
+      await store.request("onkar_ingestion_jobs", { id: `eq.${job.id}` }, "PATCH", {
+        stage: "READY", locked_until: null, failed_stage: null, last_error: null,
+        processing_log: [{ at: new Date().toISOString(), event: "READY", ...learned }], updated_at: new Date().toISOString(),
+      });
+      return { status: "complete" as const, jobId, sourceType: job.source_type, ...learned };
     }
     await syncLibraryKnowledge(job.user_id);
     await store.request("onkar_ingestion_jobs", { id: `eq.${job.id}` }, "PATCH", { stage: "READY", locked_until: null, updated_at: new Date().toISOString() });
