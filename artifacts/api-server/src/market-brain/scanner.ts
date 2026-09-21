@@ -32,7 +32,10 @@ import {
 } from "./global-workflow";
 import { selectScannerMarketProvider } from "./provider-selection";
 import { sharedProviderCandles } from "./shared-market";
-import { resolveInstrumentSizing } from "./risk-sizing";
+import {
+  paperInstrumentSizingFromRate,
+  resolveInstrumentSizing,
+} from "./risk-sizing";
 
 export const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -237,6 +240,15 @@ export async function runScannerJob(
     !Array.isArray(job.health.setupCoverage)
       ? (job.health.setupCoverage as Record<string, unknown>)
       : {};
+  const priorSizingBySymbol =
+    job.health.riskSizingBySymbol &&
+    typeof job.health.riskSizingBySymbol === "object" &&
+    !Array.isArray(job.health.riskSizingBySymbol)
+      ? (job.health.riskSizingBySymbol as Record<
+          string,
+          Record<string, unknown>
+        >)
+      : {};
   let health: Record<string, unknown> = {
     status: "offline",
     checkedAt: new Date(started).toISOString(),
@@ -351,6 +363,7 @@ export async function runScannerJob(
     );
     let sizing = null;
     let sizingError: string | null = null;
+    let sizingCached = false;
     if (accountRecord) {
       try {
         sizing = await resolveInstrumentSizing({
@@ -362,10 +375,26 @@ export async function runScannerJob(
         if (!sizing)
           sizingError = `${symbol} has no automatic contract specification; configure an explicit fallback value.`;
       } catch (sizingFailure) {
-        sizingError =
-          sizingFailure instanceof Error
-            ? sizingFailure.message
-            : "Instrument sizing is unavailable.";
+        const cached = priorSizingBySymbol[symbol];
+        const cachedAt = Date.parse(String(cached?.checkedAt || ""));
+        if (
+          activeProvider === "twelvedata" &&
+          Number(cached?.conversionRate) > 0 &&
+          Number.isFinite(cachedAt) &&
+          now - cachedAt <= 30 * 60_000
+        ) {
+          sizing = paperInstrumentSizingFromRate(
+            symbol,
+            String(accountRecord.currency || "USD"),
+            Number(cached.conversionRate),
+          );
+          sizingCached = Boolean(sizing);
+        }
+        if (!sizing)
+          sizingError =
+            sizingFailure instanceof Error
+              ? sizingFailure.message
+              : "Instrument sizing is unavailable.";
       }
     }
     const news = await newsCheck(symbol, config, now);
@@ -405,8 +434,28 @@ export async function runScannerJob(
             accountCurrency: sizing.accountCurrency,
             conversionRate: sizing.conversionRate,
             volumeStep: sizing.volumeStep,
+            checkedAt: new Date(now).toISOString(),
+            cached: sizingCached,
           }
         : { source: "unavailable", reason: sizingError },
+      riskSizingBySymbol: {
+        ...priorSizingBySymbol,
+        [symbol]: sizing
+          ? {
+              source: sizing.source,
+              accountCurrency: sizing.accountCurrency,
+              conversionRate: sizing.conversionRate,
+              valuePerPriceUnit: sizing.valuePerPriceUnit,
+              volumeStep: sizing.volumeStep,
+              checkedAt: new Date(now).toISOString(),
+              cached: sizingCached,
+            }
+          : {
+              source: "unavailable",
+              reason: sizingError,
+              checkedAt: new Date(now).toISOString(),
+            },
+      },
     };
     const enrichedTrades = records(source.trades).map((t) => ({
       ...t,

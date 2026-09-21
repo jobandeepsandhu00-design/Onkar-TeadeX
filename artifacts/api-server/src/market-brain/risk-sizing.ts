@@ -101,6 +101,21 @@ export async function resolvePaperInstrumentSizing(
     normalizedCurrency,
     loadQuote,
   );
+  return paperInstrumentSizingFromRate(
+    symbol,
+    normalizedCurrency,
+    conversionRate,
+  );
+}
+
+export function paperInstrumentSizingFromRate(
+  symbol: string,
+  accountCurrency: string,
+  conversionRate: number,
+): InstrumentSizing | null {
+  const contract = paperContract(symbol);
+  if (!contract || !(conversionRate > 0)) return null;
+  const normalizedCurrency = accountCurrency.toUpperCase();
   return {
     symbol: normalize(symbol),
     ...contract,

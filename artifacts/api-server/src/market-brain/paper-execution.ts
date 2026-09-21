@@ -2,7 +2,10 @@ import { scannerConfigSchema, strategyVersionSchema } from "@workspace/api-zod";
 import { getMarketProvider } from "./providers";
 import { accountContext } from "./journal";
 import { calculateRisk } from "./evaluation";
-import { resolvePaperInstrumentSizing } from "./risk-sizing";
+import {
+  paperInstrumentSizingFromRate,
+  resolvePaperInstrumentSizing,
+} from "./risk-sizing";
 import {
   ScannerStore,
   records,
@@ -294,10 +297,32 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
       if (!sizing)
         sizingError = `${candidate.symbol} has no automatic Paper contract specification.`;
     } catch (error) {
-      sizingError =
-        error instanceof Error
-          ? error.message
-          : "Currency conversion is unavailable.";
+      const sizingBySymbol =
+        configRow.health.riskSizingBySymbol &&
+        typeof configRow.health.riskSizingBySymbol === "object" &&
+        !Array.isArray(configRow.health.riskSizingBySymbol)
+          ? (configRow.health.riskSizingBySymbol as Record<
+              string,
+              Record<string, unknown>
+            >)
+          : {};
+      const cached = sizingBySymbol[candidate.symbol];
+      const cachedAt = Date.parse(String(cached?.checkedAt || ""));
+      if (
+        Number(cached?.conversionRate) > 0 &&
+        Number.isFinite(cachedAt) &&
+        Date.now() - cachedAt <= 30 * 60_000
+      )
+        sizing = paperInstrumentSizingFromRate(
+          candidate.symbol,
+          String(accountRecord.currency || "USD"),
+          Number(cached.conversionRate),
+        );
+      if (!sizing)
+        sizingError =
+          error instanceof Error
+            ? error.message
+            : "Currency conversion is unavailable.";
     }
   }
   const account = accountContext(
