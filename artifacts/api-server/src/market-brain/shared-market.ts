@@ -61,6 +61,16 @@ export function closedCandleCacheMs(timeframe: Timeframe, now: number) {
   return Math.max(55_000, nextClose - now + 15_000);
 }
 
+export function latestClosedCandleOpenTime(
+  timeframe: Timeframe,
+  now: number,
+  providerGraceMs = 15_000,
+) {
+  const interval = timeframeMs[timeframe];
+  const effectiveNow = now - providerGraceMs;
+  return Math.floor(effectiveNow / interval) * interval - interval;
+}
+
 function uniqueBars(rows: ProviderBar[]) {
   return [...new Map(rows.map((row) => [row.t, row])).values()].sort(
     (a, b) => a.t - b.t,
@@ -97,6 +107,20 @@ export async function sharedProviderCandles(
       c: row.c,
       v: row.v,
     }));
+    const latestStored = storedCandles.at(-1)?.t ?? 0;
+    if (
+      cacheMode === "closed-candle" &&
+      storedCandles.length >= 200 &&
+      latestStored >= latestClosedCandleOpenTime(timeframe, now)
+    ) {
+      return {
+        candles: storedCandles
+          .slice(-300)
+          .map((bar) => ({ ...bar, closed: true })),
+        dataStatus: "live" as SharedMarketSnapshot["dataStatus"],
+        warnings: [],
+      };
+    }
     const provider = getMarketProvider(providerName);
     const from = storedCandles.at(-1)?.t
       ? Math.max(
