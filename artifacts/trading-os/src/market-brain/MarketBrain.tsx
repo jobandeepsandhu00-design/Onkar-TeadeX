@@ -15,6 +15,7 @@ import { MT5StatusPanel } from "./MT5StatusPanel";
 import { ScannerReplay } from "./ScannerReplay";
 import { AccountCommandCarousel } from "./AccountCommandCarousel";
 import { AutomationControlBar } from "./AutomationControlBar";
+import { SystemControlCenter } from "./SystemControlCenter";
 import {
   BossBriefing,
   CommandCenterHero,
@@ -357,6 +358,13 @@ export default function MarketBrain({
                   }
                   onRefresh={() => void refresh()}
                 />
+                <SystemControlCenter
+                  snapshot={snapshot}
+                  onChanged={(message) => {
+                    setNotice(message);
+                    void refresh();
+                  }}
+                />
                 <AutomationControlBar
                   runtime={snapshot.runtime}
                   mt5Status={snapshot.connection.mt5 ?? "NOT CONFIGURED"}
@@ -692,6 +700,13 @@ export default function MarketBrain({
             )}
             {tab === "Connections" && (
               <div className="mb-stack">
+                <SystemControlCenter
+                  snapshot={snapshot}
+                  onChanged={(message) => {
+                    setNotice(message);
+                    void refresh();
+                  }}
+                />
                 <DataProviderManager
                   snapshot={snapshot}
                   busy={loading}
