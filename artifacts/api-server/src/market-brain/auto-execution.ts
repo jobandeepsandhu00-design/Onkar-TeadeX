@@ -18,6 +18,7 @@ import {
   type VersionRow,
 } from "./store";
 import { executionRequestId } from "./execution-identity";
+import { NotificationService } from "../notifications/service";
 
 type RuntimeRow = {
   user_id: string;
@@ -183,6 +184,16 @@ async function event(
     account_id: candidate.payload.scopeAccountId ?? null,
     detail,
   });
+  await new NotificationService(store).execution({
+    userId: runtime.user_id,
+    candidate,
+    state,
+    reason,
+    provider: "MT5",
+    eventKey: requestId,
+    tradeId: typeof detail.tradeId === "string" ? detail.tradeId : null,
+    detail,
+  }).catch(() => undefined);
 }
 
 const accountMatches = (stored: Record<string, unknown>, masked: string) => {

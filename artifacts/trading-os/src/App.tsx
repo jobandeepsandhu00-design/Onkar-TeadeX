@@ -40,6 +40,7 @@ const loadOnkarAIWorkspace = () => import("./onkar-ai/OnkarAIWorkspace");
 const OnkarAIWorkspace = React.lazy(loadOnkarAIWorkspace);
 const MasterSetupAlertMonitor = React.lazy(() => import("./onkar-ai/MasterSetupAlertMonitor"));
 import "./onkar-ai/onkar-ai.css";
+import { NotificationCenterBell, RecentAlertsWidget } from "./notifications/NotificationCenter";
 
 /* ============================================================
    UTILITIES
@@ -6418,6 +6419,11 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
           </div>
         </div>
       </div>
+
+      <RecentAlertsWidget onNavigate={(path) => {
+        if (path.startsWith("/onkar-ai")) goTo("onkar-ai", path);
+        else if (path.includes("journal")) goTo("journal", undefined);
+      }} />
 
       {/* ── ORDERED SECTIONS ── */}
       {dashboardDisplayOrder.map((key, i) => {
@@ -15717,7 +15723,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   const [quickLogOpen, setQuickLogOpen] = useState(false);
   const [setupLibraryEditId, setSetupLibraryEditId] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [onkarAIPath, setOnkarAIPath] = useState<string | null>(() => /^\/onkar-ai(?:\/|$)/.test(window.location.pathname) ? window.location.pathname : null);
+  const [onkarAIPath, setOnkarAIPath] = useState<string | null>(() => /^\/onkar-ai(?:\/|$)/.test(window.location.pathname) ? `${window.location.pathname}${window.location.search}` : null);
   const routeLessonId = window.location.pathname.match(/^\/learn\/strategy\/([^/]+)\/?$/)?.[1] || null;
   const [videoLessonId, setVideoLessonId] = useState<string | null>(routeLessonId ? decodeURIComponent(routeLessonId) : null);
   const [riskAlert, setRiskAlert] = useState<RiskAlert | null>(null);
@@ -15749,7 +15755,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
 
   useEffect(() => {
     const syncRoute = () => {
-      setOnkarAIPath(/^\/onkar-ai(?:\/|$)/.test(window.location.pathname) ? window.location.pathname : null);
+      setOnkarAIPath(/^\/onkar-ai(?:\/|$)/.test(window.location.pathname) ? `${window.location.pathname}${window.location.search}` : null);
       const match = window.location.pathname.match(/^\/learn\/strategy\/([^/]+)\/?$/);
       setVideoLessonId(match ? decodeURIComponent(match[1]) : null);
     };
@@ -16241,9 +16247,10 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
                 <span className="font-semibold text-slate-100 text-sm" style={{ fontFamily: "'Sora', sans-serif" }}>Onkar TradeX</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <NotifBell count={unreadCount} accent={accent} onClick={() => {
-                  setNotifCentreOpen(true);
-                  markNotificationsRead(notifs.map((notification) => notification.id));
+                <NotificationCenterBell onNavigate={(path) => {
+                  if (path.startsWith("/onkar-ai")) goTo("onkar-ai", path);
+                  else if (path.includes("journal")) goTo("journal", undefined);
+                  else goTo("home", undefined);
                 }} />
                 {(data as any)?.settings?.showSearchBar !== false && (
                   <button onClick={() => setSearchOpen(true)} className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 transition">

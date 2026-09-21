@@ -33,6 +33,7 @@ import { agentVoice } from "./agent-voice";
 import { useAgentAnimationState } from "./useAgentAnimationState";
 import { AnimatedAgentAvatar } from "./AnimatedAgentAvatar";
 import { AgentVoiceControls } from "./AgentVoiceControls";
+import { useNotificationInbox } from "../notifications/NotificationCenter";
 type Navigate = (path: string) => void;
 export function ScannerPage({
   onSelect,
@@ -432,6 +433,8 @@ export function AnalyticsPage() {
   );
 }
 export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
+  const notificationInbox = useNotificationInbox();
+  const alertContextSent = useRef(false);
   const speaker = "master" as const;
   const animation = useAgentAnimationState(speaker);
   const request = useRef<{ token: string; abort: AbortController } | null>(
@@ -518,6 +521,24 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
       }
     }
   };
+  useEffect(() => {
+    const ids = new URLSearchParams(window.location.search).get("alerts")?.split(",").filter(Boolean) ?? [];
+    if (!ids.length || alertContextSent.current || notificationInbox.loading) return;
+    const selected = notificationInbox.items.filter((item) => ids.includes(item.id));
+    if (!selected.length) return;
+    alertContextSent.current = true;
+    const context = selected.map((item) => ({
+      title: item.title,
+      message: item.message,
+      priority: item.priority,
+      lifecycle: item.lifecycle_state,
+      symbol: item.symbol,
+      timeframe: item.timeframe,
+      evidence: item.evidence,
+      recommendedAction: item.recommended_action,
+    }));
+    void send(`Review these current authenticated notification threads and tell me what needs attention first. Do not invent missing data. Alert context: ${JSON.stringify(context)}`);
+  }, [notificationInbox.loading, notificationInbox.items]);
   return (
     <div className="oai-assistant-layout">
       <Panel title="Explore with Onkar AI" kicker="SUGGESTED PROMPTS">

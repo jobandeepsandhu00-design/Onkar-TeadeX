@@ -77,6 +77,7 @@ export default defineConfig({
         ],
       },
       workbox: {
+        importScripts: ["/notification-sw.js"],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: true,

@@ -76,6 +76,7 @@ import { MasterSetupAlertBridge } from "./MasterSetupAlertBridge";
 import { AGENT_DEFINITIONS } from "./agent-data";
 import { agentRuntime } from "./agent-runtime";
 import "./onkar-ai.css";
+import { NotificationCenterBell } from "../notifications/NotificationCenter";
 import {
   Dialog,
   DialogContent,
@@ -134,8 +135,9 @@ export default function OnkarAIWorkspace({
   accountName = "Your trading workspace",
   journalTrades = [],
 }: Props) {
+  const cleanPath = path.split("?")[0];
   const segment =
-    path.replace(/^\/onkar-ai\/?/, "").split("/")[0] || "dashboard";
+    cleanPath.replace(/^\/onkar-ai\/?/, "").split("/")[0] || "dashboard";
   const detailId = segment === "setup" ? path.split("/")[3] : null;
   const validSection =
     groups.some((g) => g.items.some(([key]) => key === segment)) ||
@@ -539,18 +541,7 @@ export default function OnkarAIWorkspace({
             >
               <Search size={18} />
             </button>
-            <button
-              className="oai-icon-button"
-              aria-label="View scanner alerts"
-              onClick={() => {
-                navigate("/onkar-ai/scanner");
-                setNotice(
-                  `${scannerSnapshot?.alerts.length ?? 0} stored scanner alerts are available.`,
-                );
-              }}
-            >
-              <Bell size={18} />
-            </button>
+            <NotificationCenterBell onNavigate={navigate} compact />
             {onLogout && (
               <button className="oai-logout" onClick={onLogout}>
                 <LogOut size={15} />

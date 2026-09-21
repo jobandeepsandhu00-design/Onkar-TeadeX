@@ -14,6 +14,7 @@ import {
   type VersionRow,
 } from "./store";
 import { executionRequestId } from "./execution-identity";
+import { NotificationService } from "../notifications/service";
 
 type PaperRuntime = {
   user_id: string;
@@ -174,6 +175,16 @@ async function executionEvent(
     account_id: accountId,
     detail,
   });
+  await new NotificationService(store).execution({
+    userId: runtime.user_id,
+    candidate,
+    state,
+    reason,
+    provider: "PAPER",
+    eventKey: requestId,
+    tradeId: typeof detail.paperTradeId === "string" ? detail.paperTradeId : typeof detail.tradeId === "string" ? detail.tradeId : null,
+    detail,
+  }).catch(() => undefined);
 }
 
 export async function manageNextPaperTrade(store = ScannerStore.service()) {
@@ -314,6 +325,22 @@ export async function manageNextPaperTrade(store = ScannerStore.service()) {
         last_managed_at: now,
       },
     );
+    const newestAction = actions.at(-1);
+    if (newestAction) {
+      await new NotificationService(store).tradeManagement({
+        userId: trade.user_id,
+        tradeId: trade.id,
+        candidateId: trade.candidate_id,
+        symbol: trade.symbol,
+        state: newestAction.type,
+        message: newestAction.type === "BREAK_EVEN"
+          ? "Risk AI moved the protective stop to break-even according to the approved management rule."
+          : newestAction.type === "PARTIAL_CLOSE"
+            ? "Execution AI completed the approved partial close."
+            : "Risk AI modified the stop according to the approved structural rule.",
+        detail: newestAction as unknown as Record<string, unknown>,
+      }).catch(() => undefined);
+    }
     return {
       managed: true,
       tradeId: trade.id,
@@ -367,6 +394,17 @@ export async function manageNextPaperTrade(store = ScannerStore.service()) {
       "PATCH",
       { state: "COMPLETED", updated_at: now },
     );
+    const closeReason = String(closed.detail.closeReason || "CLOSED");
+    await new NotificationService(store).tradeManagement({
+      userId: closed.user_id,
+      tradeId: closed.id,
+      candidateId: closed.candidate_id,
+      symbol: closed.symbol,
+      state: closeReason,
+      message: `${closed.symbol} Paper trade closed at ${closePrice}. Result ${result.rMultiple?.toFixed(2) ?? "—"}R; P/L ${result.pnl.toFixed(2)}.`,
+      detail: { at: now, closePrice, pnl: result.pnl, rMultiple: result.rMultiple, closeReason },
+      closed: true,
+    }).catch(() => undefined);
   }
   return {
     managed: true,

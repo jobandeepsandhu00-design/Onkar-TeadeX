@@ -9,6 +9,7 @@ import {
 import { manageNextPaperTrade, runNextPaperExecution } from "./paper-execution";
 import { getMarketProvider } from "./providers";
 import { ScannerStore, type ConfigRow } from "./store";
+import { NotificationService } from "../notifications/service";
 
 type SourceRuntime = {
   user_id: string;
@@ -119,6 +120,12 @@ async function applyAutomaticSourcePolicy(store: ScannerStore) {
     if (mt5.ready) {
       await reconcileAutoExecution(runtime.user_id);
       await switchSource(store, runtime, "MT5", false);
+      await new NotificationService(store).systemHealth({
+        userId: runtime.user_id,
+        component: "MT5",
+        healthy: true,
+        message: "MT5 recovered, positions were reconciled, and new eligible setups can route to MT5 again.",
+      }).catch(() => undefined);
       return "MT5_RESTORED";
     }
   }
@@ -129,6 +136,13 @@ async function applyAutomaticSourcePolicy(store: ScannerStore) {
     const paper = await getExecutionCapability(runtime.user_id, "TWELVE_DATA");
     if (paper.ready) {
       await switchSource(store, runtime, "TWELVE_DATA", true);
+      await new NotificationService(store).systemHealth({
+        userId: runtime.user_id,
+        component: "MT5",
+        healthy: false,
+        message: `MT5 is unavailable: ${mt5.reason} New broker orders are blocked; the explicitly configured Twelve Data Paper fallback is active. Existing MT5 positions retain MT5 ownership.`,
+        metadata: { fallback: "TWELVE_DATA_PAPER" },
+      }).catch(() => undefined);
       return "PAPER_FALLBACK";
     }
   }
@@ -143,8 +157,22 @@ async function applyAutomaticSourcePolicy(store: ScannerStore) {
         updated_at: new Date().toISOString(),
       },
     );
+    await new NotificationService(store).systemHealth({
+      userId: runtime.user_id,
+      component: "MT5",
+      healthy: false,
+      message: `MT5 is unavailable: ${mt5.reason} New execution is paused and analysis-only mode is active.`,
+      metadata: { fallback: "ANALYSIS_ONLY" },
+    }).catch(() => undefined);
     return "ANALYSIS_ONLY";
   }
+  await new NotificationService(store).systemHealth({
+    userId: runtime.user_id,
+    component: "MT5",
+    healthy: false,
+    message: `MT5 is unavailable: ${mt5.reason} New MT5 orders are locked. No silent provider switch was made.`,
+    metadata: { fallback: "LOCKED" },
+  }).catch(() => undefined);
   return "MT5_LOCKED";
 }
 
@@ -183,6 +211,16 @@ export async function runNextExecution() {
       reason: "No automatic execution runtime is armed.",
     };
   if (runtime.trading_source === "TWELVE_DATA") {
+    const capability = await getExecutionCapability(runtime.user_id, "TWELVE_DATA");
+    await new NotificationService(store).systemHealth({
+      userId: runtime.user_id,
+      component: "Twelve Data",
+      healthy: capability.ready,
+      message: capability.ready
+        ? "Twelve Data is fresh and available to the shared market engine."
+        : `${capability.reason} New Paper entries remain blocked until fresh data returns.`,
+      metadata: { executionProvider: "PAPER" },
+    }).catch(() => undefined);
     const paper = await runNextPaperExecution(store);
     return { provider: "PAPER", management, sourcePolicy, execution: paper };
   }

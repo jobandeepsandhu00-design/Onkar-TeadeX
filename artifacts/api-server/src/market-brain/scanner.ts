@@ -36,6 +36,7 @@ import {
   paperInstrumentSizingFromRate,
   resolveInstrumentSizing,
 } from "./risk-sizing";
+import { NotificationService } from "../notifications/service";
 
 export const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -662,6 +663,14 @@ export async function runScannerJob(
         ],
         p_alert: alert,
       });
+      await new NotificationService(store)
+        .candidate(candidate, event)
+        .catch((notificationError) =>
+          logger.warn(
+            { err: notificationError, candidateId: candidate.id },
+            "Notification update failed without interrupting scanning",
+          ),
+        );
       if (
         config.permissions.aiAnalysis &&
         !terminal(state) &&
@@ -699,6 +708,29 @@ export async function runScannerJob(
         health,
         next_run_at: new Date(Date.now() + delay * 1000).toISOString(),
       },
+    );
+    if (error) {
+      // Uncertain data must never remain armed for a new automatic entry.
+      await store.request(
+        "scanner_runtime_controls",
+        { user_id: `eq.${job.user_id}`, auto_execution_enabled: "eq.true" },
+        "PATCH",
+        { auto_execution_enabled: false, updated_at: new Date().toISOString() },
+        "return=minimal",
+      ).catch((pauseError) =>
+        logger.error({ err: pauseError }, "Failed to persist automatic execution pause"),
+      );
+    }
+    await new NotificationService(store).systemHealth({
+      userId: job.user_id,
+      component: "Market scanner",
+      healthy: !error && health.status !== "offline",
+      message: error
+        ? `${error} New automatic entries were paused; existing positions remain managed by their execution provider.`
+        : "Scanner cycle completed with fresh shared market data.",
+      metadata: { symbol, health: health.status, checkedAt: health.checkedAt },
+    }).catch((notificationError) =>
+      logger.warn({ err: notificationError }, "System health notification failed"),
     );
   }
   return { symbol, success: !error, error };

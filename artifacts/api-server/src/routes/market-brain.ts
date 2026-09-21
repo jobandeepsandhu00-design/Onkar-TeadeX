@@ -11,6 +11,7 @@ import {
   scannerRuntimeSchema,
   scannerRuntimeUpdateSchema,
   scannerControlSchema,
+  notificationPreferencesSchema,
   timeframeMs,
   type Candle,
   type Timeframe,
@@ -928,6 +929,98 @@ router.post(
       { read_at: new Date().toISOString() },
     );
     res.json({ saved: true });
+  }),
+);
+router.get(
+  "/market-brain/notifications",
+  route(async (req, res) => {
+    const { identity, user } = await context(req);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const category = String(req.query.category || "").toUpperCase();
+    const priority = String(req.query.priority || "").toUpperCase();
+    const safeValue = (value: unknown) => String(value || "").trim().replace(/[^a-zA-Z0-9_\-/.: ]/g, "").slice(0, 80);
+    const query: Record<string, string> = {
+      order: "updated_at.desc",
+      limit: String(limit),
+      offset: String(offset),
+    };
+    if (["TRADING", "SETUPS", "AI", "RISK", "NEWS", "SYSTEM"].includes(category)) query.category = `eq.${category}`;
+    if (["INFO", "IMPORTANT", "HIGH", "CRITICAL"].includes(priority)) query.priority = `eq.${priority}`;
+    const symbol = safeValue(req.query.symbol);
+    const timeframe = safeValue(req.query.timeframe);
+    const agent = safeValue(req.query.agent);
+    if (symbol) query.symbol = `eq.${symbol}`;
+    if (timeframe) query.timeframe = `eq.${timeframe}`;
+    if (agent) query.agent_source = `eq.${agent}`;
+    if (req.query.unread === "true") query.read_at = "is.null";
+    if (req.query.before) query.updated_at = `lt.${new Date(String(req.query.before)).toISOString()}`;
+    const [items, preferenceRows] = await Promise.all([
+      user.request("notifications", query),
+      user.request<Array<Record<string, unknown>>>("notification_preferences", { user_id: `eq.${identity.userId}`, limit: "1" }),
+    ]);
+    res.json({ items, preferences: preferenceRows[0] ?? notificationPreferencesSchema.parse({}), page: { limit, offset } });
+  }),
+);
+router.get(
+  "/market-brain/notifications/:id/events",
+  route(async (req, res) => {
+    const { identity, user } = await context(req);
+    const id = uuid(req.params.id);
+    const [owned] = await user.request<Array<{ id: string }>>("notifications", { id: `eq.${id}`, user_id: `eq.${identity.userId}`, select: "id", limit: "1" });
+    if (!owned) throw new ScannerError("Notification not found", 404);
+    const items = await user.request("notification_events", { notification_id: `eq.${id}`, order: "created_at.desc", limit: "200" });
+    res.json({ items });
+  }),
+);
+router.post(
+  "/market-brain/notifications/:id/state",
+  route(async (req, res) => {
+    const { identity } = await context(req);
+    const action = String(req.body?.action || "");
+    const patch = action === "READ" ? { read_at: new Date().toISOString() }
+      : action === "ACKNOWLEDGE" ? { read_at: new Date().toISOString(), acknowledged_at: new Date().toISOString() }
+        : action === "VOICE_SPOKEN" ? { voice_spoken_at: new Date().toISOString() }
+          : action === "PUSH_SENT" ? { push_sent_at: new Date().toISOString() }
+            : null;
+    if (!patch) throw new ScannerError("Unsupported notification action", 400);
+    await ScannerStore.service().request("notifications", { id: `eq.${uuid(req.params.id)}`, user_id: `eq.${identity.userId}` }, "PATCH", patch, "return=minimal");
+    res.json({ saved: true });
+  }),
+);
+router.post(
+  "/market-brain/notifications/read-all",
+  route(async (req, res) => {
+    const { identity } = await context(req);
+    await ScannerStore.service().request("notifications", { user_id: `eq.${identity.userId}`, read_at: "is.null" }, "PATCH", { read_at: new Date().toISOString() }, "return=minimal");
+    res.json({ saved: true });
+  }),
+);
+router.delete(
+  "/market-brain/notifications/read",
+  route(async (req, res) => {
+    const { identity } = await context(req);
+    await ScannerStore.service().request("notifications", {
+      user_id: `eq.${identity.userId}`,
+      read_at: "not.is.null",
+      or: "(priority.neq.CRITICAL,acknowledged_at.not.is.null)",
+    }, "DELETE", undefined, "return=minimal");
+    res.json({ cleared: true });
+  }),
+);
+router.put(
+  "/market-brain/notification-preferences",
+  route(async (req, res) => {
+    const { identity } = await context(req);
+    const preferences = notificationPreferencesSchema.parse(req.body);
+    const [saved] = await ScannerStore.service().request<Array<Record<string, unknown>>>(
+      "notification_preferences",
+      { on_conflict: "user_id" },
+      "POST",
+      { user_id: identity.userId, ...preferences, updated_at: new Date().toISOString() },
+      "resolution=merge-duplicates,return=representation",
+    );
+    res.json(saved);
   }),
 );
 router.post(

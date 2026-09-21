@@ -14,6 +14,7 @@ import {
 } from "./api";
 import { Mail, Lock, Eye, EyeOff, ShieldCheck, ArrowRight, Check } from "lucide-react";
 import "./index.css";
+import { NotificationCenterProvider } from "./notifications/NotificationCenter";
 
 // Keep one coherent application version when a freshly deployed service
 // worker takes control of an already-open PWA/browser tab. Without this, the
@@ -1036,6 +1037,6 @@ function Root() {
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <Root />
+    <NotificationCenterProvider><Root /></NotificationCenterProvider>
   </React.StrictMode>
 );
