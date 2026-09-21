@@ -313,6 +313,72 @@ export async function runScannerJob(
       config.provider,
     );
     const activeProvider = providerSelection.active;
+    // Resolve account-currency economics before candle warmup. On constrained
+    // Twelve Data plans this reserves the conversion credit once, then the
+    // closed-candle cache can satisfy most timeframe reads.
+    const now = Date.now();
+    const accountRecord = records(source.tradingAccounts).find(
+      (item) => item.id === config.accountId,
+    );
+    let sizing = null;
+    let sizingError: string | null = null;
+    let sizingCached = false;
+    if (accountRecord) {
+      try {
+        sizing = await resolveInstrumentSizing({
+          provider: activeProvider,
+          symbol,
+          accountCurrency: String(accountRecord.currency || "USD"),
+          manualValue: config.risk.valuePerPriceUnit[symbol],
+        });
+        if (!sizing)
+          sizingError = `${symbol} has no automatic contract specification; configure an explicit fallback value.`;
+      } catch (sizingFailure) {
+        const cached = priorSizingBySymbol[symbol];
+        const cachedAt = Date.parse(String(cached?.checkedAt || ""));
+        if (
+          activeProvider === "twelvedata" &&
+          Number(cached?.conversionRate) > 0 &&
+          Number.isFinite(cachedAt) &&
+          now - cachedAt <= 30 * 60_000
+        ) {
+          sizing = paperInstrumentSizingFromRate(
+            symbol,
+            String(accountRecord.currency || "USD"),
+            Number(cached.conversionRate),
+          );
+          sizingCached = Boolean(sizing);
+        }
+        if (!sizing)
+          sizingError =
+            sizingFailure instanceof Error
+              ? sizingFailure.message
+              : "Instrument sizing is unavailable.";
+      }
+    }
+    const sizingHealth = sizing
+      ? {
+          source: sizing.source,
+          valuePerPriceUnit: sizing.valuePerPriceUnit,
+          accountCurrency: sizing.accountCurrency,
+          conversionRate: sizing.conversionRate,
+          volumeStep: sizing.volumeStep,
+          checkedAt: new Date(now).toISOString(),
+          cached: sizingCached,
+        }
+      : {
+          source: "unavailable",
+          reason: sizingError,
+          checkedAt: new Date(now).toISOString(),
+        };
+    health = {
+      ...health,
+      riskSizing: sizingHealth,
+      riskSizingBySymbol: {
+        ...priorSizingBySymbol,
+        [symbol]: sizingHealth,
+      },
+    };
     const required = new Set<Timeframe>(config.timeframes);
     if (globalWorkflowRequired(symbol))
       GLOBAL_WORKFLOW_TIMEFRAMES.forEach((timeframe) =>
@@ -357,46 +423,6 @@ export async function runScannerJob(
         );
       }
     }
-    const now = Date.now();
-    const accountRecord = records(source.tradingAccounts).find(
-      (item) => item.id === config.accountId,
-    );
-    let sizing = null;
-    let sizingError: string | null = null;
-    let sizingCached = false;
-    if (accountRecord) {
-      try {
-        sizing = await resolveInstrumentSizing({
-          provider: activeProvider,
-          symbol,
-          accountCurrency: String(accountRecord.currency || "USD"),
-          manualValue: config.risk.valuePerPriceUnit[symbol],
-        });
-        if (!sizing)
-          sizingError = `${symbol} has no automatic contract specification; configure an explicit fallback value.`;
-      } catch (sizingFailure) {
-        const cached = priorSizingBySymbol[symbol];
-        const cachedAt = Date.parse(String(cached?.checkedAt || ""));
-        if (
-          activeProvider === "twelvedata" &&
-          Number(cached?.conversionRate) > 0 &&
-          Number.isFinite(cachedAt) &&
-          now - cachedAt <= 30 * 60_000
-        ) {
-          sizing = paperInstrumentSizingFromRate(
-            symbol,
-            String(accountRecord.currency || "USD"),
-            Number(cached.conversionRate),
-          );
-          sizingCached = Boolean(sizing);
-        }
-        if (!sizing)
-          sizingError =
-            sizingFailure instanceof Error
-              ? sizingFailure.message
-              : "Instrument sizing is unavailable.";
-      }
-    }
     const news = await newsCheck(symbol, config, now);
     const account = accountContext(
       source,
@@ -427,35 +453,6 @@ export async function runScannerJob(
           ? providerSelection.activeHealth.status
           : "standby",
       liveExecution: activeProvider === "mt5",
-      riskSizing: sizing
-        ? {
-            source: sizing.source,
-            valuePerPriceUnit: sizing.valuePerPriceUnit,
-            accountCurrency: sizing.accountCurrency,
-            conversionRate: sizing.conversionRate,
-            volumeStep: sizing.volumeStep,
-            checkedAt: new Date(now).toISOString(),
-            cached: sizingCached,
-          }
-        : { source: "unavailable", reason: sizingError },
-      riskSizingBySymbol: {
-        ...priorSizingBySymbol,
-        [symbol]: sizing
-          ? {
-              source: sizing.source,
-              accountCurrency: sizing.accountCurrency,
-              conversionRate: sizing.conversionRate,
-              valuePerPriceUnit: sizing.valuePerPriceUnit,
-              volumeStep: sizing.volumeStep,
-              checkedAt: new Date(now).toISOString(),
-              cached: sizingCached,
-            }
-          : {
-              source: "unavailable",
-              reason: sizingError,
-              checkedAt: new Date(now).toISOString(),
-            },
-      },
     };
     const enrichedTrades = records(source.trades).map((t) => ({
       ...t,
