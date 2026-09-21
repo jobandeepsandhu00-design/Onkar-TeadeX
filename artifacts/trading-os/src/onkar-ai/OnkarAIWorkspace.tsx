@@ -636,8 +636,8 @@ export default function OnkarAIWorkspace({
           </section> : null}
           <AgentWorkspacePresence section={segment} />
           {segment === "dashboard" ? (
-            <>
-              {scannerSnapshot ? (
+            scannerSnapshot ? (
+              <>
                 <div className="market-brain oai-account-command mb-stack">
                   <CommandCenterHero
                     snapshot={scannerSnapshot}
@@ -682,7 +682,6 @@ export default function OnkarAIWorkspace({
                     <JournalLearningPanel snapshot={scannerSnapshot} />
                   </div>
                 </div>
-              ) : null}
               <div className="oai-kpi-grid">
                 {[
                   [
@@ -911,7 +910,28 @@ export default function OnkarAIWorkspace({
                   </div>
                 </Panel>
               </div>
-            </>
+              </>
+            ) : (
+              <section className="oai-command-loading" role="status" aria-live="polite">
+                <div className="oai-command-loading-orb">
+                  <BrainCircuit size={34} />
+                </div>
+                <span className="oai-eyebrow">ONKAR AI / COMMAND CENTER</span>
+                <h2>{scannerError ? "Command center unavailable" : "Loading live command center"}</h2>
+                <p>
+                  {scannerError
+                    ? scannerError
+                    : "Synchronizing your account, providers, approved setups and scanner state."}
+                </p>
+                {scannerError ? (
+                  <AIButton onClick={() => void refreshScanner()}>
+                    Retry connection
+                  </AIButton>
+                ) : (
+                  <div className="oai-command-loading-track"><i /></div>
+                )}
+              </section>
+            )
           ) : segment === "scanner" ||
             segment === "markets" ||
             segment === "watchlist" ? (

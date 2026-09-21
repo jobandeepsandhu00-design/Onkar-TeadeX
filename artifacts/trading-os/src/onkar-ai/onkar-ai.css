@@ -7012,3 +7012,67 @@
     opacity: 0.58;
   }
 }
+.oai-launch-shell {
+  min-height: 100dvh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 32px;
+  color: #dbeafe;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(14, 165, 233, .18), transparent 28%),
+    linear-gradient(155deg, #020817 0%, #06152d 55%, #020617 100%);
+}
+.oai-launch-shell strong { font-size: 1.05rem; letter-spacing: .24em; }
+.oai-launch-shell span { color: #8fa8c7; font-size: .88rem; }
+.oai-launch-shell > i,
+.oai-command-loading-track {
+  width: min(280px, 70vw);
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(96, 165, 250, .13);
+}
+.oai-launch-shell > i::after,
+.oai-command-loading-track i {
+  content: "";
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #22d3ee, #34d399);
+  animation: oai-loading-sweep 1.2s ease-in-out infinite alternate;
+}
+.oai-launch-orb,
+.oai-command-loading-orb {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border: 1px solid rgba(56, 189, 248, .55);
+  border-radius: 50%;
+  color: #67e8f9;
+  background: radial-gradient(circle at 35% 30%, rgba(34, 211, 238, .24), rgba(37, 99, 235, .09) 58%, rgba(2, 6, 23, .9));
+  box-shadow: 0 0 34px rgba(14, 165, 233, .2), inset 0 0 22px rgba(34, 211, 238, .13);
+}
+.oai-command-loading {
+  min-height: min(620px, 68dvh);
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 13px;
+  padding: 42px 24px;
+  text-align: center;
+  border: 1px solid rgba(51, 115, 180, .38);
+  border-radius: 28px;
+  background: linear-gradient(155deg, rgba(7, 27, 56, .88), rgba(2, 12, 27, .94));
+  box-shadow: inset 0 1px rgba(255,255,255,.04), 0 24px 80px rgba(0,0,0,.26);
+}
+.oai-command-loading h2 { margin: 0; color: #f4f8ff; }
+.oai-command-loading p { max-width: 520px; margin: 0 0 6px; color: #8fa8c7; line-height: 1.65; }
+@keyframes oai-loading-sweep { from { transform: translateX(-10%); } to { transform: translateX(150%); } }
+@media (prefers-reduced-motion: reduce) {
+  .oai-launch-shell > i::after,
+  .oai-command-loading-track i { animation: none; width: 100%; opacity: .72; }
+}

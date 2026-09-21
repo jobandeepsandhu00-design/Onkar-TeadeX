@@ -11,6 +11,20 @@
   },
   "routes": [
     {
+      "src": "/(?:index\\.html)?$",
+      "headers": {
+        "Cache-Control": "no-cache, no-store, must-revalidate"
+      },
+      "continue": true
+    },
+    {
+      "src": "/sw\\.js$",
+      "headers": {
+        "Cache-Control": "no-cache, no-store, must-revalidate"
+      },
+      "continue": true
+    },
+    {
       "src": "/api/(.*)",
       "dest": "/api/index.mjs?__api_path=$1"
     },

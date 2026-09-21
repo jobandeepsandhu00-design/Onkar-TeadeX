@@ -28,7 +28,8 @@ import { AccountCommandCarousel } from "./market-brain/AccountCommandCarousel";
 import "./market-brain/market-brain.css";
 const OnkarAIRecentSlider = React.lazy(() => import("./onkar-ai/RecentSlider").then(module => ({ default: module.OnkarAIRecentSlider })));
 const OnkarAIAgentCommandCenter = React.lazy(() => import("./onkar-ai/HomeAgentCommandCenter").then(module => ({ default: module.OnkarAIAgentCommandCenter })));
-const OnkarAIWorkspace = React.lazy(() => import("./onkar-ai/OnkarAIWorkspace"));
+const loadOnkarAIWorkspace = () => import("./onkar-ai/OnkarAIWorkspace");
+const OnkarAIWorkspace = React.lazy(loadOnkarAIWorkspace);
 const MasterSetupAlertMonitor = React.lazy(() => import("./onkar-ai/MasterSetupAlertMonitor"));
 import "./onkar-ai/onkar-ai.css";
 
@@ -15672,6 +15673,15 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   const saveErrorShownRef = useRef(false);
   const lastCompiledSetupsRef = useRef("");
 
+  // Warm the command-center chunk after the authenticated shell mounts so
+  // opening Onkar AI is immediate even on a mobile connection.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadOnkarAIWorkspace();
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const handleLogout = async () => {
     if (!onLogout || loggingOut) return;
     setLoggingOut(true);
@@ -16143,7 +16153,7 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   if (onkarAIPath) {
     const account = (data as any).tradingAccounts?.find((item: any) => item.id === (data as any).activeAccountId);
     return <>
-      <React.Suspense fallback={<div className="min-h-screen bg-slate-950 p-8 text-blue-200">Opening Onkar AI…</div>}><OnkarAIWorkspace path={onkarAIPath} onNavigate={(path) => goTo("onkar-ai", path)} onExit={(tab, subTab, setupId) => { if (setupId) setSetupLibraryEditId(setupId); goTo(tab || "home", subTab); }} onLogout={onLogout ? handleLogout : undefined} accountName={account?.alias || account?.accountNumber} journalTrades={(data as any).trades || []} /></React.Suspense>
+      <React.Suspense fallback={<div className="oai-launch-shell" role="status" aria-live="polite"><div className="oai-launch-orb"><Brain size={30} /></div><strong>ONKAR AI</strong><span>Connecting your command center…</span><i /></div>}><OnkarAIWorkspace path={onkarAIPath} onNavigate={(path) => goTo("onkar-ai", path)} onExit={(tab, subTab, setupId) => { if (setupId) setSetupLibraryEditId(setupId); goTo(tab || "home", subTab); }} onLogout={onLogout ? handleLogout : undefined} accountName={account?.alias || account?.accountNumber} journalTrades={(data as any).trades || []} /></React.Suspense>
       {/* Account safety alerts remain visible inside the dedicated workspace. */}
       {riskAlert && <RiskAlertOverlay alert={riskAlert} onDismiss={() => {
         dismissedAtRef.current[riskAlert.accountId] = riskAlert.todayLossAmt;

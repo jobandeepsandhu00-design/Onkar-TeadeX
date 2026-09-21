@@ -15,6 +15,20 @@ import {
 import { Mail, Lock, Eye, EyeOff, ShieldCheck, ArrowRight, Check } from "lucide-react";
 import "./index.css";
 
+// Keep one coherent application version when a freshly deployed service
+// worker takes control of an already-open PWA/browser tab. Without this, the
+// old shell can request lazy chunks from the new deployment and briefly show
+// an outdated or incomplete Onkar AI workspace.
+if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+  const replacingExistingWorker = Boolean(navigator.serviceWorker.controller);
+  let reloadingForUpdate = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!replacingExistingWorker || reloadingForUpdate) return;
+    reloadingForUpdate = true;
+    window.location.reload();
+  });
+}
+
 // Suppress the harmless "ResizeObserver loop limit exceeded" browser error.
 if (typeof window !== "undefined") {
   const _onerror = window.onerror;

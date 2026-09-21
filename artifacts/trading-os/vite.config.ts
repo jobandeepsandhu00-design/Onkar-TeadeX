@@ -77,6 +77,9 @@ export default defineConfig({
         ],
       },
       workbox: {
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         // Kokoro is lazy so ordinary PWA installs do not download the ML worker.
         globIgnores: ["**/kokoro.worker-*.js"],
@@ -103,11 +106,12 @@ export default defineConfig({
           },
           {
             urlPattern: /\/api\/.*/i,
-            handler: "NetworkFirst",
+            // Trading/account responses must never be replayed from a stale
+            // service-worker cache. The UI already has explicit disconnected
+            // and stale states when the network cannot provide fresh data.
+            handler: "NetworkOnly",
             options: {
-              cacheName: "api-cache",
-              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 5 },
-              networkTimeoutSeconds: 10,
+              cacheName: "api-network-only",
             },
           },
         ],
