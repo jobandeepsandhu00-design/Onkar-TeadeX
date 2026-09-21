@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   TIMEFRAMES,
+  TWELVE_DATA_MIN_CYCLE_SECONDS,
   scannerConfigSchema,
   type ScannerConfig,
   type ScannerSnapshot,
@@ -26,9 +27,12 @@ export function ScannerSettings({
   snapshot: ScannerSnapshot;
   onSaved: () => void;
 }) {
-  const [draft, setDraft] = useState<ScannerConfig>(
-    () => snapshot.config?.config ?? snapshot.defaults,
-  );
+  const [draft, setDraft] = useState<ScannerConfig>(() => {
+    const saved = snapshot.config?.config ?? snapshot.defaults;
+    return saved.provider === "twelvedata" && saved.frequencySeconds < TWELVE_DATA_MIN_CYCLE_SECONDS
+      ? { ...saved, frequencySeconds: TWELVE_DATA_MIN_CYCLE_SECONDS }
+      : saved;
+  });
   const [contractText, setContractText] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       Object.entries(draft.risk.valuePerPriceUnit).map(([s, v]) => [
@@ -83,6 +87,10 @@ export function ScannerSettings({
   async function save() {
     const parsed = scannerConfigSchema.safeParse({
       ...draft,
+      frequencySeconds:
+        draft.provider === "twelvedata"
+          ? Math.max(TWELVE_DATA_MIN_CYCLE_SECONDS, draft.frequencySeconds)
+          : draft.frequencySeconds,
     });
     if (!parsed.success) {
       setError(
@@ -208,9 +216,17 @@ export function ScannerSettings({
             </span>
             <select
               value={draft.provider}
-              onChange={(e) =>
-                update("provider", e.target.value as ScannerConfig["provider"])
-              }
+              onChange={(e) => {
+                const provider = e.target.value as ScannerConfig["provider"];
+                setDraft((current) => ({
+                  ...current,
+                  provider,
+                  frequencySeconds:
+                    provider === "twelvedata"
+                      ? Math.max(TWELVE_DATA_MIN_CYCLE_SECONDS, current.frequencySeconds)
+                      : current.frequencySeconds,
+                }));
+              }}
             >
               <option value="twelvedata">Twelve Data · paper trading</option>
               <option value="mt5">MetaTrader 5 · broker feed</option>
@@ -253,9 +269,9 @@ export function ScannerSettings({
             <Zap size={16} /> API call schedule
           </span>
           {[
-            [300, "Recommended", "Full two-market cycle every 5 minutes"],
-            [180, "Balanced", "Faster monitoring with moderate API use"],
-            [120, "Fast", "Higher API use · watch the load guard"],
+            [900, "Recommended", "Full two-market cycle every 15 minutes"],
+            [1800, "Conservative", "Full cycle every 30 minutes"],
+            [3600, "Low usage", "Full cycle every 60 minutes"],
           ].map(([seconds, title, description]) => (
             <button
               key={String(seconds)}
@@ -278,7 +294,7 @@ export function ScannerSettings({
               provider: "twelvedata",
               symbols: ["XAUUSD", "GBPJPY"],
               timeframes: ["4h", "1h", "30m"],
-              frequencySeconds: 300,
+              frequencySeconds: TWELVE_DATA_MIN_CYCLE_SECONDS,
             }))
           }
         >
@@ -291,13 +307,21 @@ export function ScannerSettings({
               Exact full watchlist cycle (seconds)
               <input
                 type="number"
-                min={60}
+                min={draft.provider === "twelvedata" ? TWELVE_DATA_MIN_CYCLE_SECONDS : 60}
                 max={3600}
                 value={draft.frequencySeconds}
                 onChange={(e) =>
-                  update("frequencySeconds", Number(e.target.value))
+                  update(
+                    "frequencySeconds",
+                    draft.provider === "twelvedata"
+                      ? Math.max(TWELVE_DATA_MIN_CYCLE_SECONDS, Number(e.target.value))
+                      : Number(e.target.value),
+                  )
                 }
               />
+              {draft.provider === "twelvedata" && (
+                <small>Twelve Data is protected by a 900-second (15-minute) minimum.</small>
+              )}
             </label>
             {(
               [

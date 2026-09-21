@@ -11,6 +11,43 @@ import { getMarketProvider } from "./providers";
 import { ScannerStore, type ConfigRow } from "./store";
 import { NotificationService } from "../notifications/service";
 
+const TWELVE_DATA_HEALTH_TTL_MS = 15 * 60_000;
+let twelveDataCapabilityCache:
+  | { expiresAt: number; value: AutoExecutionCapability }
+  | undefined;
+let twelveDataCapabilityRequest: Promise<AutoExecutionCapability> | undefined;
+
+async function getTwelveDataCapability() {
+  const now = Date.now();
+  if (twelveDataCapabilityCache && twelveDataCapabilityCache.expiresAt > now)
+    return twelveDataCapabilityCache.value;
+  if (twelveDataCapabilityRequest) return twelveDataCapabilityRequest;
+  twelveDataCapabilityRequest = (async () => {
+    const health = await getMarketProvider("twelvedata").healthCheck();
+    const value: AutoExecutionCapability = health.status === "connected"
+      ? {
+          ready: true,
+          state: "READY",
+          reason: "Twelve Data Paper execution is ready.",
+          accountType: "DEMO",
+          broker: "Onkar Paper",
+        }
+      : {
+          ready: false,
+          state: health.status === "unconfigured" ? "NOT_CONFIGURED" : "DISCONNECTED",
+          reason: health.message,
+          accountType: null,
+          broker: null,
+        };
+    twelveDataCapabilityCache = {
+      expiresAt: Date.now() + TWELVE_DATA_HEALTH_TTL_MS,
+      value,
+    };
+    return value;
+  })().finally(() => { twelveDataCapabilityRequest = undefined; });
+  return twelveDataCapabilityRequest;
+}
+
 type SourceRuntime = {
   user_id: string;
   workspace_id: string;
@@ -34,23 +71,7 @@ export async function getExecutionCapability(
       accountType: null,
       broker: null,
     };
-  const health = await getMarketProvider("twelvedata").healthCheck();
-  return health.status === "connected"
-    ? {
-        ready: true,
-        state: "READY",
-        reason: "Twelve Data Paper execution is ready.",
-        accountType: "DEMO",
-        broker: "Onkar Paper",
-      }
-    : {
-        ready: false,
-        state:
-          health.status === "unconfigured" ? "NOT_CONFIGURED" : "DISCONNECTED",
-        reason: health.message,
-        accountType: null,
-        broker: null,
-      };
+  return getTwelveDataCapability();
 }
 
 export async function reconcileExecution(

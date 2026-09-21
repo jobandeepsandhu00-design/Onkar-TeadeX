@@ -3,6 +3,7 @@ import {
   scannerConfigSchema,
   strategyVersionSchema,
   timeframeMs,
+  TWELVE_DATA_MIN_CYCLE_SECONDS,
   type Candle,
   type Timeframe,
   type CandidateState,
@@ -37,6 +38,14 @@ import {
   resolveInstrumentSizing,
 } from "./risk-sizing";
 import { NotificationService } from "../notifications/service";
+
+export function effectiveScannerFrequencySeconds(
+  config: Pick<ConfigRow["config"], "provider" | "frequencySeconds">,
+) {
+  return config.provider === "twelvedata"
+    ? Math.max(TWELVE_DATA_MIN_CYCLE_SECONDS, config.frequencySeconds)
+    : config.frequencySeconds;
+}
 
 export const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -692,7 +701,7 @@ export async function runScannerJob(
     );
   } finally {
     const delay = advance
-      ? Math.max(15, config.frequencySeconds / config.symbols.length)
+      ? Math.max(15, effectiveScannerFrequencySeconds(config) / config.symbols.length)
       : 60;
     await store.request(
       "scanner_configs",

@@ -28,6 +28,7 @@ import {
 import {
   fingerprint,
   analysisFingerprint,
+  effectiveScannerFrequencySeconds,
   runNextJob,
 } from "../market-brain/scanner";
 import { getMarketProvider } from "../market-brain/providers";
@@ -320,8 +321,11 @@ router.get(
     const age = config?.last_run_at
       ? Date.now() - Date.parse(config.last_run_at)
       : Infinity;
+    const effectiveFrequency = config
+      ? effectiveScannerFrequencySeconds(config.config)
+      : scannerConfigSchema.parse({}).frequencySeconds;
     const fresh =
-      config && age < Math.max(180_000, config.config.frequencySeconds * 2000);
+      config && age < Math.max(180_000, effectiveFrequency * 2000);
     let backendReady = false;
     try {
       ScannerStore.service();
@@ -348,7 +352,7 @@ router.get(
               !fresh ||
               c.payload.stale ||
               Date.now() - Date.parse(c.payload.analyzedAt) >
-                (config?.config.frequencySeconds ?? 300) * 2000,
+                effectiveFrequency * 2000,
           };
         }),
       alerts,

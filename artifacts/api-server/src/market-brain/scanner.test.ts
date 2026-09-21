@@ -2,7 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { scannerConfigSchema, strategyVersionSchema } from "@workspace/api-zod";
 import { ScannerStore, type ConfigRow, type CandidateRow } from "./store";
-import { analysisFingerprint, runScannerJob } from "./scanner";
+import { analysisFingerprint, effectiveScannerFrequencySeconds, runScannerJob } from "./scanner";
+
+test("Twelve Data scanner cycles are never scheduled faster than 15 minutes", () => {
+  assert.equal(
+    effectiveScannerFrequencySeconds({ provider: "twelvedata", frequencySeconds: 300 }),
+    900,
+  );
+  assert.equal(
+    effectiveScannerFrequencySeconds({ provider: "mt5", frequencySeconds: 300 }),
+    300,
+  );
+});
 
 // Isolated persistence fixture; never connects to production Supabase or a broker.
 test("worker pipeline persists READY, deduplicates alerts and monitors frozen invalidation", async (t) => {

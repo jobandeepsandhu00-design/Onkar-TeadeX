@@ -22,6 +22,7 @@ export const timeframeMs: Record<Timeframe, number> = {
   "1D": 86400e3,
   "1W": 604800e3,
 };
+export const TWELVE_DATA_MIN_CYCLE_SECONDS = 15 * 60;
 export function normalizeTimeframe(value: string): Timeframe {
   const aliases: Record<string, Timeframe> = {
     M1: "1m",
@@ -403,7 +404,7 @@ export const scannerConfigSchema = z
     aiThreshold: z.number().min(60).max(100).default(75),
     alertThreshold: z.number().min(50).max(100).default(80),
     visionThreshold: z.number().min(75).max(100).default(85),
-    frequencySeconds: z.number().int().min(60).max(3600).default(300),
+    frequencySeconds: z.number().int().min(60).max(3600).default(TWELVE_DATA_MIN_CYCLE_SECONDS),
     maxAlertsPerDay: z.number().int().min(0).max(50).default(10),
     maxAiCallsPerDay: z.number().int().min(0).max(50).default(10),
     newsBeforeMinutes: z.number().int().min(0).max(180).default(30),
