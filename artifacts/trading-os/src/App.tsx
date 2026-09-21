@@ -39,7 +39,7 @@ const OnkarAIAgentCommandCenter = React.lazy(() => import("./onkar-ai/HomeAgentC
 const loadOnkarAIWorkspace = () => import("./onkar-ai/OnkarAIWorkspace");
 const OnkarAIWorkspace = React.lazy(loadOnkarAIWorkspace);
 import "./onkar-ai/onkar-ai.css";
-import { NotificationCenterBell, RecentAlertsWidget } from "./notifications/NotificationCenter";
+import { NotificationCenterBell } from "./notifications/NotificationCenter";
 
 /* ============================================================
    UTILITIES
@@ -6418,11 +6418,6 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
           </div>
         </div>
       </div>
-
-      <RecentAlertsWidget onNavigate={(path) => {
-        if (path.startsWith("/onkar-ai")) goTo("onkar-ai", path);
-        else if (path.includes("journal")) goTo("journal", undefined);
-      }} />
 
       {/* ── ORDERED SECTIONS ── */}
       {dashboardDisplayOrder.map((key, i) => {

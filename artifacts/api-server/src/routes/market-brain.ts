@@ -989,11 +989,25 @@ router.post(
   }),
 );
 router.post(
-  "/market-brain/notifications/read-all",
+  "/market-brain/notifications/actions/read-all",
   route(async (req, res) => {
     const { identity } = await context(req);
     await ScannerStore.service().request("notifications", { user_id: `eq.${identity.userId}`, read_at: "is.null" }, "PATCH", { read_at: new Date().toISOString() }, "return=minimal");
     res.json({ saved: true });
+  }),
+);
+router.delete(
+  "/market-brain/notifications",
+  route(async (req, res) => {
+    const { identity } = await context(req);
+    await ScannerStore.service().request(
+      "notifications",
+      { user_id: `eq.${identity.userId}` },
+      "DELETE",
+      undefined,
+      "return=minimal",
+    );
+    res.json({ deleted: true });
   }),
 );
 router.delete(
