@@ -25,6 +25,7 @@ import {
   FlaskConical,
   Globe2,
   GitBranch,
+  Home,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -1190,6 +1191,54 @@ export default function OnkarAIWorkspace({
           {scannerSnapshot ? scannerSnapshot.runtime.scannerState : "CHECKING"}
         </small>
       </button>
+      <nav className="oai-mobile-tabbar" aria-label="Onkar AI quick navigation">
+        <button
+          className={segment === "dashboard" ? "active" : ""}
+          aria-current={segment === "dashboard" ? "page" : undefined}
+          aria-label="Open Onkar AI home"
+          onClick={() => navigate("/onkar-ai")}
+        >
+          <Home size={20} />
+          <span>Onkar Home</span>
+        </button>
+        <button
+          className={segment === "assistant" ? "active" : ""}
+          aria-current={segment === "assistant" ? "page" : undefined}
+          aria-label="Open AI Command Center"
+          onClick={() => navigate("/onkar-ai/assistant")}
+        >
+          <BrainCircuit size={20} />
+          <span>AI Command</span>
+        </button>
+        <button
+          aria-label="Open OnkarTradeX Dashboard"
+          onClick={() => onExit("home")}
+        >
+          <LayoutDashboard size={20} />
+          <span>TradeX</span>
+        </button>
+        <button
+          className={
+            segment === "scanner" ||
+            segment === "markets" ||
+            segment === "watchlist"
+              ? "active"
+              : ""
+          }
+          aria-current={
+            segment === "scanner" ||
+            segment === "markets" ||
+            segment === "watchlist"
+              ? "page"
+              : undefined
+          }
+          aria-label="Open Market Scanner"
+          onClick={() => navigate("/onkar-ai/scanner")}
+        >
+          <ScanLine size={20} />
+          <span>Scanner</span>
+        </button>
+      </nav>
       {notice && (
         <div className="oai-toast" role="status">
           <Check size={17} />

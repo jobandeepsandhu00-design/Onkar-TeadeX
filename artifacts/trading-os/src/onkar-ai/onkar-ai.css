@@ -5254,10 +5254,81 @@
   color: #52dfbd;
   font-size: 0.61rem;
 }
+.oai-mobile-tabbar {
+  display: none;
+}
 @media (max-width: 700px) {
+  .oai-workspace-body {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+  .oai-mobile-tabbar {
+    position: fixed;
+    z-index: 78;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    min-height: 66px;
+    padding: 5px 7px calc(6px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid rgba(66, 118, 171, 0.36);
+    background:
+      linear-gradient(180deg, rgba(8, 19, 36, 0.94), rgba(3, 10, 22, 0.99));
+    box-shadow: 0 -16px 38px rgba(0, 5, 17, 0.54);
+    backdrop-filter: blur(20px) saturate(145%);
+  }
+  .oai-mobile-tabbar button {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 2px 5px;
+    border: 0;
+    border-radius: 13px;
+    color: #7189a7;
+    background: transparent;
+    transition:
+      color 160ms ease,
+      background-color 160ms ease,
+      transform 160ms ease;
+  }
+  .oai-mobile-tabbar button::before {
+    position: absolute;
+    top: 0;
+    width: 25px;
+    height: 2px;
+    border-radius: 999px;
+    background: transparent;
+    content: "";
+  }
+  .oai-mobile-tabbar button.active {
+    color: #64e4ff;
+    background: linear-gradient(180deg, rgba(20, 126, 190, 0.18), transparent);
+    text-shadow: 0 0 16px rgba(76, 213, 255, 0.42);
+  }
+  .oai-mobile-tabbar button.active::before {
+    background: #57dcff;
+    box-shadow: 0 0 13px rgba(60, 207, 255, 0.8);
+  }
+  .oai-mobile-tabbar button:active {
+    transform: translateY(1px) scale(0.98);
+  }
+  .oai-mobile-tabbar span {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .oai-master-command-orb {
     right: 12px;
-    bottom: 78px;
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
     min-width: 54px;
     padding: 6px;
     grid-template-columns: 42px;
@@ -5265,6 +5336,11 @@
   .oai-master-command-orb strong,
   .oai-master-command-orb small {
     display: none;
+  }
+}
+@media (max-width: 365px) {
+  .oai-mobile-tabbar span {
+    font-size: 0.53rem;
   }
 }
 @keyframes oai-button-sweep {
