@@ -36,6 +36,7 @@ import {
 import "./market-brain/market-brain.css";
 const OnkarAIRecentSlider = React.lazy(() => import("./onkar-ai/RecentSlider").then(module => ({ default: module.OnkarAIRecentSlider })));
 const OnkarAIAgentCommandCenter = React.lazy(() => import("./onkar-ai/HomeAgentCommandCenter").then(module => ({ default: module.OnkarAIAgentCommandCenter })));
+const KnowledgeDashboardBridge = React.lazy(() => import("./knowledge/KnowledgeDashboardBridge"));
 const loadOnkarAIWorkspace = () => import("./onkar-ai/OnkarAIWorkspace");
 const OnkarAIWorkspace = React.lazy(loadOnkarAIWorkspace);
 import "./onkar-ai/onkar-ai.css";
@@ -886,8 +887,9 @@ const DEFAULT_SETTINGS = () => ({
     equityCurve:     true,
     tvChart:         true,
     onkarAICommandCenter: true,
+    knowledgeBrain: true,
   },
-  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","onkarAICommandCenter","marketBrain","videoLearning","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
+  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","onkarAICommandCenter","knowledgeBrain","marketBrain","videoLearning","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -6161,7 +6163,14 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
     /* Migrate: if stored order exactly matches the old default, use new order */
     const OLD_DEFAULT = ["moolMantar","liveTicker","activeTrades","marketOverview","marketSessions","accountOverview","todaysFocus","propChallenges","thisWeek","riskTools","equityCurve","tvChart","recentTrades","insightsEdge","setupLibrary","marketCalendar","statistics","reference"];
     if (JSON.stringify(stored) === JSON.stringify(OLD_DEFAULT)) return allKeys;
-    return mergeDashboardSections(stored, allKeys);
+    const merged = mergeDashboardSections(stored, allKeys);
+    if (!stored.includes("knowledgeBrain")) {
+      const withoutNew = merged.filter((key) => key !== "knowledgeBrain");
+      const commandIndex = withoutNew.indexOf("onkarAICommandCenter");
+      withoutNew.splice(commandIndex >= 0 ? commandIndex + 1 : 0, 0, "knowledgeBrain");
+      return withoutNew;
+    }
+    return merged;
   })();
   const dashboardDisplayOrder = ["moolMantar", ...sectionOrder.filter((key) => key !== "moolMantar")];
 
@@ -6261,6 +6270,11 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
           />
         </React.Suspense>
       </div>
+    ),
+    knowledgeBrain: (
+      <React.Suspense fallback={<div className="oai-home-command oai-home-loading">Connecting the Onkar AI Library Brain…</div>}>
+        <KnowledgeDashboardBridge surface="tradex" onNavigate={(path) => goTo("onkar-ai", path)} />
+      </React.Suspense>
     ),
     performanceLearning: <PerformanceLearning data={data} setData={setData} embedded />,
     videoLearning: <DashboardVideoSection onOpenLesson={onOpenLesson} onManage={() => goTo("academy", "Video Lessons")} />,
@@ -13076,6 +13090,7 @@ const DASH_SECTION_META = [
   { key: "activeTrades",    label: "Active Trades Monitor",  icon: "📡" },
   { key: "accountOverview", label: "Account Overview",       icon: "💰" },
   { key: "onkarAICommandCenter", label: "Onkar AI Multi-Agent Command Center", icon: "🤖" },
+  { key: "knowledgeBrain", label: "Onkar AI Library Brain", icon: "🧠" },
   { key: "marketBrain",     label: "ONKAR AI Market Brain",    icon: "🧠" },
   { key: "videoLearning",  label: "Featured Strategy Videos", icon: "🎬" },
   { key: "performanceLearning", label: "Performance & Learning", icon: "📊" },

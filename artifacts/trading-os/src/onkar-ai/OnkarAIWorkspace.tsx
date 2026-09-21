@@ -86,6 +86,7 @@ import {
 } from "../components/ui/dialog";
 const ConnectedScanner = lazy(() => import("../market-brain/MarketBrain"));
 const EvolutionLab = lazy(() => import("../knowledge/EvolutionLab"));
+const KnowledgeDashboardBridge = lazy(() => import("../knowledge/KnowledgeDashboardBridge"));
 const groups: Array<{
   label: string;
   items: Array<[AISection, string, LucideIcon]>;
@@ -640,7 +641,8 @@ export default function OnkarAIWorkspace({
           ) : null}
           <AgentWorkspacePresence section={segment} />
           {segment === "dashboard" ? (
-            scannerSnapshot ? (
+            <>
+            {scannerSnapshot ? (
               <>
                 <div className="market-brain oai-account-command mb-stack">
                   <CommandCenterHero
@@ -903,6 +905,8 @@ export default function OnkarAIWorkspace({
                         ["Journal", ClipboardList, "journal"],
                         ["AI analysis", Sparkles, "assistant"],
                         ["Backtest", FlaskConical, "backtesting"],
+                        ["Knowledge", Database, "knowledge"],
+                        ["Evolution Lab", GitBranch, "evolution"],
                       ].map(([title, Icon, target]) => {
                         const ActionIcon = Icon as typeof Radar;
                         return (
@@ -952,7 +956,11 @@ export default function OnkarAIWorkspace({
                   </div>
                 )}
               </section>
-            )
+            )}
+            <Suspense fallback={<div className="oai-home-command oai-home-loading">Connecting the Library Brain…</div>}>
+              <KnowledgeDashboardBridge surface="onkar" onNavigate={navigate} />
+            </Suspense>
+            </>
           ) : segment === "scanner" ||
             segment === "markets" ||
             segment === "watchlist" ? (
