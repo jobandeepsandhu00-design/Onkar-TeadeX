@@ -434,12 +434,23 @@ export function AnalyticsPage() {
 export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
   const speaker = "master" as const;
   const animation = useAgentAnimationState(speaker);
-  const request = useRef<{ token: string; abort: AbortController } | null>(null);
-  const [events, setEvents] = useState<{ agent: string; state: string; timestamp: string }[]>([]);
-  useEffect(() => () => {
-    if (request.current) { request.current.abort.abort(); agentRuntime.fail(request.current.token, "Request cancelled"); request.current = null; }
-    agentRuntime.listen("master", false);
-  }, []);
+  const request = useRef<{ token: string; abort: AbortController } | null>(
+    null,
+  );
+  const [events, setEvents] = useState<
+    { agent: string; state: string; timestamp: string }[]
+  >([]);
+  useEffect(
+    () => () => {
+      if (request.current) {
+        request.current.abort.abort();
+        agentRuntime.fail(request.current.token, "Request cancelled");
+        request.current = null;
+      }
+      agentRuntime.listen("master", false);
+    },
+    [],
+  );
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -455,7 +466,8 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
   ];
   const send = async (input: string) => {
     if (input.trim().length < 3 || request.current) return;
-    const token = crypto.randomUUID(), abort = new AbortController();
+    const token = crypto.randomUUID(),
+      abort = new AbortController();
     request.current = { token, abort };
     agentVoice.stop();
     agentRuntime.begin(token);
@@ -466,24 +478,44 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
     setError("");
     setLoading(true);
     try {
-      const result = await masterAIRequest({ question: q, deepAnalysis: false }, AbortSignal.any([abort.signal, AbortSignal.timeout(55_000)]), (event) => {
-        if (abort.signal.aborted) return;
-        agentRuntime.event(token, event.agent, event.state);
-        setEvents((items) => [...items.slice(-39), event]);
-      });
+      const result = await masterAIRequest(
+        { question: q, deepAnalysis: false },
+        AbortSignal.any([abort.signal, AbortSignal.timeout(55_000)]),
+        (event) => {
+          if (abort.signal.aborted) return;
+          agentRuntime.event(token, event.agent, event.state);
+          setEvents((items) => [...items.slice(-39), event]);
+        },
+      );
       if (abort.signal.aborted) return;
       setLastRun(result);
       setMessages((m) => [...m, { role: "assistant", text: result.answer }]);
       // Uncalled agents remain Preview; a returned report is not a permanent live connection.
-      for (const agent of result.agents) agentRuntime.event(token, agent.agent, agent.status === "complete" ? "success" : agent.status === "unavailable" ? "unavailable" : "warning");
+      for (const agent of result.agents)
+        agentRuntime.event(
+          token,
+          agent.agent,
+          agent.status === "complete"
+            ? "success"
+            : agent.status === "unavailable"
+              ? "unavailable"
+              : "warning",
+        );
       agentRuntime.finish(token);
       agentVoice.speak(speaker, result.answer, true);
     } catch (cause) {
       if (abort.signal.aborted) return;
-      setError(cause instanceof Error ? cause.message : "Master AI is temporarily unavailable.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Master AI is temporarily unavailable.",
+      );
       agentRuntime.fail(token, "Analysis unavailable");
     } finally {
-      if (request.current?.token === token) { request.current = null; setLoading(false); }
+      if (request.current?.token === token) {
+        request.current = null;
+        setLoading(false);
+      }
     }
   };
   return (
@@ -501,7 +533,12 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
         <button
           className="oai-text-button oai-panel-link"
           disabled={loading}
-          onClick={() => { agentVoice.stop(); setMessages([]); setLastRun(null); setEvents([]); }}
+          onClick={() => {
+            agentVoice.stop();
+            setMessages([]);
+            setLastRun(null);
+            setEvents([]);
+          }}
         >
           Clear conversation
         </button>
@@ -518,8 +555,19 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
         className="oai-chat-panel"
       >
         <div className={`oai-assistant-agent-presence oai-agent-${speaker}`}>
-          <AnimatedAgentAvatar agentId={speaker} image={`/onkar-ai/agents/${speaker}.jpg`} alt={`${speaker} AI animated robot`} quality="preview" />
-          <div><strong>Master AI voice</strong><small>{animation.statusLabel}</small><small>Specialist agents report silently. Only Master AI can speak.</small></div>
+          <AnimatedAgentAvatar
+            agentId={speaker}
+            image={`/onkar-ai/agents/${speaker}.jpg`}
+            alt={`${speaker} AI animated robot`}
+            quality="preview"
+          />
+          <div>
+            <strong>Master AI voice</strong>
+            <small>{animation.statusLabel}</small>
+            <small>
+              Specialist agents report silently. Only Master AI can speak.
+            </small>
+          </div>
         </div>
         <div className="oai-chat-messages" aria-live="polite">
           {!messages.length ? (
@@ -530,20 +578,29 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
                 Ask about your real journal, approved strategies and available
                 scanner evidence.
               </p>
-              <small>Master AI never invents missing market or journal data.</small>
+              <small>
+                Master AI never invents missing market or journal data.
+              </small>
             </div>
           ) : (
             messages.map((m, i) => (
               <div key={i} className={`oai-chat-message ${m.role}`}>
-                <small>
-                  {m.role === "user" ? "You" : "Master AI"}
-                </small>
+                <small>{m.role === "user" ? "You" : "Master AI"}</small>
                 <p>{m.text}</p>
               </div>
             ))
           )}
-          {loading && <div className="oai-chat-message assistant"><small>Master AI · thinking</small><p>Retrieving the minimum relevant evidence…</p></div>}
-          {error && <div className="oai-note" role="alert">{error}</div>}
+          {loading && (
+            <div className="oai-chat-message assistant">
+              <small>Master AI · thinking</small>
+              <p>Retrieving the minimum relevant evidence…</p>
+            </div>
+          )}
+          {error && (
+            <div className="oai-note" role="alert">
+              {error}
+            </div>
+          )}
         </div>
         <form
           onSubmit={(e) => {
@@ -568,15 +625,36 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
             <Send size={19} />
           </button>
         </form>
-        <AgentVoiceControls agent={speaker} text={lastRun?.answer ?? ""} label="Read response aloud" />
-        {loading && events.length > 0 && <div className="oai-command-log" aria-label="Live operational events">
-          {events.slice(-5).map((event, index) => <div key={`${event.timestamp}-${index}`}><time>{new Date(event.timestamp).toLocaleTimeString()}</time><strong>{event.agent} AI</strong><span>{event.state}</span></div>)}
-        </div>}
+        <AgentVoiceControls
+          agent={speaker}
+          text={lastRun?.answer ?? ""}
+          label="Read response aloud"
+        />
+        {loading && events.length > 0 && (
+          <div className="oai-command-log" aria-label="Live operational events">
+            {events.slice(-5).map((event, index) => (
+              <div key={`${event.timestamp}-${index}`}>
+                <time>{new Date(event.timestamp).toLocaleTimeString()}</time>
+                <strong>{event.agent} AI</strong>
+                <span>{event.state}</span>
+              </div>
+            ))}
+          </div>
+        )}
         {lastRun && (
           <details className="oai-command-log">
-            <summary>Command log · {lastRun.agents.length} agent results · {lastRun.dataStatus}</summary>
+            <summary>
+              Command log · {lastRun.agents.length} agent results ·{" "}
+              {lastRun.dataStatus}
+            </summary>
             {lastRun.commandLog.map((entry, index) => (
-              <div key={`${entry.timestamp}-${index}`}><time>{new Date(entry.timestamp).toLocaleTimeString()}</time><strong>{entry.source} → {entry.target}</strong><span>{entry.summary}</span></div>
+              <div key={`${entry.timestamp}-${index}`}>
+                <time>{new Date(entry.timestamp).toLocaleTimeString()}</time>
+                <strong>
+                  {entry.source} → {entry.target}
+                </strong>
+                <span>{entry.summary}</span>
+              </div>
             ))}
           </details>
         )}
@@ -598,7 +676,6 @@ export function RiskPage({
   const [maxDailyLoss, setMaxDailyLoss] = useState("");
   const [maxOpenPositions, setMaxOpenPositions] = useState("");
   const [minimumRR, setMinimumRR] = useState("");
-  const [instrumentValues, setInstrumentValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   useEffect(() => {
@@ -607,31 +684,21 @@ export function RiskPage({
     setMaxDailyLoss(String(config.risk.maxDailyLossPercent));
     setMaxOpenPositions(String(config.risk.maxOpenPositions));
     setMinimumRR(String(config.risk.minimumRR));
-    setInstrumentValues(
-      Object.fromEntries(
-        config.symbols.map((symbol) => [
-          symbol,
-          config.risk.valuePerPriceUnit[symbol]
-            ? String(config.risk.valuePerPriceUnit[symbol])
-            : "",
-        ]),
-      ),
-    );
   }, [config]);
   if (!snapshot || !config) {
     return <div className="oai-empty">Loading connected Risk AI…</div>;
   }
-  const account = snapshot.accounts.find((item) => item.id === config.accountId);
+  const account = snapshot.accounts.find(
+    (item) => item.id === config.accountId,
+  );
   const permissions = config.permissions;
   const sourcePermission =
     snapshot.runtime.tradingSource === "TWELVE_DATA"
       ? permissions.paperTradeExecution
       : permissions.mt5LiveExecution;
-  const missingSizing = config.symbols.filter(
-    (symbol) => !(Number(instrumentValues[symbol]) > 0),
-  );
   const riskRulesActive =
-    permissions.automaticRiskCalculation && permissions.automaticOrderPreparation;
+    permissions.automaticRiskCalculation &&
+    permissions.automaticOrderPreparation;
   const executionWorkerReady = snapshot.connection.executionWorker === "ready";
   const armed =
     snapshot.runtime.tradingMode === "AUTO" &&
@@ -644,33 +711,36 @@ export function RiskPage({
     riskRulesActive &&
     sourcePermission &&
     executionWorkerReady &&
-    !snapshot.runtime.emergencyStop &&
-    missingSizing.length === 0;
+    !snapshot.runtime.emergencyStop;
   const candidate = [...snapshot.candidates]
     .filter((item) => !item.staleNow)
     .sort((a, b) => b.score - a.score)[0];
   const riskDraft = () => ({
-      ...config.risk,
-      riskPercent: Number(riskPercent),
-      maxDailyLossPercent: Number(maxDailyLoss),
-      maxOpenPositions: Number(maxOpenPositions),
-      minimumRR: Number(minimumRR),
-      valuePerPriceUnit: Object.fromEntries(
-        config.symbols
-          .map((symbol) => [symbol, Number(instrumentValues[symbol])] as const)
-          .filter(([, value]) => Number.isFinite(value) && value > 0),
-      ),
-    });
+    ...config.risk,
+    riskPercent: Number(riskPercent),
+    maxDailyLossPercent: Number(maxDailyLoss),
+    maxOpenPositions: Number(maxOpenPositions),
+    minimumRR: Number(minimumRR),
+    // Legacy manual values remain available only for unsupported custom
+    // instruments. FX, gold and MT5 broker symbols are resolved server-side.
+    valuePerPriceUnit: config.risk.valuePerPriceUnit,
+  });
   const saveRisk = async () => {
     setBusy(true);
     setMessage("");
     try {
       await brainRequest("/config", "PUT", { ...config, risk: riskDraft() });
       await onRefresh();
-      setMessage("Risk profile saved. Risk AI will use these limits on the next scan.");
+      setMessage(
+        "Risk profile saved. Risk AI will use these limits on the next scan.",
+      );
       return true;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Risk profile could not be saved.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Risk profile could not be saved.",
+      );
       return false;
     } finally {
       setBusy(false);
@@ -694,19 +764,22 @@ export function RiskPage({
         autoExecutionEnabled: true,
       });
       await onRefresh();
-      setMessage("Twelve Data Paper AUTO is armed. Risk AI keeps final veto authority.");
+      setMessage(
+        "Twelve Data Paper AUTO is armed. Risk AI keeps final veto authority.",
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "AUTO execution could not be armed.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "AUTO execution could not be armed.",
+      );
     } finally {
       setBusy(false);
     }
   };
   return (
     <div className="oai-two-columns">
-      <Panel
-        title="Live Risk Profile"
-        kicker="CONNECTED RISK AI"
-      >
+      <Panel title="Live Risk Profile" kicker="CONNECTED RISK AI">
         <div className="oai-risk-runtime">
           <span className={riskRulesActive ? "is-ready" : "is-blocked"}>
             <i /> Risk AI {riskRulesActive ? "ACTIVE" : "BLOCKED"}
@@ -719,22 +792,81 @@ export function RiskPage({
           </small>
         </div>
         <div className="oai-form-grid">
-          <label>Risk per trade (%)<input type="number" min="0.01" max="5" step="0.01" value={riskPercent} onChange={(event) => setRiskPercent(event.target.value)} /></label>
-          <label>Maximum daily loss (%)<input type="number" min="0.01" max="20" step="0.01" value={maxDailyLoss} onChange={(event) => setMaxDailyLoss(event.target.value)} /></label>
-          <label>Maximum open positions<input type="number" min="1" max="20" step="1" value={maxOpenPositions} onChange={(event) => setMaxOpenPositions(event.target.value)} /></label>
-          <label>Minimum R:R<input type="number" min="1" max="10" step="0.1" value={minimumRR} onChange={(event) => setMinimumRR(event.target.value)} /></label>
+          <label>
+            Risk per trade (%)
+            <input
+              type="number"
+              min="0.01"
+              max="5"
+              step="0.01"
+              value={riskPercent}
+              onChange={(event) => setRiskPercent(event.target.value)}
+            />
+          </label>
+          <label>
+            Maximum daily loss (%)
+            <input
+              type="number"
+              min="0.01"
+              max="20"
+              step="0.01"
+              value={maxDailyLoss}
+              onChange={(event) => setMaxDailyLoss(event.target.value)}
+            />
+          </label>
+          <label>
+            Maximum open positions
+            <input
+              type="number"
+              min="1"
+              max="20"
+              step="1"
+              value={maxOpenPositions}
+              onChange={(event) => setMaxOpenPositions(event.target.value)}
+            />
+          </label>
+          <label>
+            Minimum R:R
+            <input
+              type="number"
+              min="1"
+              max="10"
+              step="0.1"
+              value={minimumRR}
+              onChange={(event) => setMinimumRR(event.target.value)}
+            />
+          </label>
         </div>
         <div className="oai-risk-instruments">
-          <div><strong>Paper instrument sizing</strong><span>Required for safe Twelve Data position sizing</span></div>
+          <div>
+            <strong>Automatic instrument sizing</strong>
+            <span>Twelve Data prices + live account-currency conversion</span>
+          </div>
           {config.symbols.map((symbol) => (
-            <label key={symbol}>
-              <span>{symbol}<small>Account-currency value per 1.0 price move</small></span>
-              <input type="number" min="0.000001" step="any" placeholder="Required" value={instrumentValues[symbol] ?? ""} onChange={(event) => setInstrumentValues((current) => ({ ...current, [symbol]: event.target.value }))} />
-            </label>
+            <div className="oai-risk-instrument-auto" key={symbol}>
+              <span>
+                {symbol}
+                <small>
+                  {symbol === "XAUUSD"
+                    ? "100 oz Onkar Paper contract"
+                    : "100,000 base-currency FX contract"}
+                </small>
+              </span>
+              <strong>AUTO</strong>
+            </div>
           ))}
         </div>
-        <button className="oai-risk-action" disabled={busy} onClick={() => void saveRisk()}><Save size={17} /> Save risk profile</button>
-        <div className="oai-note">Values are saved to the real scanner profile. Risk AI cannot increase these limits by itself.</div>
+        <button
+          className="oai-risk-action"
+          disabled={busy}
+          onClick={() => void saveRisk()}
+        >
+          <Save size={17} /> Save risk profile
+        </button>
+        <div className="oai-note">
+          Values are saved to the real scanner profile. Risk AI cannot increase
+          these limits by itself.
+        </div>
       </Panel>
       <Panel
         title="Execution Readiness"
@@ -742,40 +874,132 @@ export function RiskPage({
       >
         <div className="oai-risk-total">
           <span>ORDER EXECUTION</span>
-          <strong className={armed ? "is-live" : ""}>{armed ? "AUTO ARMED" : "NOT ARMED"}</strong>
-          <small>{snapshot.runtime.tradingSource.replace("_", " ")} · {paperSource ? "Paper execution" : "MT5 broker execution"}</small>
+          <strong className={armed ? "is-live" : ""}>
+            {armed ? "AUTO ARMED" : "NOT ARMED"}
+          </strong>
+          <small>
+            {snapshot.runtime.tradingSource.replace("_", " ")} ·{" "}
+            {paperSource ? "Paper execution" : "MT5 broker execution"}
+          </small>
         </div>
         <div className="oai-risk-checks">
           {[
             ["Selected account", Boolean(account), account?.name ?? "Required"],
-            ["Risk calculation", permissions.automaticRiskCalculation, permissions.automaticRiskCalculation ? "Enabled" : "Permission disabled"],
-            ["Order preparation", permissions.automaticOrderPreparation, permissions.automaticOrderPreparation ? "Enabled" : "Permission disabled"],
-            [paperSource ? "Paper execution" : "MT5 live execution", sourcePermission, sourcePermission ? "Permitted" : "Permission disabled"],
-            ["Execution worker", executionWorkerReady, snapshot.connection.executionReason ?? snapshot.connection.executionWorker],
-            ["Instrument sizing", missingSizing.length === 0, missingSizing.length ? `Missing ${missingSizing.join(", ")}` : "Configured"],
+            [
+              "Risk calculation",
+              permissions.automaticRiskCalculation,
+              permissions.automaticRiskCalculation
+                ? "Enabled"
+                : "Permission disabled",
+            ],
+            [
+              "Order preparation",
+              permissions.automaticOrderPreparation,
+              permissions.automaticOrderPreparation
+                ? "Enabled"
+                : "Permission disabled",
+            ],
+            [
+              paperSource ? "Paper execution" : "MT5 live execution",
+              sourcePermission,
+              sourcePermission ? "Permitted" : "Permission disabled",
+            ],
+            [
+              "Execution worker",
+              executionWorkerReady,
+              snapshot.connection.executionReason ??
+                snapshot.connection.executionWorker,
+            ],
+            [
+              "Instrument sizing",
+              true,
+              paperSource
+                ? "Automatic Paper contract + live FX conversion"
+                : "Connected MT5 broker specification",
+            ],
           ].map(([label, pass, detail]) => (
             <div className={pass ? "is-pass" : "is-fail"} key={String(label)}>
               {pass ? <Check size={16} /> : <AlertTriangle size={16} />}
-              <span><strong>{String(label)}</strong><small>{String(detail)}</small></span>
+              <span>
+                <strong>{String(label)}</strong>
+                <small>{String(detail)}</small>
+              </span>
             </div>
           ))}
         </div>
         {candidate?.plan && (
           <div className="oai-card-body oai-risk-candidate">
-            <strong>{candidate.symbol} · {candidate.payload.strategyName}</strong>
-            <KeyValue label="Risk decision" value={candidate.plan.allowed ? "PASS" : "BLOCKED"} />
-            <KeyValue label="Position size" value={candidate.plan.positionSize == null ? "Pending" : String(candidate.plan.positionSize)} />
-            <small>{candidate.plan.warnings[0] ?? `${candidate.plan.riskPercent}% · ${candidate.plan.rr.toFixed(2)}R`}</small>
+            <strong>
+              {candidate.symbol} · {candidate.payload.strategyName}
+            </strong>
+            <KeyValue
+              label="Risk decision"
+              value={candidate.plan.allowed ? "PASS" : "BLOCKED"}
+            />
+            <KeyValue
+              label="Position size"
+              value={
+                candidate.plan.positionSize == null
+                  ? "Pending"
+                  : `${candidate.plan.positionSize} lots`
+              }
+            />
+            <KeyValue
+              label="Loss at SL"
+              value={
+                candidate.plan.estimatedLossAtStop == null ||
+                !candidate.plan.currency
+                  ? "Pending"
+                  : new Intl.NumberFormat("en-US", {
+                      style: "currency",
+                      currency: candidate.plan.currency,
+                    }).format(candidate.plan.estimatedLossAtStop)
+              }
+            />
+            <KeyValue
+              label="Sizing source"
+              value={
+                candidate.plan.sizingSource?.replaceAll("_", " ") ?? "Pending"
+              }
+            />
+            <small>
+              {candidate.plan.warnings[0] ??
+                `${candidate.plan.riskPercent}% · ${candidate.plan.rr.toFixed(2)}R`}
+            </small>
           </div>
         )}
         {paperSource ? (
-          <button className="oai-risk-action is-arm" disabled={busy || armed || !canArm} onClick={() => void armPaperAuto()}><Power size={17} /> {armed ? "Paper AUTO is armed" : "Arm Twelve Data Paper AUTO"}</button>
+          <button
+            className="oai-risk-action is-arm"
+            disabled={busy || armed || !canArm}
+            onClick={() => void armPaperAuto()}
+          >
+            <Power size={17} />{" "}
+            {armed ? "Paper AUTO is armed" : "Arm Twelve Data Paper AUTO"}
+          </button>
         ) : (
-          <button className="oai-risk-action" onClick={onOpenScanner}><Power size={17} /> Manage MT5 execution controls</button>
+          <button className="oai-risk-action" onClick={onOpenScanner}>
+            <Power size={17} /> Manage MT5 execution controls
+          </button>
         )}
-        {message && <div className="oai-note" role="status">{message}</div>}
-        {!armed && !canArm && <div className="oai-note">Resolve every failed readiness check above before AUTO can be armed. Risk AI will never bypass a missing safety input.</div>}
-        {armed && <div className="oai-note">Execution is active. Trades still require a fresh closed-candle setup, approved AUTO rule, valid sizing, news clearance, minimum R:R and duplicate protection.</div>}
+        {message && (
+          <div className="oai-note" role="status">
+            {message}
+          </div>
+        )}
+        {!armed && !canArm && (
+          <div className="oai-note">
+            Resolve every failed readiness check above before AUTO can be armed.
+            Risk AI will never bypass a missing safety input.
+          </div>
+        )}
+        {armed && (
+          <div className="oai-note">
+            Execution is active. Trades still require a fresh closed-candle
+            setup, approved AUTO rule, valid sizing, news clearance, minimum R:R
+            and duplicate protection.
+          </div>
+        )}
       </Panel>
     </div>
   );

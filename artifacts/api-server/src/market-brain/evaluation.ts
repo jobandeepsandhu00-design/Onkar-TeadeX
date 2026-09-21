@@ -21,6 +21,7 @@ import {
   globalWorkflowRequired,
 } from "./global-workflow";
 import { evaluateSetupWorkflow } from "./setup-workflows";
+import { floorVolume, type InstrumentSizing } from "./risk-sizing";
 
 export type NewsCheck = {
   status: "safe" | "blocked" | "unavailable";
@@ -37,6 +38,8 @@ export type AccountContext = {
   openPositions: number;
   openRiskMoney: number | null;
   valuePerUnit: number | null;
+  sizing?: InstrumentSizing | null;
+  sizingError?: string | null;
 };
 export function evaluateRules(
   strategy: StrategyVersion,
@@ -169,9 +172,35 @@ export function calculateRisk(
       warnings.push("Maximum simultaneous exposure exceeded");
     if (!account.valuePerUnit)
       warnings.push(
-        "Instrument contract value / account-currency conversion required for position sizing",
+        account.sizingError ||
+          "Instrument contract value / account-currency conversion required for position sizing",
       );
   }
+  const rawPositionSize =
+    account?.valuePerUnit && monetaryRisk !== null && distance > 0
+      ? monetaryRisk / (distance * account.valuePerUnit)
+      : null;
+  const positionSize =
+    rawPositionSize !== null
+      ? floorVolume(rawPositionSize, account?.sizing?.volumeStep ?? 0.01)
+      : null;
+  if (
+    positionSize !== null &&
+    account?.sizing &&
+    positionSize < account.sizing.volumeMin
+  )
+    warnings.push("Calculated position is below the instrument minimum volume");
+  if (
+    positionSize !== null &&
+    account?.sizing &&
+    positionSize > account.sizing.volumeMax
+  )
+    warnings.push("Calculated position exceeds the instrument maximum volume");
+  const estimatedLossAtStop =
+    positionSize !== null && account?.valuePerUnit
+      ? distance * positionSize * account.valuePerUnit
+      : null;
+  const allowed = warnings.length === 0;
   return {
     entry,
     stop,
@@ -180,15 +209,20 @@ export function calculateRisk(
     stopDistance: distance,
     riskPercent: profile.riskPercent,
     monetaryRisk,
-    positionSize:
-      account?.valuePerUnit && monetaryRisk !== null && distance > 0
-        ? monetaryRisk / (distance * account.valuePerUnit)
-        : null,
+    positionSize,
+    rawPositionSize,
+    estimatedLossAtStop,
+    valuePerPriceUnit: account?.valuePerUnit ?? null,
+    contractSize: account?.sizing?.contractSize ?? null,
+    profitCurrency: account?.sizing?.profitCurrency ?? null,
+    conversionRate: account?.sizing?.conversionRate ?? null,
+    volumeStep: account?.sizing?.volumeStep ?? null,
+    sizingSource: account?.sizing?.source ?? null,
     currency: account?.currency ?? null,
     accountId: account?.id ?? null,
-    allowed: warnings.length === 0,
+    allowed,
     warnings,
-    executionEnabled: false as const,
+    executionEnabled: allowed,
   };
 }
 export function analyzeCandidate(

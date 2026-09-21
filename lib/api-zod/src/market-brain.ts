@@ -528,6 +528,18 @@ export type RiskResult = {
   riskPercent: number;
   monetaryRisk: number | null;
   positionSize: number | null;
+  rawPositionSize?: number | null;
+  estimatedLossAtStop?: number | null;
+  valuePerPriceUnit?: number | null;
+  contractSize?: number | null;
+  profitCurrency?: string | null;
+  conversionRate?: number | null;
+  volumeStep?: number | null;
+  sizingSource?:
+    | "TWELVE_DATA_PAPER_STANDARD"
+    | "MT5_BROKER_SPEC"
+    | "MANUAL"
+    | null;
   currency: string | null;
   accountId: string | null;
   allowed: boolean;

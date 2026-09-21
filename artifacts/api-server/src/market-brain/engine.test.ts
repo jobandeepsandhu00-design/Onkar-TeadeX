@@ -161,7 +161,7 @@ test("risk uses selected 100K account, not 1K fallback; conservative limits", ()
   const r = calculateRisk(100, 99, 102, "long", account, config.risk);
   assert.equal(r.monetaryRisk, 1000);
   assert.equal(r.allowed, true);
-  assert.equal(r.executionEnabled, false);
+  assert.equal(r.executionEnabled, true);
   assert.equal(
     calculateRisk(
       100,

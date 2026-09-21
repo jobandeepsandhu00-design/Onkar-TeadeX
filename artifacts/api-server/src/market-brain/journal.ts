@@ -1,6 +1,7 @@
 import type { ScannerConfig } from "@workspace/api-zod";
 import type { AccountContext } from "./evaluation";
 import { numeric as n, records } from "./store";
+import type { InstrumentSizing } from "./risk-sizing";
 
 /** Broker P&L is authoritative. No implicit FX conversion or contract-size guess. */
 export function journalPnl(
@@ -27,6 +28,8 @@ export function accountContext(
   config: ScannerConfig,
   symbol: string,
   now: number,
+  sizing?: InstrumentSizing | null,
+  sizingError: string | null = null,
 ): AccountContext | null {
   const id = config.accountId; // No global/fallback balance and no implicit account switching.
   const account = records(source.tradingAccounts).find((a) => a.id === id);
@@ -77,7 +80,12 @@ export function accountContext(
       config.risk.maxDailyLossPercent,
     openPositions: open.length,
     openRiskMoney,
-    valuePerUnit: config.risk.valuePerPriceUnit[symbol] ?? null,
+    valuePerUnit:
+      sizing === undefined
+        ? (config.risk.valuePerPriceUnit[symbol] ?? null)
+        : (sizing?.valuePerPriceUnit ?? null),
+    sizing: sizing === undefined ? null : sizing,
+    sizingError,
   };
 }
 export function journalSummary(

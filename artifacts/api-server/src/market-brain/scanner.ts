@@ -32,6 +32,7 @@ import {
 } from "./global-workflow";
 import { selectScannerMarketProvider } from "./provider-selection";
 import { sharedProviderCandles } from "./shared-market";
+import { resolveInstrumentSizing } from "./risk-sizing";
 
 export const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -344,9 +345,38 @@ export async function runScannerJob(
         );
       }
     }
-    const now = Date.now(),
-      news = await newsCheck(symbol, config, now),
-      account = accountContext(source, config, symbol, now);
+    const now = Date.now();
+    const accountRecord = records(source.tradingAccounts).find(
+      (item) => item.id === config.accountId,
+    );
+    let sizing = null;
+    let sizingError: string | null = null;
+    if (accountRecord) {
+      try {
+        sizing = await resolveInstrumentSizing({
+          provider: activeProvider,
+          symbol,
+          accountCurrency: String(accountRecord.currency || "USD"),
+          manualValue: config.risk.valuePerPriceUnit[symbol],
+        });
+        if (!sizing)
+          sizingError = `${symbol} has no automatic contract specification; configure an explicit fallback value.`;
+      } catch (sizingFailure) {
+        sizingError =
+          sizingFailure instanceof Error
+            ? sizingFailure.message
+            : "Instrument sizing is unavailable.";
+      }
+    }
+    const news = await newsCheck(symbol, config, now);
+    const account = accountContext(
+      source,
+      config,
+      symbol,
+      now,
+      sizing,
+      sizingError,
+    );
     health = {
       ...health,
       status: sharedMarketCached ? "degraded" : "connected",
@@ -368,6 +398,15 @@ export async function runScannerJob(
           ? providerSelection.activeHealth.status
           : "standby",
       liveExecution: activeProvider === "mt5",
+      riskSizing: sizing
+        ? {
+            source: sizing.source,
+            valuePerPriceUnit: sizing.valuePerPriceUnit,
+            accountCurrency: sizing.accountCurrency,
+            conversionRate: sizing.conversionRate,
+            volumeStep: sizing.volumeStep,
+          }
+        : { source: "unavailable", reason: sizingError },
     };
     const enrichedTrades = records(source.trades).map((t) => ({
       ...t,

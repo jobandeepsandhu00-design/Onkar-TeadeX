@@ -1,6 +1,8 @@
 import { scannerConfigSchema, strategyVersionSchema } from "@workspace/api-zod";
 import { getMarketProvider } from "./providers";
 import { accountContext } from "./journal";
+import { calculateRisk } from "./evaluation";
+import { resolvePaperInstrumentSizing } from "./risk-sizing";
 import {
   ScannerStore,
   records,
@@ -278,9 +280,33 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
     ? strategyVersionSchema.parse(version.definition)
     : null;
   const source = await store.source(runtime.user_id);
-  const account = accountContext(source, config, candidate.symbol, Date.now());
   const accountRecord = records(source.tradingAccounts).find(
     (item) => item.id === config.accountId,
+  );
+  let sizing = null;
+  let sizingError: string | null = null;
+  if (accountRecord) {
+    try {
+      sizing = await resolvePaperInstrumentSizing(
+        candidate.symbol,
+        String(accountRecord.currency || "USD"),
+      );
+      if (!sizing)
+        sizingError = `${candidate.symbol} has no automatic Paper contract specification.`;
+    } catch (error) {
+      sizingError =
+        error instanceof Error
+          ? error.message
+          : "Currency conversion is unavailable.";
+    }
+  }
+  const account = accountContext(
+    source,
+    config,
+    candidate.symbol,
+    Date.now(),
+    sizing,
+    sizingError,
   );
   const requestId = executionRequestId({
     accountId: config.accountId ?? "",
@@ -327,8 +353,8 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
   )
     return { blocked: true, reason: "Setup risk or news checks do not pass." };
   const plan = candidate.plan;
-  if (!plan?.positionSize || !(plan.stop > 0 && plan.target > 0))
-    return { blocked: true, reason: "Paper position sizing is unavailable." };
+  if (!plan || !(plan.stop > 0 && plan.target > 0))
+    return { blocked: true, reason: "Paper execution plan is unavailable." };
   const quote = await getMarketProvider("twelvedata").getQuote(
     candidate.symbol,
   );
@@ -345,6 +371,20 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
     return {
       blocked: true,
       reason: "Live Paper entry no longer meets minimum R:R.",
+    };
+  const liveRisk = calculateRisk(
+    entry,
+    plan.stop,
+    plan.target,
+    candidate.payload.direction,
+    account,
+    config.risk,
+  );
+  if (!liveRisk.allowed || !liveRisk.positionSize)
+    return {
+      blocked: true,
+      reason:
+        liveRisk.warnings[0] || "Live Paper position sizing is unavailable.",
     };
   await executionEvent(
     store,
@@ -363,7 +403,12 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
     "READY_TO_EXECUTE",
     "All deterministic Paper checks passed.",
     config.accountId,
-    { entry, positionSize: plan.positionSize },
+    {
+      entry,
+      positionSize: liveRisk.positionSize,
+      estimatedLossAtStop: liveRisk.estimatedLossAtStop,
+      sizingSource: liveRisk.sizingSource,
+    },
   );
   await executionEvent(
     store,
@@ -393,13 +438,18 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
       current_price: entry,
       stop_loss: plan.stop,
       take_profit: plan.target,
-      position_size: plan.positionSize,
-      risk_percent: plan.riskPercent,
+      position_size: liveRisk.positionSize,
+      risk_percent: liveRisk.riskPercent,
       detail: {
         accountName: accountRecord.alias || accountRecord.accountNumber,
         accountCurrency: account.currency,
         setupName: version.name,
-        valuePerPriceUnit: account.valuePerUnit,
+        valuePerPriceUnit: liveRisk.valuePerPriceUnit,
+        contractSize: liveRisk.contractSize,
+        profitCurrency: liveRisk.profitCurrency,
+        conversionRate: liveRisk.conversionRate,
+        sizingSource: liveRisk.sizingSource,
+        estimatedLossAtStop: liveRisk.estimatedLossAtStop,
       },
     },
   );
@@ -414,7 +464,12 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
     "EXECUTED",
     "Paper trade opened from verified Twelve Data prices.",
     config.accountId,
-    { paperTradeId: trade.id, entry, positionSize: plan.positionSize },
+    {
+      paperTradeId: trade.id,
+      entry,
+      positionSize: liveRisk.positionSize,
+      estimatedLossAtStop: liveRisk.estimatedLossAtStop,
+    },
   );
   await store.request(
     "setup_candidates",
