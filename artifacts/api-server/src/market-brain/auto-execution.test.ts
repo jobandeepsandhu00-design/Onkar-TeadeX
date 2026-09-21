@@ -60,6 +60,25 @@ test("Paper execution calculates BUY and SELL results from stored contract value
   );
 });
 
+test("Paper result preserves initial risk after a partial close and stop move", () => {
+  const result = calculatePaperResult(
+    {
+      entry: 100,
+      stop_loss: 100,
+      position_size: 1,
+      direction: "BUY",
+      detail: {
+        valuePerPriceUnit: 10,
+        initialStopLoss: 98,
+        initialPositionSize: 2,
+        realizedPnl: 20,
+      },
+    },
+    104,
+  );
+  assert.deepEqual(result, { pnl: 60, rMultiple: 1.5 });
+});
+
 test("execution identity is stable and provider/account scoped", () => {
   const input = {
     accountId: "paper-account",

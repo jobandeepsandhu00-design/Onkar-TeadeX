@@ -46,6 +46,7 @@ export default function MarketBrain({
   initialTab = "Watchlist",
   onOpenAgent,
   onEditSetup,
+  onTabChange,
 }: {
   onJournal: () => void;
   journalTrades?: Array<
@@ -54,6 +55,7 @@ export default function MarketBrain({
   initialTab?: MarketBrainTab;
   onOpenAgent?: (agentId: AgentId) => void;
   onEditSetup?: (setupId: string) => void;
+  onTabChange?: (tab: MarketBrainTab) => void;
 }) {
   const [snapshot, setSnapshot] = useState<ScannerSnapshot | null>(null),
     [tab, setTab] = useState<MarketBrainTab>(initialTab),
@@ -94,6 +96,10 @@ export default function MarketBrain({
   useEffect(() => {
     setTab(initialTab);
   }, [initialTab]);
+  const selectTab = (next: MarketBrainTab) => {
+    setTab(next);
+    onTabChange?.(next);
+  };
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -305,7 +311,7 @@ export default function MarketBrain({
             "Replay",
           ] as MarketBrainTab[]
         ).map((t) => (
-          <button key={t} aria-pressed={t === tab} onClick={() => setTab(t)}>
+          <button key={t} aria-pressed={t === tab} onClick={() => selectTab(t)}>
             {t}
           </button>
         ))}
@@ -346,7 +352,9 @@ export default function MarketBrain({
                 <CommandCenterHero
                   snapshot={snapshot}
                   activeSetups={activeRuleCount}
-                  onOpenScanner={() => root.current?.scrollIntoView({ behavior: "smooth" })}
+                  onOpenScanner={() =>
+                    root.current?.scrollIntoView({ behavior: "smooth" })
+                  }
                   onRefresh={() => void refresh()}
                 />
                 <AutomationControlBar
@@ -499,7 +507,7 @@ export default function MarketBrain({
                       and account, then enable the background scanner. Only
                       real, qualified candidates appear here.
                     </p>
-                    <button onClick={() => setTab("Rules")}>
+                    <button onClick={() => selectTab("Rules")}>
                       Configure strategy rules
                     </button>
                   </div>
@@ -588,6 +596,12 @@ export default function MarketBrain({
                         "Permission Center updated for the shared scanner and execution router.",
                       )
                     }
+                    onManagementChange={(tradeManagement) =>
+                      void saveConfig(
+                        { tradeManagement },
+                        "Trade management rules saved for Paper execution.",
+                      )
+                    }
                   />
                 ) : null}
                 <MarketSessionTimeline snapshot={snapshot} />
@@ -617,7 +631,7 @@ export default function MarketBrain({
                     <ScanLine size={16} />
                     Queue scan
                   </button>
-                  <button onClick={() => setTab("Settings")}>
+                  <button onClick={() => selectTab("Settings")}>
                     <Settings2 size={16} />
                     Scanner settings
                   </button>

@@ -33,4 +33,8 @@ test("permission center defaults keep analysis and Paper safe while MT5 live is 
   assert.equal(config.permissions.paperTradeExecution, true);
   assert.equal(config.permissions.mt5LiveExecution, false);
   assert.equal(config.permissions.autoTradeClose, false);
+  assert.equal(config.tradeManagement.breakEvenTriggerR, 1);
+  assert.equal(config.tradeManagement.partialClosePercent, 50);
+  assert.equal(config.tradeManagement.stopModificationLockR, 0.5);
+  assert.equal(config.tradeManagement.tradeCloseTriggerR, 2);
 });

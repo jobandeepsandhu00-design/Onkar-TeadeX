@@ -22,6 +22,29 @@ type PaperRuntime = {
   source_activated_at: string;
 };
 
+type ManagementAction = {
+  type: "PARTIAL_CLOSE" | "BREAK_EVEN" | "STOP_MODIFICATION";
+  at: string;
+  price?: number;
+  size?: number;
+  stop?: number;
+};
+
+type PaperTradeDetail = Record<string, unknown> & {
+  valuePerPriceUnit?: number;
+  volumeStep?: number;
+  volumeMin?: number;
+  initialStopLoss?: number;
+  initialPositionSize?: number;
+  realizedPnl?: number;
+  partialCloseApplied?: boolean;
+  partialClosePrice?: number;
+  partialCloseSize?: number;
+  breakEvenApplied?: boolean;
+  stopModificationApplied?: boolean;
+  managementActions?: ManagementAction[];
+};
+
 type PaperTrade = {
   id: string;
   user_id: string;
@@ -47,7 +70,7 @@ type PaperTrade = {
   opened_at: string;
   last_managed_at: string;
   closed_at: string | null;
-  detail: Record<string, unknown>;
+  detail: PaperTradeDetail;
 };
 
 const freshQuote = (timestamp: string, now = Date.now()) => {
@@ -65,9 +88,16 @@ export function calculatePaperResult(
   const unit = Number(trade.detail.valuePerPriceUnit);
   if (!(unit > 0) || !(trade.position_size > 0)) return null;
   const sign = trade.direction === "BUY" ? 1 : -1;
-  const pnl = (closePrice - trade.entry) * sign * trade.position_size * unit;
+  const realizedPnl = Number(trade.detail.realizedPnl) || 0;
+  const pnl =
+    realizedPnl +
+    (closePrice - trade.entry) * sign * trade.position_size * unit;
+  const initialStopLoss =
+    Number(trade.detail.initialStopLoss) || trade.stop_loss;
+  const initialPositionSize =
+    Number(trade.detail.initialPositionSize) || trade.position_size;
   const initialRisk =
-    Math.abs(trade.entry - trade.stop_loss) * trade.position_size * unit;
+    Math.abs(trade.entry - initialStopLoss) * initialPositionSize * unit;
   return {
     pnl,
     rMultiple: initialRisk > 0 ? pnl / initialRisk : null,
@@ -153,6 +183,14 @@ export async function manageNextPaperTrade(store = ScannerStore.service()) {
     limit: "1",
   });
   if (!trade) return { skipped: true, reason: "No open Paper trade." };
+  const [configRow] = await store.request<ConfigRow[]>("scanner_configs", {
+    user_id: `eq.${trade.user_id}`,
+    limit: "1",
+  });
+  // Existing positions keep their hard SL/TP management even when scanning is
+  // paused. Optional permissions fall back to off if the profile is missing.
+  const config = scannerConfigSchema.parse(configRow?.config ?? {});
+  const management = config.tradeManagement;
   const quote = await getMarketProvider("twelvedata").getQuote(trade.symbol);
   if (!freshQuote(quote.timestamp))
     return {
@@ -168,17 +206,127 @@ export async function manageNextPaperTrade(store = ScannerStore.service()) {
     trade.direction === "BUY"
       ? price >= trade.take_profit
       : price <= trade.take_profit;
+  const sign = trade.direction === "BUY" ? 1 : -1;
+  const initialStopLoss =
+    Number(trade.detail.initialStopLoss) || trade.stop_loss;
+  const initialPositionSize =
+    Number(trade.detail.initialPositionSize) || trade.position_size;
+  const initialDistance = Math.abs(trade.entry - initialStopLoss);
+  const currentR =
+    initialDistance > 0
+      ? ((price - trade.entry) * sign) / initialDistance
+      : Number.NEGATIVE_INFINITY;
+  const [candidate] = config.permissions.autoTradeClose
+    ? await store.request<CandidateRow[]>("setup_candidates", {
+        id: `eq.${trade.candidate_id}`,
+        limit: "1",
+      })
+    : [];
+  const invalidated =
+    management.closeOnSetupInvalidation &&
+    candidate != null &&
+    ["INVALIDATED", "EXPIRED"].includes(candidate.state);
+  const profitClose =
+    config.permissions.autoTradeClose &&
+    currentR >= management.tradeCloseTriggerR;
   const now = new Date().toISOString();
-  if (!stopHit && !targetHit) {
+  if (!stopHit && !targetHit && !invalidated && !profitClose) {
+    const detail: PaperTradeDetail = {
+      ...trade.detail,
+      initialStopLoss,
+      initialPositionSize,
+    };
+    const actions = Array.isArray(detail.managementActions)
+      ? [...detail.managementActions]
+      : [];
+    let nextStop = trade.stop_loss;
+    let nextSize = trade.position_size;
+    let realizedPnl = Number(detail.realizedPnl) || 0;
+    const unit = Number(detail.valuePerPriceUnit);
+    const volumeStep = Number(detail.volumeStep) || 0.01;
+    const volumeMin = Number(detail.volumeMin) || volumeStep;
+    if (
+      config.permissions.autoPartialClose &&
+      !detail.partialCloseApplied &&
+      currentR >= management.partialCloseTriggerR &&
+      unit > 0
+    ) {
+      const requested =
+        trade.position_size * (management.partialClosePercent / 100);
+      const partialSize =
+        Math.floor((requested + 1e-10) / volumeStep) * volumeStep;
+      const remaining = Number((trade.position_size - partialSize).toFixed(8));
+      if (partialSize >= volumeMin && remaining >= volumeMin) {
+        realizedPnl += (price - trade.entry) * sign * partialSize * unit;
+        nextSize = remaining;
+        detail.partialCloseApplied = true;
+        detail.partialClosePrice = price;
+        detail.partialCloseSize = partialSize;
+        detail.realizedPnl = realizedPnl;
+        actions.push({
+          type: "PARTIAL_CLOSE",
+          at: now,
+          price,
+          size: partialSize,
+        });
+      }
+    }
+    if (
+      config.permissions.autoBreakEven &&
+      !detail.breakEvenApplied &&
+      currentR >= management.breakEvenTriggerR
+    ) {
+      const breakEvenStop =
+        trade.entry + sign * initialDistance * management.breakEvenOffsetR;
+      const improves =
+        trade.direction === "BUY"
+          ? breakEvenStop > nextStop
+          : breakEvenStop < nextStop;
+      if (improves) nextStop = breakEvenStop;
+      detail.breakEvenApplied = true;
+      actions.push({ type: "BREAK_EVEN", at: now, stop: nextStop });
+    }
+    if (
+      config.permissions.autoStopModification &&
+      !detail.stopModificationApplied &&
+      currentR >= management.stopModificationTriggerR
+    ) {
+      const lockedStop =
+        trade.entry + sign * initialDistance * management.stopModificationLockR;
+      const improves =
+        trade.direction === "BUY"
+          ? lockedStop > nextStop
+          : lockedStop < nextStop;
+      if (improves) nextStop = lockedStop;
+      detail.stopModificationApplied = true;
+      actions.push({ type: "STOP_MODIFICATION", at: now, stop: nextStop });
+    }
+    detail.managementActions = actions;
     await store.request(
       "paper_trades",
       { id: `eq.${trade.id}`, status: "eq.OPEN" },
       "PATCH",
-      { current_price: price, last_managed_at: now },
+      {
+        current_price: price,
+        stop_loss: nextStop,
+        position_size: nextSize,
+        detail,
+        last_managed_at: now,
+      },
     );
-    return { managed: true, tradeId: trade.id, status: "OPEN" };
+    return {
+      managed: true,
+      tradeId: trade.id,
+      status: "OPEN",
+      currentR,
+      actions: actions.slice(-3),
+    };
   }
-  const closePrice = stopHit ? trade.stop_loss : trade.take_profit;
+  const closePrice = stopHit
+    ? trade.stop_loss
+    : targetHit
+      ? trade.take_profit
+      : price;
   const result = calculatePaperResult(trade, closePrice);
   if (!result)
     return {
@@ -195,6 +343,18 @@ export async function manageNextPaperTrade(store = ScannerStore.service()) {
       close_price: closePrice,
       pnl: result.pnl,
       r_multiple: result.rMultiple,
+      detail: {
+        ...trade.detail,
+        initialStopLoss,
+        initialPositionSize,
+        closeReason: stopHit
+          ? "STOP_LOSS"
+          : targetHit
+            ? "TAKE_PROFIT"
+            : invalidated
+              ? "SETUP_INVALIDATED"
+              : "AUTO_R_TARGET",
+      },
       last_managed_at: now,
       closed_at: now,
     },
@@ -476,6 +636,12 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
         sizingSafetyFactor: liveRisk.sizingSafetyFactor,
         sizingSource: liveRisk.sizingSource,
         estimatedLossAtStop: liveRisk.estimatedLossAtStop,
+        volumeStep: liveRisk.volumeStep ?? 0.01,
+        volumeMin: liveRisk.volumeStep ?? 0.01,
+        initialStopLoss: plan.stop,
+        initialPositionSize: liveRisk.positionSize,
+        realizedPnl: 0,
+        managementActions: [],
       },
     },
   );

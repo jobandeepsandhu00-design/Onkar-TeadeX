@@ -369,6 +369,23 @@ export const scannerPermissionsSchema = z
   })
   .strict();
 export type ScannerPermissions = z.infer<typeof scannerPermissionsSchema>;
+export const tradeManagementSchema = z
+  .object({
+    breakEvenTriggerR: z.number().min(0.25).max(5).default(1),
+    breakEvenOffsetR: z.number().min(0).max(1).default(0),
+    partialCloseTriggerR: z.number().min(0.25).max(5).default(1),
+    partialClosePercent: z.number().min(5).max(90).default(50),
+    stopModificationTriggerR: z.number().min(0.5).max(10).default(1.5),
+    stopModificationLockR: z.number().min(0).max(5).default(0.5),
+    tradeCloseTriggerR: z.number().min(1).max(10).default(2),
+    closeOnSetupInvalidation: z.boolean().default(true),
+  })
+  .strict()
+  .refine(
+    (value) => value.stopModificationLockR < value.stopModificationTriggerR,
+    "The locked R must be below the SL-modification trigger",
+  );
+export type TradeManagement = z.infer<typeof tradeManagementSchema>;
 export const scannerConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
@@ -395,6 +412,7 @@ export const scannerConfigSchema = z
     visionEnabled: z.boolean().default(false),
     risk: riskProfileSchema.default({}),
     permissions: scannerPermissionsSchema.default({}),
+    tradeManagement: tradeManagementSchema.default({}),
   })
   .strict();
 export type ScannerConfig = z.infer<typeof scannerConfigSchema>;
