@@ -17,7 +17,6 @@ import {
   type CarouselApi,
 } from "../components/ui/carousel";
 import {
-  demoInsights,
   price,
   setupPath,
   type InsightPreview,
@@ -25,7 +24,6 @@ import {
 import {
   AIScoreBadge,
   AIStatusBadge,
-  DemoLabel,
   KeyValue,
   OnkarAIEntryButton,
 } from "./ui";
@@ -34,6 +32,7 @@ import "./onkar-ai.css";
 type Props = {
   onNavigate: (path: string) => void;
   insights?: InsightPreview[];
+  connectionState?: "connected" | "loading" | "offline";
 };
 export function AIInsightCard({
   insight,
@@ -104,29 +103,27 @@ export function AIInsightCard({
           </div>
           <p className="oai-insight-note">
             {kind === "invalidated"
-              ? "Sample: price closed below support."
+              ? setup.reason || "The verified setup is no longer actionable."
               : kind === "developing"
-                ? "Waiting for a confirmation candle."
+                ? setup.waitFor || "Waiting for a confirmation candle."
                 : kind === "entry"
-                  ? "Price approaching the planned entry zone."
-                  : `${setup.rules}/10 rules matched · Review risk before entry.`}
+                  ? setup.waitFor || "Price is approaching the verified entry zone."
+                  : `${setup.rules}/${setup.totalRules ?? setup.rules} rules matched · Review risk before entry.`}
           </p>
         </>
       ) : kind === "news" ? (
         <>
-          <h3>US CPI</h3>
-          <p className="oai-muted">USD pairs · High-impact event</p>
+          <h3>News clearance</h3>
+          <p className="oai-muted">Connected economic-calendar status</p>
           <div className="oai-warning-time">
             <ShieldAlert size={30} />
-            <strong>
-              18<small>minutes away</small>
-            </strong>
+            <strong>—<small>awaiting verified event</small></strong>
           </div>
           <p className="oai-insight-note">
-            Sample event timeline. Reassess USD exposure and wait for volatility
-            to settle.
+            No event details are shown until the connected news service returns
+            a verified calendar record.
           </p>
-          <AIStatusBadge status="Waiting for news" />
+          <AIStatusBadge status="Awaiting data" />
         </>
       ) : (
         <>
@@ -135,19 +132,14 @@ export function AIInsightCard({
             <br />
             Your edge.
           </h3>
-          <p className="oai-muted">Sample journal insight</p>
+          <p className="oai-muted">Connected journal insight</p>
           <div className="oai-insight-stat">
-            <strong>60%</strong>
-            <span>win rate across 5 example trades</span>
+            <strong>—</strong>
+            <span>Awaiting selected-account journal evidence</span>
           </div>
           <p className="oai-insight-note">
-            Compare your strongest setups, recurring mistakes and session
-            performance.
+            Performance values appear only when recorded trades are available.
           </p>
-          <div className="oai-row">
-            <KeyValue label="Average result" value="+0.88R" />
-            <KeyValue label="Profit factor" value="3.2" />
-          </div>
         </>
       )}
       <footer>
@@ -167,7 +159,8 @@ export function AIInsightCard({
 }
 export function OnkarAIRecentSlider({
   onNavigate,
-  insights = demoInsights,
+  insights = [],
+  connectionState = "loading",
 }: Props) {
   const [api, setApi] = useState<CarouselApi>();
   const [index, setIndex] = useState(0);
@@ -204,7 +197,14 @@ export function OnkarAIRecentSlider({
           </div>
         </div>
         <div className="oai-recent-actions">
-          <DemoLabel />
+          <span className={`oai-live-source is-${connectionState}`}>
+            <i />
+            {connectionState === "connected"
+              ? "VERIFIED SCANNER DATA"
+              : connectionState === "offline"
+                ? "SCANNER OFFLINE"
+                : "CHECKING SCANNER"}
+          </span>
           <button
             className="oai-text-button"
             onClick={() => onNavigate("/onkar-ai")}
@@ -213,30 +213,41 @@ export function OnkarAIRecentSlider({
           </button>
         </div>
       </header>
-      <Carousel
-        opts={{ align: "start", dragFree: false, containScroll: "trimSnaps" }}
-        setApi={setApi}
-        className="oai-intelligence-carousel"
-      >
-        <CarouselContent>
-          {sorted.map((insight) => (
-            <CarouselItem key={insight.id} className="oai-slide">
-              <AIInsightCard insight={insight} onNavigate={onNavigate} />
-            </CarouselItem>
-          ))}
-        </CarouselContent>
-      </Carousel>
+      {sorted.length ? (
+        <Carousel
+          opts={{ align: "start", dragFree: false, containScroll: "trimSnaps" }}
+          setApi={setApi}
+          className="oai-intelligence-carousel"
+        >
+          <CarouselContent>
+            {sorted.map((insight) => (
+              <CarouselItem key={insight.id} className="oai-slide">
+                <AIInsightCard insight={insight} onNavigate={onNavigate} />
+              </CarouselItem>
+            ))}
+          </CarouselContent>
+        </Carousel>
+      ) : (
+        <div className="oai-recent-empty">
+          <Radio size={24} />
+          <div>
+            <strong>{connectionState === "loading" ? "Loading scanner intelligence…" : "No verified candidates yet"}</strong>
+            <span>Only real Setup Library matches from closed candles appear here. Sample cards are disabled.</span>
+          </div>
+        </div>
+      )}
       <footer className="oai-slider-footer">
         <div className="oai-row">
           <button
             aria-label="Previous intelligence cards"
             className="oai-icon-button"
+            hidden={!sorted.length}
             disabled={!api?.canScrollPrev()}
             onClick={() => api?.scrollPrev()}
           >
             <ChevronLeft size={18} />
           </button>
-          <div className="oai-dots">
+          <div className="oai-dots" hidden={!sorted.length}>
             {Array.from({ length: count }, (_, i) => (
               <button
                 key={i}
@@ -250,6 +261,7 @@ export function OnkarAIRecentSlider({
           <button
             aria-label="Next intelligence cards"
             className="oai-icon-button"
+            hidden={!sorted.length}
             disabled={!api?.canScrollNext()}
             onClick={() => api?.scrollNext()}
           >

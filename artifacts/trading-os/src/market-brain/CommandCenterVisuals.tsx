@@ -37,6 +37,7 @@ import {
   Zap,
 } from "lucide-react";
 import { latestApprovedVersions } from "./strategy-versions";
+import { setupCoverage } from "./setup-coverage";
 import type { AgentId } from "../onkar-ai/agent-data";
 import { useAgentAnimationState } from "../onkar-ai/useAgentAnimationState";
 
@@ -339,6 +340,12 @@ export function SetupActivationPanel({
       ? approved.map((version) => version.id)
       : (snapshot.config?.config.strategyVersionIds ?? []),
   );
+  const coverage = setupCoverage(snapshot);
+  const scannedVersions = new Set(
+    coverage
+      .filter((result) => enabled.has(result.versionId))
+      .map((result) => result.versionId),
+  );
   return (
     <section className="mb-setup-activation">
       <div className="mb-section-heading">
@@ -346,7 +353,9 @@ export function SetupActivationPanel({
           <span className="mb-eyebrow">Approved strategy library</span>
           <h3>Automatic Setup Detection</h3>
         </div>
-        <span className="mb-badge mb-positive">{enabled.size} ACTIVE</span>
+        <span className="mb-badge mb-positive">
+          {scannedVersions.size}/{enabled.size} SCANNED
+        </span>
       </div>
       {!approved.length ? (
         <p className="mb-notice">
@@ -361,6 +370,10 @@ export function SetupActivationPanel({
               (candidate) => candidate.version_id === version.id,
             );
             const latest = candidates[0];
+            const evaluations = coverage
+              .filter((result) => result.versionId === version.id)
+              .sort((a, b) => b.analyzedAt.localeCompare(a.analyzedAt));
+            const latestEvaluation = evaluations[0];
             return (
               <article
                 className={`mb-setup-card ${on ? "is-on" : ""}`}
@@ -396,10 +409,13 @@ export function SetupActivationPanel({
                 </div>
                 <div className="mb-setup-result">
                   <small>LAST RESULT</small>
-                  <strong>{latest?.state ?? "NO CANDIDATE"}</strong>
+                  <strong>
+                    {latest?.state ?? latestEvaluation?.status ?? "AWAITING SCAN"}
+                  </strong>
                   <small>
-                    {candidates.length} candidate
-                    {candidates.length === 1 ? "" : "s"}
+                    {latestEvaluation
+                      ? `${latestEvaluation.score}/100 · ${evaluations.length} market${evaluations.length === 1 ? "" : "s"} checked`
+                      : "No completed evaluation yet"}
                   </small>
                 </div>
                 <footer>
@@ -504,6 +520,17 @@ export function LiveCandidateCarousel({
   const candidates = snapshot.candidates
     .filter((item) => !["COMPLETED", "EXPIRED"].includes(item.state))
     .sort((a, b) => b.score - a.score);
+  const approved = latestApprovedVersions(snapshot);
+  const activeVersionIds = new Set(
+    snapshot.config?.config.autoActivateApprovedSetups
+      ? approved.map((version) => version.id)
+      : (snapshot.config?.config.strategyVersionIds ?? []),
+  );
+  const evaluated = new Set(
+    setupCoverage(snapshot)
+      .filter((result) => activeVersionIds.has(result.versionId))
+      .map((result) => result.versionId),
+  ).size;
   return (
     <section className="mb-os-panel">
       <div className="mb-section-heading">
@@ -511,7 +538,12 @@ export function LiveCandidateCarousel({
           <span className="mb-eyebrow">LIVE OPPORTUNITIES</span>
           <h3>Candidate command rail</h3>
         </div>
-        <span className="mb-badge">{candidates.length} DETECTED</span>
+        <div className="mb-chip-row">
+          <span className="mb-badge">{candidates.length} QUALIFIED</span>
+          <span className="mb-badge mb-positive">
+            {evaluated}/{activeVersionIds.size} SETUPS CHECKED
+          </span>
+        </div>
       </div>
       {!candidates.length ? (
         <div className="mb-os-empty">

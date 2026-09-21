@@ -25,6 +25,14 @@ import { TradeSetupDashboard } from "./trade-setups/TradeSetupBoard";
 import { DashboardVideoSection, VideoLearningHub, VideoLessonPage } from "./video-lessons";
 import { mergeDashboardSections, moveDashboardSection } from "./market-brain/dashboard-order";
 import { AccountCommandCarousel } from "./market-brain/AccountCommandCarousel";
+import { brainRequest } from "./market-brain/api";
+import type { ScannerSnapshot } from "@workspace/api-zod";
+import { connectedSetups, scannerIsLive } from "./onkar-ai/connected-setups";
+import {
+  connectedAgentActivity,
+  connectedAgentRuntime,
+  connectedInsights,
+} from "./onkar-ai/connected-intelligence";
 import "./market-brain/market-brain.css";
 const OnkarAIRecentSlider = React.lazy(() => import("./onkar-ai/RecentSlider").then(module => ({ default: module.OnkarAIRecentSlider })));
 const OnkarAIAgentCommandCenter = React.lazy(() => import("./onkar-ai/HomeAgentCommandCenter").then(module => ({ default: module.OnkarAIAgentCommandCenter })));
@@ -6057,6 +6065,47 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
   });
 
   const [editLayout, setEditLayout] = useState(false);
+  const [dashboardScanner, setDashboardScanner] = useState<ScannerSnapshot | null>(null);
+  const [dashboardScannerState, setDashboardScannerState] = useState<"loading" | "connected" | "offline">("loading");
+
+  useEffect(() => {
+    let mounted = true;
+    const loadScanner = async () => {
+      try {
+        const snapshot = await brainRequest<ScannerSnapshot>("");
+        if (!mounted) return;
+        setDashboardScanner(snapshot);
+        setDashboardScannerState(scannerIsLive(snapshot) ? "connected" : "offline");
+      } catch {
+        if (mounted) setDashboardScannerState("offline");
+      }
+    };
+    void loadScanner();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadScanner();
+    }, 30_000);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const dashboardRuntime = useMemo(
+    () => connectedAgentRuntime(dashboardScanner),
+    [dashboardScanner],
+  );
+  const dashboardInsights = useMemo(
+    () => connectedInsights(dashboardScanner),
+    [dashboardScanner],
+  );
+  const dashboardActivity = useMemo(
+    () => connectedAgentActivity(dashboardScanner),
+    [dashboardScanner],
+  );
+  const dashboardTopSetup = useMemo(
+    () => connectedSetups(dashboardScanner)[0] ?? null,
+    [dashboardScanner],
+  );
 
   /* ── Account Switcher state ── */
   const [acctSwitcherOpen, setAcctSwitcherOpen] = useState(false);
@@ -6203,13 +6252,19 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
     onkarAICommandCenter: (
       <div className="oai">
         <React.Suspense fallback={<div className="oai-home-command oai-home-loading">Preparing Onkar AI agents…</div>}>
-          <OnkarAIAgentCommandCenter onNavigate={(path) => goTo("onkar-ai", path)} />
+          <OnkarAIAgentCommandCenter
+            onNavigate={(path) => goTo("onkar-ai", path)}
+            connectionState={dashboardScannerState === "loading" ? "preview" : dashboardScannerState}
+            runtime={dashboardRuntime}
+            activity={dashboardActivity}
+            topSetup={dashboardTopSetup}
+          />
         </React.Suspense>
       </div>
     ),
     performanceLearning: <PerformanceLearning data={data} setData={setData} embedded />,
     videoLearning: <DashboardVideoSection onOpenLesson={onOpenLesson} onManage={() => goTo("academy", "Video Lessons")} />,
-    marketBrain: <React.Suspense fallback={<div className="p-6 text-slate-400">Loading ONKAR AI…</div>}><OnkarAIRecentSlider onNavigate={(path) => goTo("onkar-ai", path)} /></React.Suspense>,
+    marketBrain: <React.Suspense fallback={<div className="p-6 text-slate-400">Loading ONKAR AI…</div>}><OnkarAIRecentSlider onNavigate={(path) => goTo("onkar-ai", path)} insights={dashboardInsights} connectionState={dashboardScannerState} /></React.Suspense>,
     todaysFocus: (
       <>
         <SessionPlanDashCard data={data} goTo={goTo} />

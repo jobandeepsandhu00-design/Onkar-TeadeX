@@ -51,6 +51,16 @@ const snapshotPromises = new Map<
 
 type ProviderBar = Candle & { closed?: boolean };
 
+export type SharedMarketCacheMode = "live" | "closed-candle";
+
+export function closedCandleCacheMs(timeframe: Timeframe, now: number) {
+  const interval = timeframeMs[timeframe];
+  const nextClose = (Math.floor(now / interval) + 1) * interval;
+  // Give the provider a short grace period after the boundary so the newly
+  // closed candle is available. A failed fetch is shortened below for retry.
+  return Math.max(55_000, nextClose - now + 15_000);
+}
+
 function uniqueBars(rows: ProviderBar[]) {
   return [...new Map(rows.map((row) => [row.t, row])).values()].sort(
     (a, b) => a.t - b.t,
@@ -63,8 +73,10 @@ export async function sharedProviderCandles(
   symbol: string,
   timeframe: Timeframe,
   now = Date.now(),
+  options: { cacheMode?: SharedMarketCacheMode } = {},
 ) {
-  const cacheKey = `${providerName}:${symbol}:${timeframe}`;
+  const cacheMode = options.cacheMode ?? "live";
+  const cacheKey = `${providerName}:${symbol}:${timeframe}:${cacheMode}`;
   const cachedPromise = snapshotPromises.get(cacheKey);
   if (cachedPromise && cachedPromise.expiresAt > now)
     return cachedPromise.promise;
@@ -156,12 +168,24 @@ export async function sharedProviderCandles(
   const cacheMs =
     providerName === "mt5"
       ? 10_000
+      : cacheMode === "closed-candle"
+        ? closedCandleCacheMs(timeframe, now)
       : timeframe === "4h"
         ? 5 * 60_000
         : timeframe === "1h"
           ? 2 * 60_000
           : 55_000;
   snapshotPromises.set(cacheKey, { expiresAt: now + cacheMs, promise });
+  void promise.then((result) => {
+    if (result.dataStatus !== "cached" && result.dataStatus !== "unavailable")
+      return;
+    const current = snapshotPromises.get(cacheKey);
+    if (current?.promise === promise)
+      snapshotPromises.set(cacheKey, {
+        ...current,
+        expiresAt: Date.now() + 60_000,
+      });
+  });
   promise.catch(() => snapshotPromises.delete(cacheKey));
   return promise;
 }

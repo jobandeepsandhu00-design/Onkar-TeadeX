@@ -78,6 +78,7 @@ test("worker pipeline persists READY, deduplicates alerts and monitors frozen in
   const data = { "1m": history(60_000), "5m": history(300_000) };
   class MemoryStore extends ScannerStore {
     candidate: CandidateRow | null = null;
+    lastHealth: Record<string, unknown> | null = null;
     events = new Set<string>();
     alerts = new Set<string>();
     versionQuery: Record<string, string> | null = null;
@@ -114,7 +115,10 @@ test("worker pipeline persists READY, deduplicates alerts and monitors frozen in
       }
       if (table === "setup_candidates" && !query.expires_at && this.candidate)
         result = [this.candidate];
-      if (table === "scanner_configs" && method === "PATCH") result = [];
+      if (table === "scanner_configs" && method === "PATCH") {
+        this.lastHealth = (_body as { health?: Record<string, unknown> })?.health ?? null;
+        result = [];
+      }
       return result as T;
     }
     override async rpc<T>(name: string, body: unknown): Promise<T> {
@@ -139,6 +143,13 @@ test("worker pipeline persists READY, deduplicates alerts and monitors frozen in
   );
   assert.equal(store.candidate?.state, "READY");
   assert.equal(store.candidate?.score, 100);
+  const coverage = store.lastHealth?.setupCoverage as Record<
+    string,
+    { evaluated: number; eligible: number; complete: boolean }
+  >;
+  assert.equal(coverage["BTC-USD"].evaluated, 1);
+  assert.equal(coverage["BTC-USD"].eligible, 1);
+  assert.equal(coverage["BTC-USD"].complete, true);
   assert.equal(store.alerts.size, 1);
   const originalId = store.candidate!.id,
     plan = store.candidate!.plan!;

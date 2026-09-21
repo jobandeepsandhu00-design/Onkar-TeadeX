@@ -7071,6 +7071,39 @@
 }
 .oai-command-loading h2 { margin: 0; color: #f4f8ff; }
 .oai-command-loading p { max-width: 520px; margin: 0 0 6px; color: #8fa8c7; line-height: 1.65; }
+.oai-live-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  background: rgba(13, 148, 136, 0.12);
+  color: #5eead4;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.oai-live-source i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
+.oai-live-source.is-loading { color: #7dd3fc; border-color: rgba(56, 189, 248, 0.3); background: rgba(3, 105, 161, 0.12); }
+.oai-live-source.is-offline { color: #fbbf24; border-color: rgba(245, 158, 11, 0.34); background: rgba(120, 53, 15, 0.15); }
+.oai-recent-empty {
+  min-height: 190px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 16px 0;
+  padding: 22px;
+  border: 1px dashed rgba(56, 189, 248, 0.32);
+  border-radius: 20px;
+  background: rgba(6, 20, 38, 0.62);
+  color: #67e8f9;
+}
+.oai-recent-empty strong, .oai-recent-empty span { display: block; }
+.oai-recent-empty strong { color: #e6f6ff; font-size: 1rem; }
+.oai-recent-empty span { max-width: 470px; margin-top: 4px; color: #7891ac; font-size: 0.78rem; line-height: 1.5; }
+.oai-home-live-empty { margin: 10px 0 0; color: #7790ab; font-size: 0.76rem; line-height: 1.5; }
 @keyframes oai-loading-sweep { from { transform: translateX(-10%); } to { transform: translateX(150%); } }
 @media (prefers-reduced-motion: reduce) {
   .oai-launch-shell > i::after,

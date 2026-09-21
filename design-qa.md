@@ -1,47 +1,28 @@
-# Design QA — Onkar AI Setup Selection
+# Design QA — Scanner Settings and Connected Intelligence
 
-- Source visual truth: `C:\Users\joban\.codex\codex-remote-attachments\01a07180-c785-7692-9b30-a7c170f1481f\D9EA4D36-200C-4891-AED6-B6920AC4C542\3-Photo-3.jpg`
-- Implementation URL: `https://onkartradex.com/onkar-ai/strategies`
-- Implementation screenshot: unavailable because the route requires an authenticated Supabase session and the verification browser is signed out.
-- Source pixels: 589 × 1280. Intended CSS viewport: iPhone/mobile responsive. Density normalization: not applicable because an implementation capture could not be obtained.
-- State: Onkar AI → AI Scanner → Rules, setup activation list.
+## Reference review
 
-## Full-view comparison evidence
+- Scanner settings reference: replace the long numeric form with a guided 4H → 1H → 30M workflow, simple cadence choices, a visible Twelve Data load guard, and progressive disclosure for advanced limits.
+- Recent Intelligence reference: remove every sample/demo opportunity and render only verified scanner candidates.
+- Multi-Agent Command Center reference: replace sample agent tasks and conclusions with the shared Market Brain snapshot.
 
-The source was opened at original resolution. It shows the requested bulk activation panel and setup cards, but the Edit action opens the unwanted Advanced Setup Editor and only scanner-ready versions appear. The implementation removes that editor from the scanner, keeps bulk activation, lists every Setup Library item, and routes Edit to the existing Setup Library editor.
+## Implementation checks
 
-A combined source/implementation comparison could not be created because the in-app verification browser displayed the login screen at the production route.
+- [x] Mobile-first controls use large card/button targets and wrap below 760px.
+- [x] Required 4H, 1H and 30M stages are always visible; optional timeframes remain behind disclosure.
+- [x] Provider and risk account remain editable without exposing API secrets.
+- [x] The settings surface identifies missing instrument sizing as an execution blocker.
+- [x] Dashboard intelligence widgets share one authenticated snapshot request and refresh only while the page is visible.
+- [x] Sample cards, sample AI tasks and sample Master AI conclusions were removed from production rendering.
+- [x] Empty and offline states are explicit and do not invent prices, scores, news or performance.
+- [x] Reduced-motion behavior remains inherited from the existing Onkar AI motion system.
+- [x] Frontend production build and focused scanner TypeScript checks pass.
+- [x] API production build and all active scanner tests pass.
 
-## Focused-region comparison evidence
+## Browser verification
 
-The source confirms the setup cards, switches, Edit buttons, and Advanced Setup Editor behavior. The authenticated implementation region could not be captured, so typography, spacing, and touch density remain unverified visually.
+The local production UI opened successfully at `http://127.0.0.1:4173`, but protected dashboard and scanner routes require an authenticated user session. No credentials were supplied or entered, so visual comparison of those protected routes could not be completed safely. The browser reached the expected OnkarTradex login screen without a runtime crash.
 
-## Findings
+## Remaining visual check
 
-- [P1] Authenticated implementation capture unavailable.
-  - Location: Onkar AI → AI Scanner → Rules.
-  - Evidence: production opens the Onkar TradeX login screen in the verification browser.
-  - Impact: final mobile visual fidelity and the authenticated Edit transition cannot be signed off from browser evidence.
-  - Fix: capture the signed-in Rules tab on the user's iPhone after refresh and compare it with the source.
-
-## Required fidelity surfaces
-
-- Fonts and typography: existing Onkar typography is retained; authenticated runtime verification is blocked.
-- Spacing and layout rhythm: existing glass cards and mobile breakpoints are retained; a search row and unavailable-state rows were added.
-- Colors and visual tokens: existing navy, cyan, teal, amber, border, and glass tokens are reused.
-- Image quality and asset fidelity: no images or visual identity assets were replaced.
-- Copy and content: setup activation is now the primary task; the advanced editor and historical version cards are removed from the scanner.
-- Accessibility and interaction: labelled switches, disabled not-ready states, search, bulk actions, and direct edit navigation are implemented; authenticated interaction verification is blocked.
-
-## Comparison history
-
-- Pass 1: source inspected; production build, focused TypeScript check, and scanner tests passed. Production returned HTTP 200. Visual comparison blocked by authentication.
-
-## Implementation checklist
-
-1. Sign in on an iPhone and refresh the Rules tab.
-2. Verify Activate all approved setups and individual setup switches.
-3. Verify every Setup Library setup appears, including items that still need approved rules.
-4. Verify Edit opens the selected item in the existing Setup Library.
-
-final result: blocked
+After deployment, sign in normally and verify the Settings tab at iPhone width and desktop width, then confirm the dashboard shows either verified live candidates or the honest empty state. No sample card should appear.

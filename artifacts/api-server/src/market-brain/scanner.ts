@@ -230,6 +230,12 @@ export async function runScannerJob(
     aiBudget = Math.min(130_000, budgetMs * 0.5);
   let advance = false,
     error: string | null = null;
+  const priorCoverage =
+    job.health.setupCoverage &&
+    typeof job.health.setupCoverage === "object" &&
+    !Array.isArray(job.health.setupCoverage)
+      ? (job.health.setupCoverage as Record<string, unknown>)
+      : {};
   let health: Record<string, unknown> = {
     status: "offline",
     checkedAt: new Date(started).toISOString(),
@@ -238,6 +244,7 @@ export async function runScannerJob(
     mcp: "optional",
     vision: "not_configured",
     liveExecution: false,
+    setupCoverage: priorCoverage,
   };
   try {
     if (!config.permissions.automaticScanning)
@@ -317,6 +324,7 @@ export async function runScannerJob(
           symbol,
           tf,
           Date.now(),
+          { cacheMode: "closed-candle" },
         );
         if (market.dataStatus === "unavailable")
           throw new Error(
@@ -374,6 +382,7 @@ export async function runScannerJob(
       order: "created_at.desc",
       limit: "10",
     });
+    const setupEvaluations: Array<Record<string, unknown>> = [];
     for (const version of versions) {
       // Leave headroom under the five-minute lease for one bounded database write
       // and the finally release. Persisted work is safe to revisit next cycle.
@@ -403,6 +412,36 @@ export async function runScannerJob(
         now,
         symbol,
       );
+      setupEvaluations.push({
+        versionId: version.id,
+        setupId: version.source_setup_id,
+        name: version.name,
+        symbol,
+        timeframe: version.definition.timeframe,
+        higherTimeframe: version.definition.higherTimeframe,
+        direction: version.definition.direction,
+        score: analysis.score,
+        status: analysis.status,
+        passed: analysis.passed,
+        total: analysis.total,
+        requiredMissing: analysis.rules
+          .filter((rule) => rule.required && !rule.passed)
+          .map((rule) => rule.id),
+        lastCandleAt: analysis.lastCandleAt,
+        analyzedAt: analysis.analyzedAt,
+        stale: analysis.stale,
+      });
+      health.setupCoverage = {
+        ...priorCoverage,
+        [symbol]: {
+          symbol,
+          evaluated: setupEvaluations.length,
+          eligible: versions.length,
+          complete: setupEvaluations.length === versions.length,
+          scannedAt: new Date(now).toISOString(),
+          evaluations: setupEvaluations,
+        },
+      };
       if (analysis.stale) health.status = "degraded";
       health.lastCandleAt = analysis.lastCandleAt;
       // A terminal setup is never resurrected on the same detection candle.

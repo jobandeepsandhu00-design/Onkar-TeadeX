@@ -8,6 +8,16 @@ import {
 import { brainRequest } from "./api";
 import { SymbolManager } from "./SymbolManager";
 import { latestApprovedVersions } from "./strategy-versions";
+import {
+  Activity,
+  CheckCircle2,
+  Clock3,
+  Database,
+  Gauge,
+  ShieldAlert,
+  Workflow,
+  Zap,
+} from "lucide-react";
 
 export function ScannerSettings({
   snapshot,
@@ -33,6 +43,28 @@ export function ScannerSettings({
       null,
     );
   const approvedVersions = latestApprovedVersions(snapshot);
+  const requiredFrames = ["4h", "1h", "30m"] as const;
+  const scannerFrames = new Set<string>(requiredFrames);
+  approvedVersions.forEach((version) => {
+    scannerFrames.add(version.definition.timeframe);
+    scannerFrames.add(version.definition.higherTimeframe);
+    version.definition.rules.forEach((rule) => scannerFrames.add(rule.timeframe));
+  });
+  const creditsPerSymbol = scannerFrames.size;
+  const creditsPerFullCycle = creditsPerSymbol * draft.symbols.length;
+  const secondsPerSymbol = Math.max(
+    15,
+    Math.round(draft.frequencySeconds / Math.max(1, draft.symbols.length)),
+  );
+  const apiLoad =
+    creditsPerSymbol > 8
+      ? "overloaded"
+      : creditsPerSymbol >= 7
+        ? "near-limit"
+        : "healthy";
+  const missingSizing = draft.symbols.filter(
+    (symbol) => !draft.risk.valuePerPriceUnit[symbol],
+  );
   const update = <K extends keyof ScannerConfig>(
     key: K,
     value: ScannerConfig[K],
@@ -69,56 +101,93 @@ export function ScannerSettings({
         journal’s fallback balance is never used for scanner risk. Monitoring
         runs on the server, not in this tab.
       </p>
+      <section className="mb-scanner-profile" aria-label="Automatic scanner workflow">
+        <div className="mb-profile-heading">
+          <span className="mb-profile-icon"><Workflow size={20} /></span>
+          <div>
+            <span className="mb-eyebrow">AUTOMATIC MULTI-TIMEFRAME PROFILE</span>
+            <h3>4H → 1H → 30M</h3>
+            <p className="mb-muted">One shared Twelve Data feed powers structure, setup detection, AI evidence and alerts.</p>
+          </div>
+          <span className={`mb-load-state is-${apiLoad}`}><i />{apiLoad.replace("-", " ")}</span>
+        </div>
+        <div className="mb-workflow-rail">
+          <div><strong>4H</strong><span>Bias & major structure</span><small>Refresh context when a new 4H candle is available</small></div>
+          <b>→</b>
+          <div><strong>1H</strong><span>Zone & price location</span><small>Re-check on each closed 1H candle</small></div>
+          <b>→</b>
+          <div className="is-execution"><strong>30M</strong><span>Setup confirmation</span><small>Only a closed 30M candle can unlock a trade</small></div>
+        </div>
+        <div className="mb-profile-facts">
+          <span><Database size={15} /><b>{draft.symbols.length}</b> markets</span>
+          <span><Clock3 size={15} /><b>~{secondsPerSymbol}s</b> per symbol check</span>
+          <span><Activity size={15} /><b>{creditsPerSymbol}</b> estimated credits / symbol burst</span>
+          <span><Gauge size={15} /><b>{creditsPerFullCycle}</b> estimated credits / full cycle</span>
+        </div>
+        <div className={`mb-api-guard is-${apiLoad}`}>
+          {apiLoad === "healthy" ? <CheckCircle2 size={18} /> : <ShieldAlert size={18} />}
+          <div>
+            <strong>Twelve Data load guard</strong>
+            <span>
+              {apiLoad === "healthy"
+                ? `Current one-symbol burst is below the Basic 8 limit shown in your provider plan. Calls are cached and symbols are staggered.`
+                : apiLoad === "near-limit"
+                  ? "This profile is close to an 8-credit minute limit. Avoid manual refreshes while a worker cycle is running."
+                  : "This profile may exceed an 8-credit minute limit. Remove optional timeframes or increase the cycle interval."}
+            </span>
+          </div>
+          <em>{String(snapshot.connection.twelveData ?? snapshot.config?.health.status ?? "unknown").replaceAll("_", " ")}</em>
+        </div>
+      </section>
       <details className="mb-settings-section" open>
         <summary>
           General Scanner{" "}
           <span>
-            {draft.provider} · {draft.frequencySeconds}s
+            Guided mode · {draft.provider}
           </span>
         </summary>
-        <div className="mb-grid">
-          <label>
-            Market-data provider
-            <select
-              value={draft.provider}
-              onChange={(e) =>
-                update("provider", e.target.value as ScannerConfig["provider"])
-              }
-            >
-              <option value="mt5">MetaTrader 5 · connected broker feed</option>
-              <option value="twelvedata">
-                Twelve Data · server API key required
-              </option>
-              <option value="coinbase">Coinbase · public crypto markets</option>
+        <div className="mb-guided-grid">
+          <label className="mb-guided-control">
+            <span><Database size={16} /> Market-data provider</span>
+            <select value={draft.provider} onChange={(e) => update("provider", e.target.value as ScannerConfig["provider"])}>
+              <option value="twelvedata">Twelve Data · paper trading</option>
+              <option value="mt5">MetaTrader 5 · broker feed</option>
+              <option value="coinbase">Coinbase · crypto analysis</option>
             </select>
+            <small>{draft.provider === "twelvedata" ? "MT5 is not required. Real prices are used for Paper execution." : "Execution availability follows the selected provider."}</small>
           </label>
-          <label>
-            Risk account
-            <select
-              value={draft.accountId ?? ""}
-              onChange={(e) => update("accountId", e.target.value || null)}
-            >
-              <option value="">Select account (risk otherwise blocked)</option>
-              {snapshot.accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} · {a.type} · {a.currency}
-                </option>
-              ))}
+          <label className="mb-guided-control">
+            <span><ShieldAlert size={16} /> Risk account</span>
+            <select value={draft.accountId ?? ""} onChange={(e) => update("accountId", e.target.value || null)}>
+              <option value="">Select account · execution blocked</option>
+              {snapshot.accounts.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.type} · {a.currency}</option>)}
             </select>
+            <small>{draft.accountId ? "Balance and limits from this account control every risk decision." : "Choose a funded Paper or MT5 account before execution can become READY."}</small>
           </label>
-          <label>
-            Full watchlist cycle (seconds)
-            <input
-              type="number"
-              min={60}
-              max={3600}
-              value={draft.frequencySeconds}
-              onChange={(e) =>
-                update("frequencySeconds", Number(e.target.value))
-              }
-            />
-          </label>
-          {(
+        </div>
+        <div className="mb-cadence-picker" role="group" aria-label="Scanner cadence">
+          <span><Zap size={16} /> API call schedule</span>
+          {[
+            [300, "Recommended", "Full two-market cycle every 5 minutes"],
+            [180, "Balanced", "Faster monitoring with moderate API use"],
+            [120, "Fast", "Higher API use · watch the load guard"],
+          ].map(([seconds, title, description]) => (
+            <button key={String(seconds)} type="button" className={draft.frequencySeconds === seconds ? "is-active" : ""} onClick={() => update("frequencySeconds", Number(seconds))}>
+              <strong>{title}</strong><span>{description}</span><small>{Number(seconds) / 60} min full cycle</small>
+            </button>
+          ))}
+        </div>
+        <button type="button" className="mb-apply-workflow" onClick={() => setDraft((current) => ({ ...current, provider: "twelvedata", symbols: ["XAUUSD", "GBPJPY"], timeframes: ["4h", "1h", "30m"], frequencySeconds: 300 }))}>
+          <CheckCircle2 size={17} /> Apply recommended XAUUSD + GBPJPY workflow
+        </button>
+        <details className="mb-advanced-settings">
+          <summary>Advanced thresholds and daily limits</summary>
+          <div className="mb-grid">
+            <label>
+              Exact full watchlist cycle (seconds)
+              <input type="number" min={60} max={3600} value={draft.frequencySeconds} onChange={(e) => update("frequencySeconds", Number(e.target.value))} />
+            </label>
+            {(
             [
               ["minimumScore", "Minimum candidate score"],
               ["aiThreshold", "AI explanation threshold"],
@@ -128,7 +197,7 @@ export function ScannerSettings({
               ["newsBeforeMinutes", "News blackout: minutes before"],
               ["newsAfterMinutes", "News blackout: minutes after"],
             ] as const
-          ).map(([key, title]) => (
+            ).map(([key, title]) => (
             <label key={key}>
               {title}
               <input
@@ -138,13 +207,20 @@ export function ScannerSettings({
                 onChange={(e) => update(key, Number(e.target.value))}
               />
             </label>
-          ))}
-        </div>
+            ))}
+          </div>
+        </details>
       </details>
       <details className="mb-settings-section" open>
         <summary>
-          Risk Profile <span>{draft.risk.riskPercent}% per trade</span>
+          Risk Profile <span>{missingSizing.length ? `${missingSizing.length} sizing value${missingSizing.length === 1 ? "" : "s"} missing` : `${draft.risk.riskPercent}% per trade · ready`}</span>
         </summary>
+        {missingSizing.length > 0 && (
+          <div className="mb-risk-blocker" role="status">
+            <ShieldAlert size={18} />
+            <div><strong>Paper execution is blocked until instrument sizing is configured.</strong><span>Missing: {missingSizing.join(", ")}. The scanner will continue analysis, but Risk AI cannot calculate a safe position size.</span></div>
+          </div>
+        )}
         <div className="mb-grid">
           {(
             [
@@ -186,9 +262,17 @@ export function ScannerSettings({
           onChange={(symbols) => update("symbols", symbols)}
         />
         <fieldset className="mb-panel">
-          <legend>Market / webhook timeframes</legend>
-          <div className="mb-row mb-wrap">
-            {TIMEFRAMES.map((tf) => (
+          <legend>Multi-timeframe workflow</legend>
+          <div className="mb-required-timeframes">
+            {requiredFrames.map((tf, index) => (
+              <span key={tf}><CheckCircle2 size={15} /><strong>{tf.toUpperCase()}</strong><small>{index === 0 ? "Bias" : index === 1 ? "Structure & zone" : "Closed-candle confirmation"}</small></span>
+            ))}
+          </div>
+          <p className="mb-muted">These three workflow timeframes are loaded automatically for every enabled symbol and approved setup.</p>
+          <details className="mb-advanced-settings">
+            <summary>Optional chart and webhook timeframes</summary>
+            <div className="mb-row mb-wrap">
+            {TIMEFRAMES.filter((tf) => !requiredFrames.includes(tf as (typeof requiredFrames)[number])).map((tf) => (
               <label className="mb-check" key={tf}>
                 <input
                   type="checkbox"
@@ -205,16 +289,13 @@ export function ScannerSettings({
                 {tf}
               </label>
             ))}
-          </div>
-          <p className="mb-muted">
-            The scanner additionally loads every timeframe required by active
-            strategy rules.
-          </p>
+            </div>
+          </details>
         </fieldset>
       </details>
-      <details className="mb-settings-section">
+      <details className="mb-settings-section" open={missingSizing.length > 0 || undefined}>
         <summary>
-          Broker Sizing <span>Advanced</span>
+          Instrument Sizing <span>{missingSizing.length ? "Required for Paper AUTO" : "Configured"}</span>
         </summary>
         <fieldset className="mb-panel">
           <legend>Instrument sizing in this account’s currency</legend>

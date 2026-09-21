@@ -4,6 +4,14 @@ import { CoinbaseProvider, TwelveDataProvider } from "./providers";
 import { scannerConfigSchema } from "@workspace/api-zod";
 import { indicators, marketStructure, detectZones } from "./calculations";
 import { configuredPrimary } from "./provider-selection";
+import { closedCandleCacheMs } from "./shared-market";
+
+test("scanner candle cache refreshes just after the next timeframe close", () => {
+  const now = Date.UTC(2026, 8, 21, 9, 7, 0);
+  assert.equal(closedCandleCacheMs("30m", now), 23 * 60_000 + 15_000);
+  assert.equal(closedCandleCacheMs("1h", now), 53 * 60_000 + 15_000);
+  assert.equal(closedCandleCacheMs("4h", now), 2 * 60 * 60_000 + 53 * 60_000 + 15_000);
+});
 
 test("a saved provider selection overrides the deployment default", () => {
   const previous = process.env.PRIMARY_MARKET_PROVIDER;

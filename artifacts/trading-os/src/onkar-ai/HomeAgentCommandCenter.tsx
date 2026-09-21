@@ -18,6 +18,8 @@ import {
 import { AnimatedAgentAvatar, type AgentAvatarState } from "./AnimatedAgentAvatar";
 import { useAgentAnimationState, useReducedMotionPreference } from "./useAgentAnimationState";
 import { AgentVoiceControls } from "./AgentVoiceControls";
+import type { SetupPreview } from "./demo-data";
+import type { ConnectedAgentActivity } from "./connected-intelligence";
 
 type ConnectionState = "connected" | "preview" | "offline";
 
@@ -25,15 +27,9 @@ type Props = {
   onNavigate: (path: string) => void;
   connectionState?: ConnectionState;
   runtime?: Partial<Record<AgentId, AgentRuntimeSnapshot>>;
+  activity?: ConnectedAgentActivity[];
+  topSetup?: SetupPreview | null;
 };
-
-const sampleActivity = [
-  ["Trend AI", "XAUUSD 1H bias confirmed bullish", "18:24"],
-  ["Zone AI", "Price approaching example demand zone", "18:23"],
-  ["Setup AI", "Sample rule score increased to 91", "18:22"],
-  ["News AI", "Example USD event window reviewed", "18:21"],
-  ["Risk AI", "Sample risk validation passed", "18:20"],
-] as const;
 
 function stateLabel(
   agent: AgentDefinition,
@@ -61,8 +57,8 @@ const HomeAgentCard = memo(function HomeAgentCard({
   const animation = useAgentAnimationState(agent.id);
   const Icon = agent.icon;
   const connected = connectionState === "connected" && Boolean(runtime);
-  const primary = runtime?.primaryMetric || agent.primaryMetric;
-  const secondary = runtime?.secondaryMetric || agent.secondaryMetric;
+  const primary = runtime?.primaryMetric || "Awaiting verified data";
+  const secondary = runtime?.secondaryMetric || "—";
   const avatarState: AgentAvatarState = connected
     ? runtime?.state ?? agent.visualState
     : connectionState === "offline"
@@ -100,7 +96,7 @@ const HomeAgentCard = memo(function HomeAgentCard({
         </span>
         <small>{agent.role}</small>
         <span className="oai-home-agent-metrics">
-          <b>{connected ? primary : `Sample · ${primary}`}</b>
+          <b>{connected ? primary : "Awaiting verified data"}</b>
           <em>{secondary}</em>
         </span>
         <span className="oai-home-agent-open">Open <ChevronRight size={12} /></span>
@@ -113,6 +109,8 @@ export function OnkarAIAgentCommandCenter({
   onNavigate,
   connectionState = "preview",
   runtime = {},
+  activity = [],
+  topSetup = null,
 }: Props) {
   const reduceMotion = useReducedMotionPreference();
   const animation = useAgentAnimationState("master");
@@ -172,8 +170,8 @@ export function OnkarAIAgentCommandCenter({
           <h3>Supervisor · Coordinates All Agents</h3>
           <div className="oai-home-master-grid">
             <span><small>Status</small><strong>{animation.confirmed || animation.isSpeaking || animation.isWorking ? animation.statusLabel : connected ? runtime.master?.statusLabel : "Preview"}</strong></span>
-            <span><small>Market</small><strong>{runtime.master?.primaryMetric || "XAUUSD sample"}</strong></span>
-            <span><small>Mission</small><strong>{runtime.master?.currentTask || "Evaluating example setups"}</strong></span>
+            <span><small>Market</small><strong>{runtime.master?.primaryMetric || "Awaiting candidate"}</strong></span>
+            <span><small>Mission</small><strong>{runtime.master?.currentTask || "Waiting for verified scanner data"}</strong></span>
             <span><small>Specialists</small><strong>9 available roles</strong></span>
           </div>
           <button type="button" onClick={() => onNavigate(master.destination)}>
@@ -206,32 +204,43 @@ export function OnkarAIAgentCommandCenter({
         <section className="oai-home-activity" aria-labelledby="oai-home-activity-title">
           <header>
             <div><Clock3 size={13} /><h3 id="oai-home-activity-title">Agent Activity</h3></div>
-            <span>SAMPLE</span>
+            <span>{connected ? "LIVE" : "AWAITING DATA"}</span>
           </header>
           <div>
-            {sampleActivity.slice(0, 3).map(([agent, activity, time]) => (
-              <span key={agent}>
-                <time>{time}</time><i /><strong>{agent}</strong><em>{activity}</em>
+            {activity.slice(0, 3).map((event) => (
+              <span key={event.id}>
+                <time>{event.time}</time><i /><strong>{event.agent}</strong><em>{event.activity}</em>
               </span>
             ))}
+            {!activity.length && (
+              <p className="oai-home-live-empty">No verified agent activity yet.</p>
+            )}
           </div>
         </section>
 
         <section className="oai-home-conclusion" aria-labelledby="oai-home-conclusion-title">
           <header><BrainCircuit size={14} /><h3 id="oai-home-conclusion-title">Master AI Conclusion</h3></header>
-          <span className="oai-home-conclusion-label">EXAMPLE OUTPUT</span>
+          <span className="oai-home-conclusion-label">
+            {topSetup ? "LATEST VERIFIED CANDIDATE" : "AWAITING CANDIDATE"}
+          </span>
           <div className="oai-home-conclusion-main">
-            <div><strong>XAUUSD</strong><span>SRC Support Rejection</span></div>
-            <b>91<small>/100</small></b>
+            <div><strong>{topSetup?.symbol ?? "No active setup"}</strong><span>{topSetup?.name ?? "Scanner has not produced a verified candidate"}</span></div>
+            <b>{topSetup?.score ?? "—"}{topSetup ? <small>/100</small> : null}</b>
           </div>
-          <div className="oai-home-votes" aria-label="Example specialist agreement">
-            {AGENT_DEFINITIONS.slice(1, 6).map((agent) => (
-              <span key={agent.id}><Check size={10} />{agent.name.replace(" AI", "")}</span>
-            ))}
-          </div>
-          <button type="button" onClick={() => onNavigate("/onkar-ai/setup/gold-rejection")}>
-            View complete analysis <ArrowRight size={13} />
-          </button>
+          {topSetup ? (
+            <>
+              <div className="oai-home-votes" aria-label="Verified specialist evidence">
+                {AGENT_DEFINITIONS.slice(1, 6).map((agent) => (
+                  <span key={agent.id}><Check size={10} />{agent.name.replace(" AI", "")}</span>
+                ))}
+              </div>
+              <button type="button" onClick={() => onNavigate(`/onkar-ai/setup/${encodeURIComponent(topSetup.id)}`)}>
+                View complete analysis <ArrowRight size={13} />
+              </button>
+            </>
+          ) : (
+            <p className="oai-home-live-empty">Approved setups will appear here after real closed-candle evidence passes the candidate threshold.</p>
+          )}
         </section>
       </div>
 
