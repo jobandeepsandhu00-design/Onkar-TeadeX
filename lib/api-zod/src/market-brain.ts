@@ -534,9 +534,11 @@ export type RiskResult = {
   contractSize?: number | null;
   profitCurrency?: string | null;
   conversionRate?: number | null;
+  sizingSafetyFactor?: number | null;
   volumeStep?: number | null;
   sizingSource?:
     | "TWELVE_DATA_PAPER_STANDARD"
+    | "ECB_REFERENCE_FALLBACK"
     | "MT5_BROKER_SPEC"
     | "MANUAL"
     | null;

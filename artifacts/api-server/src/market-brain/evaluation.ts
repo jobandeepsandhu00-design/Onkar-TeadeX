@@ -216,6 +216,7 @@ export function calculateRisk(
     contractSize: account?.sizing?.contractSize ?? null,
     profitCurrency: account?.sizing?.profitCurrency ?? null,
     conversionRate: account?.sizing?.conversionRate ?? null,
+    sizingSafetyFactor: account?.sizing?.safetyFactor ?? 1,
     volumeStep: account?.sizing?.volumeStep ?? null,
     sizingSource: account?.sizing?.source ?? null,
     currency: account?.currency ?? null,

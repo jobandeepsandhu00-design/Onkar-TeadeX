@@ -473,6 +473,7 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
         contractSize: liveRisk.contractSize,
         profitCurrency: liveRisk.profitCurrency,
         conversionRate: liveRisk.conversionRate,
+        sizingSafetyFactor: liveRisk.sizingSafetyFactor,
         sizingSource: liveRisk.sizingSource,
         estimatedLossAtStop: liveRisk.estimatedLossAtStop,
       },

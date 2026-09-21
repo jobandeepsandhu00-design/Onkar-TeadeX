@@ -362,6 +362,7 @@ export async function runScannerJob(
           valuePerPriceUnit: sizing.valuePerPriceUnit,
           accountCurrency: sizing.accountCurrency,
           conversionRate: sizing.conversionRate,
+          safetyFactor: sizing.safetyFactor ?? 1,
           volumeStep: sizing.volumeStep,
           checkedAt: new Date(now).toISOString(),
           cached: sizingCached,

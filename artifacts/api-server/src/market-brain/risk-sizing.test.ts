@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  conversionFromEcbRates,
   floorVolume,
   paperContract,
   resolveCurrencyConversion,
@@ -31,6 +32,15 @@ test("account-currency conversion safely inverts the available pair", async () =
     return { price: 150, timestamp: new Date().toISOString() };
   });
   assert.ok(Math.abs(rate - 1 / 150) < 1e-12);
+});
+
+test("official ECB cross conversion derives JPY to USD through EUR", () => {
+  const rate = conversionFromEcbRates("JPY", "USD", {
+    USD: 1.18,
+    JPY: 176,
+  });
+  assert.ok(rate);
+  assert.ok(Math.abs(rate! - 1.18 / 176) < 1e-12);
 });
 
 test("GBPJPY sizing converts the 100,000 JPY price-unit value into USD", async () => {
