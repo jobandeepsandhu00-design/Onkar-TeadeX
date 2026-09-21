@@ -1079,7 +1079,11 @@ export default function OnkarAIWorkspace({
           ) : segment === "assistant" ? (
             <AssistantPage onNavigate={navigate} />
           ) : segment === "risk" ? (
-            <RiskPage />
+            <RiskPage
+              snapshot={scannerSnapshot}
+              onRefresh={() => refreshScanner()}
+              onOpenScanner={() => navigate("/onkar-ai/scanner")}
+            />
           ) : segment === "backtesting" ? (
             connectedPanel("Replay")
           ) : segment === "news" ? (
