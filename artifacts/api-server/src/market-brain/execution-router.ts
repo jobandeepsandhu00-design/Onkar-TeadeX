@@ -11,6 +11,44 @@ import { getMarketProvider } from "./providers";
 import { ScannerStore, type ConfigRow } from "./store";
 import { NotificationService } from "../notifications/service";
 
+export function storedTwelveDataCapability(
+  config: ConfigRow,
+  now = Date.now(),
+): AutoExecutionCapability {
+  if (!autoExecutionWorkerEnabled())
+    return {
+      ready: false,
+      state: "DISABLED",
+      reason: "AUTO execution worker is disabled on the server.",
+      accountType: null,
+      broker: null,
+    };
+  const checkedAt = Date.parse(String(config.health.checkedAt || ""));
+  const maxAgeMs = Math.max(20 * 60_000, config.config.frequencySeconds * 2000);
+  const fresh =
+    Number.isFinite(checkedAt) &&
+    now - checkedAt <= maxAgeMs &&
+    config.health.status === "connected" &&
+    !config.last_error;
+  return fresh
+    ? {
+        ready: true,
+        state: "READY",
+        reason: "Fresh Twelve Data scanner candles are ready for Paper execution.",
+        accountType: "DEMO",
+        broker: "Onkar Paper",
+      }
+    : {
+        ready: false,
+        state: "DISCONNECTED",
+        reason: config.last_error
+          ? `Market data is paused: ${config.last_error}`
+          : "Waiting for a successful fresh Twelve Data scanner cycle.",
+        accountType: null,
+        broker: null,
+      };
+}
+
 const TWELVE_DATA_HEALTH_TTL_MS = 15 * 60_000;
 let twelveDataCapabilityCache:
   | { expiresAt: number; value: AutoExecutionCapability }
@@ -61,8 +99,10 @@ type SourceRuntime = {
 export async function getExecutionCapability(
   userId: string,
   source: "MT5" | "TWELVE_DATA",
+  config?: ConfigRow,
 ): Promise<AutoExecutionCapability> {
   if (source === "MT5") return getAutoExecutionCapability(userId);
+  if (config) return storedTwelveDataCapability(config);
   if (!autoExecutionWorkerEnabled())
     return {
       ready: false,
@@ -77,10 +117,11 @@ export async function getExecutionCapability(
 export async function reconcileExecution(
   userId: string,
   source: "MT5" | "TWELVE_DATA",
+  config?: ConfigRow,
 ) {
   return source === "MT5"
     ? reconcileAutoExecution(userId)
-    : getExecutionCapability(userId, source);
+    : getExecutionCapability(userId, source, config);
 }
 
 async function switchSource(
@@ -232,7 +273,20 @@ export async function runNextExecution() {
       reason: "No automatic execution runtime is armed.",
     };
   if (runtime.trading_source === "TWELVE_DATA") {
-    const capability = await getExecutionCapability(runtime.user_id, "TWELVE_DATA");
+    const [config] = await store.request<ConfigRow[]>("scanner_configs", {
+      id: `eq.${runtime.scanner_config_id}`,
+      user_id: `eq.${runtime.user_id}`,
+      limit: "1",
+    });
+    const capability = config
+      ? storedTwelveDataCapability(config)
+      : {
+          ready: false,
+          state: "DISCONNECTED" as const,
+          reason: "Scanner configuration is unavailable.",
+          accountType: null,
+          broker: null,
+        };
     await new NotificationService(store).systemHealth({
       userId: runtime.user_id,
       component: "Twelve Data",
@@ -242,6 +296,13 @@ export async function runNextExecution() {
         : `${capability.reason} New Paper entries remain blocked until fresh data returns.`,
       metadata: { executionProvider: "PAPER" },
     }).catch(() => undefined);
+    if (!capability.ready)
+      return {
+        provider: "PAPER",
+        management,
+        sourcePolicy,
+        execution: { blocked: true, reason: capability.reason },
+      };
     const paper = await runNextPaperExecution(store);
     return { provider: "PAPER", management, sourcePolicy, execution: paper };
   }

@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { calculateBrokerVolume } from "./auto-execution";
 import { calculatePaperResult } from "./paper-execution";
 import { executionRequestId } from "./execution-identity";
+import { storedTwelveDataCapability } from "./execution-router";
+import { scannerConfigSchema } from "@workspace/api-zod";
+import type { ConfigRow } from "./store";
 
 const spec = {
   symbol: "XAU/USD",
@@ -100,5 +103,49 @@ test("execution identity is stable and provider/account scoped", () => {
   assert.notEqual(
     executionRequestId(input),
     executionRequestId({ ...input, accountId: "another-account" }),
+  );
+});
+
+test("Paper execution readiness reuses persisted fresh scanner health", (t) => {
+  const previous = process.env.AUTO_EXECUTION_WORKER_ENABLED;
+  process.env.AUTO_EXECUTION_WORKER_ENABLED = "true";
+  t.after(() => {
+    if (previous === undefined) delete process.env.AUTO_EXECUTION_WORKER_ENABLED;
+    else process.env.AUTO_EXECUTION_WORKER_ENABLED = previous;
+  });
+  const now = Date.now();
+  const config: ConfigRow = {
+    id: "config",
+    user_id: "user",
+    workspace_id: "workspace",
+    config: scannerConfigSchema.parse({ provider: "twelvedata" }),
+    enabled: true,
+    cursor: 0,
+    lease_token: "lease",
+    last_run_at: new Date(now).toISOString(),
+    last_duration_ms: 100,
+    health: { status: "connected", checkedAt: new Date(now).toISOString() },
+    last_error: null,
+  };
+  assert.equal(storedTwelveDataCapability(config, now).ready, true);
+  assert.equal(
+    storedTwelveDataCapability(
+      { ...config, last_error: "Provider request failed (429)" },
+      now,
+    ).ready,
+    false,
+  );
+  assert.equal(
+    storedTwelveDataCapability(
+      {
+        ...config,
+        health: {
+          status: "connected",
+          checkedAt: new Date(now - 31 * 60_000).toISOString(),
+        },
+      },
+      now,
+    ).ready,
+    false,
   );
 });

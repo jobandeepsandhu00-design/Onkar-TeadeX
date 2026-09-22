@@ -317,6 +317,7 @@ router.get(
     const executionCapability = await getExecutionCapability(
       identity.userId,
       runtime.tradingSource,
+      runtime.tradingSource === "TWELVE_DATA" ? config : undefined,
     );
     const age = config?.last_run_at
       ? Date.now() - Date.parse(config.last_run_at)
@@ -551,6 +552,7 @@ router.put(
       const capability = await reconcileExecution(
         identity.userId,
         parsed.data.tradingSource,
+        parsed.data.tradingSource === "TWELVE_DATA" ? config : undefined,
       );
       if (!capability.ready) throw new ScannerError(capability.reason, 409);
     }

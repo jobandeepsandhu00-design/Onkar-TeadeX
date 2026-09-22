@@ -729,6 +729,25 @@ export async function runScannerJob(
       ).catch((pauseError) =>
         logger.error({ err: pauseError }, "Failed to persist automatic execution pause"),
       );
+    } else if (config.provider === "twelvedata" && health.status === "connected") {
+      // A transient provider failure pauses the execution flag but preserves
+      // AUTO as the user's requested mode. Restore it only after a complete,
+      // fresh scanner cycle; explicit user disable switches mode to CONFIRM.
+      await store.request(
+        "scanner_runtime_controls",
+        {
+          user_id: `eq.${job.user_id}`,
+          trading_mode: "eq.AUTO",
+          auto_execution_enabled: "eq.false",
+          emergency_stop: "eq.false",
+          scanner_state: "eq.RUNNING",
+        },
+        "PATCH",
+        { auto_execution_enabled: true, updated_at: new Date().toISOString() },
+        "return=minimal",
+      ).catch((resumeError) =>
+        logger.error({ err: resumeError }, "Failed to restore automatic execution after fresh data"),
+      );
     }
     await new NotificationService(store).systemHealth({
       userId: job.user_id,
