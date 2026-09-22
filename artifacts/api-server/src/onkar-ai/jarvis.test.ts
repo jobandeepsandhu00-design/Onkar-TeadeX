@@ -244,6 +244,21 @@ test("emergency pause changes only runtime flags, not positions/data/protective 
     ["scanner_runtime_controls", "scanner_execution_events"],
   );
 });
+test("manual recovery clears only the lock and resumes scanner analysis", async () => {
+  const { store, identity, config } = fixture();
+  await applyScannerControl(identity.userId, config, "EMERGENCY_STOP", store);
+  const row = await applyScannerControl(
+    identity.userId,
+    config,
+    "RESUME_ANALYSIS",
+    store,
+  );
+  assert.equal(row.emergency_stop, false);
+  assert.equal(row.scanner_state, "RUNNING");
+  assert.equal(row.trading_mode, "ANALYSIS");
+  assert.equal(row.auto_execution_enabled, false);
+  assert.equal(row.auto_start, true);
+});
 test("analysis resume cannot override a newer emergency pause", async () => {
   const { store, identity, config } = fixture();
   await applyScannerControl(identity.userId, config, "EMERGENCY_STOP", store);

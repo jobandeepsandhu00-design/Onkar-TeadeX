@@ -3192,6 +3192,31 @@
   background: rgba(93, 16, 32, 0.22);
   font-size: 12px;
 }
+.mb-recovery-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mb-recovery-panel p {
+  margin: 0;
+}
+.market-brain .mb-recovery-panel button {
+  flex: 0 0 auto;
+  color: #b8f7ed;
+  border-color: rgba(53, 236, 190, 0.48);
+  background: rgba(14, 112, 94, 0.26);
+}
+@media (max-width: 640px) {
+  .mb-recovery-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .market-brain .mb-recovery-panel button {
+    width: 100%;
+    justify-content: center;
+  }
+}
 .mb-symbol-manager p {
   margin: 4px 0 0;
 }

@@ -699,7 +699,14 @@ export const scannerRuntimeUpdateSchema = scannerRuntimeSchema.pick({
 });
 
 export const scannerControlSchema = z.object({
-  action: z.enum(["PAUSE", "RESUME", "STOP", "EMERGENCY_STOP", "DISABLE_AUTO"]),
+  action: z.enum([
+    "PAUSE",
+    "RESUME",
+    "RESUME_ANALYSIS",
+    "STOP",
+    "EMERGENCY_STOP",
+    "DISABLE_AUTO",
+  ]),
 });
 
 export const scannerToolInputSchema = z

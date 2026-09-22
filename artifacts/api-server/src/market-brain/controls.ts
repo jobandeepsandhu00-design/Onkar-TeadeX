@@ -41,6 +41,7 @@ export async function applyScannerControl(
       trading_mode: "ANALYSIS",
       auto_execution_enabled: false,
       emergency_stop: false,
+      auto_start: true,
     });
   else throw new ScannerError("Unknown control action.", 400);
   const existing = await store.request<Array<Record<string, unknown>>>(

@@ -45,7 +45,13 @@ export function AutomationControlBar({
   ]);
 
   const control = async (
-    action: "PAUSE" | "RESUME" | "STOP" | "EMERGENCY_STOP" | "DISABLE_AUTO",
+    action:
+      | "PAUSE"
+      | "RESUME"
+      | "RESUME_ANALYSIS"
+      | "STOP"
+      | "EMERGENCY_STOP"
+      | "DISABLE_AUTO",
   ) => {
     setBusy(true);
     setError("");
@@ -54,6 +60,8 @@ export function AutomationControlBar({
       onChanged(
         action === "EMERGENCY_STOP"
           ? "Emergency Stop is active server-side. New executions are blocked."
+          : action === "RESUME_ANALYSIS"
+            ? "Emergency lock cleared. Scanner is running in analysis-only mode; automatic execution remains OFF."
           : "Scanner control updated.",
       );
     } catch (cause) {
@@ -230,10 +238,20 @@ export function AutomationControlBar({
         </button>
       </div>
       {runtime.emergencyStop ? (
-        <p className="mb-runtime-warning">
-          Emergency Stop is persisted. AUTO cannot be re-enabled until the
-          active execution provider is reconciled and the lock is cleared.
-        </p>
+        <div className="mb-runtime-warning mb-recovery-panel">
+          <p>
+            Emergency Stop is persisted. Clear the lock to resume scanning in
+            analysis-only mode. Automatic execution stays OFF until you arm it
+            separately and the server completes every safety check.
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void control("RESUME_ANALYSIS")}
+          >
+            <CirclePlay size={16} /> Clear lock &amp; resume analysis
+          </button>
+        </div>
       ) : null}
       {!executionAvailable ? (
         <p className="mb-runtime-warning">
