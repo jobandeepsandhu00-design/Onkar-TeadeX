@@ -120,8 +120,16 @@ test("small-body breakout confirms only with an unlocked gate and a later closed
     closedThirtyMinuteCandles: bars,
   });
   assert.ok(locked);
-  assert.equal(locked.patternMatched, false);
+  assert.equal(
+    locked.patternMatched,
+    true,
+    "Setup AI must still recognize the pattern while execution is gated",
+  );
   assert.equal(locked.entryTrigger, false);
+  assert.equal(locked.features.setupPatternMatched, true);
+  assert.ok(
+    locked.conditionsMissing.some((item) => item.startsWith("Parent gate —")),
+  );
 });
 
 test("counter workflow resolves opposite the prevailing 4H trend", () => {

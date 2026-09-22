@@ -3692,7 +3692,7 @@
 }
 .oai-agent-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 11px;
 }
 .oai-agent-card {
@@ -4964,6 +4964,47 @@
 }
 .oai-workflow-strip.is-unlocked > div:last-child strong {
   color: #54e8b7;
+}
+.oai-workflow-audit {
+  margin: 10px 14px 12px;
+  border: 1px solid rgba(52, 211, 153, 0.18);
+  border-radius: 14px;
+  background: rgba(4, 14, 27, 0.72);
+  color: #8da5bd;
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+.oai-workflow-audit summary {
+  padding: 11px 13px;
+  color: #7be4ee;
+  font-weight: 800;
+  cursor: pointer;
+}
+.oai-workflow-audit > p,
+.oai-workflow-audit > ol,
+.oai-workflow-audit > div {
+  margin: 0 13px 11px;
+}
+.oai-workflow-audit ol {
+  padding-left: 18px;
+}
+.oai-workflow-audit__status,
+.oai-workflow-audit__missing {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(10, 29, 48, 0.7);
+}
+.oai-workflow-audit__status strong {
+  color: #dff9ff;
+}
+.oai-workflow-audit__missing b {
+  color: #f8c56b;
+}
+.oai-workflow-audit__missing span::before {
+  content: "• ";
+  color: #f59e0b;
 }
 .oai-lightweight-chart {
   position: relative;

@@ -427,6 +427,10 @@ export function SharedMarketChart({
           </div>
           <div>
             <small>SETUP AI</small>
+            <strong>EVALUATING</strong>
+          </div>
+          <div>
+            <small>TRADE GATE</small>
             <strong>{snapshot.workflow.gate.status}</strong>
           </div>
           {!compact && (
@@ -438,6 +442,49 @@ export function SharedMarketChart({
             </div>
           )}
         </div>
+      )}
+      {snapshot?.workflow && (
+        <details className="oai-workflow-audit">
+          <summary>How Twelve Data becomes a trade decision</summary>
+          <p>
+            The selected {timeframe.toUpperCase()} chart may contain a forming
+            candle. Setup AI evaluates every approved setup against shared,
+            fully closed 4H, 1H and 30M candles.
+          </p>
+          <ol>
+            <li>Twelve Data candles are normalized and checked for freshness.</li>
+            <li>4H bias and major structure are calculated.</li>
+            <li>1H alignment, price location and setup zone are calculated.</li>
+            <li>Every approved setup is scored from its own machine rules.</li>
+            <li>A closed 30M trigger must confirm the matching setup.</li>
+            <li>Risk, news and automation permissions decide execution.</li>
+          </ol>
+          <div className="oai-workflow-audit__status">
+            <strong>
+              Parent gate: {snapshot.workflow.gate.passed.length}/
+              {snapshot.workflow.gate.passed.length +
+                snapshot.workflow.gate.missing.length} conditions passed
+            </strong>
+            <span>
+              {snapshot.detections.length
+                ? `${snapshot.detections.length} setup candidates above the configured candidate threshold`
+                : "No setup is currently above the configured candidate threshold"}
+            </span>
+          </div>
+          {snapshot.workflow.gate.missing.length > 0 && (
+            <div className="oai-workflow-audit__missing">
+              <b>Execution waiting for:</b>
+              {snapshot.workflow.gate.missing.map((item) => (
+                <span key={item}>{item}</span>
+              ))}
+            </div>
+          )}
+          <p>
+            A score is rule confluence, not win probability. Even 100/100 does
+            not bypass stale-data, closed-candle, Risk AI, news or execution
+            permission checks.
+          </p>
+        </details>
       )}
       <div
         ref={container}

@@ -403,9 +403,11 @@ export function evaluateSetupWorkflow(args: {
       break;
   }
 
-  if (workflow.gate.status !== "UNLOCKED") {
-    conditionsMissing.unshift(...workflow.gate.missing);
-    patternMatched = false;
+  const parentGateUnlocked = workflow.gate.status === "UNLOCKED";
+  if (!parentGateUnlocked) {
+    conditionsMissing.unshift(
+      ...workflow.gate.missing.map((item) => `Parent gate — ${item}`),
+    );
     waitFor = workflow.gate.missing[0] ?? "Complete the parent workflow.";
   }
   if (patternMatched && !triggerPresent) {
@@ -420,14 +422,17 @@ export function evaluateSetupWorkflow(args: {
     setup,
     direction,
     patternMatched,
-    entryTrigger: patternMatched && triggerPresent && !invalidated,
+    // Setup recognition remains visible while execution stays fail-closed.
+    entryTrigger:
+      parentGateUnlocked && patternMatched && triggerPresent && !invalidated,
     conditionsMatched: [...new Set(conditionsMatched)],
     conditionsMissing: [...new Set(conditionsMissing)],
     invalidated,
     waitFor,
     features: {
       setupPatternMatched: patternMatched,
-      entryTrigger: patternMatched && triggerPresent && !invalidated,
+      entryTrigger:
+        parentGateUnlocked && patternMatched && triggerPresent && !invalidated,
       volumeWindow: volumeAvailable ? volumeImpulse : null,
     },
   };

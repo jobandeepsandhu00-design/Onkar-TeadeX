@@ -179,7 +179,7 @@ export function compileLibrarySetup(
           expected: true,
           required: true,
           weight: 70,
-          explanation: `${canonical}: setup-specific closed-candle pattern must match after the parent workflow unlocks.`,
+          explanation: `${canonical}: setup-specific closed-candle pattern is evaluated continuously; execution permission remains a separate parent gate.`,
         },
         {
           id: "closed-entry-trigger",

@@ -36,7 +36,15 @@ const price = (n: number | null | undefined) =>
     : n.toLocaleString(undefined, { maximumFractionDigits: 5 });
 const zone = (value: { low: number; high: number } | null | undefined) =>
   value ? `${price(value.low)}–${price(value.high)}` : "Unavailable";
-function CandidateChart({ bars, plan }: { bars: Bar[]; plan: RiskResult }) {
+function CandidateChart({
+  bars,
+  plan,
+  frozen,
+}: {
+  bars: Bar[];
+  plan: RiskResult;
+  frozen: boolean;
+}) {
   const rows = [...bars].sort((a, b) => a.open_time - b.open_time).slice(-80);
   if (!rows.length)
     return <p className="mb-notice">No stored chart candles available.</p>;
@@ -101,8 +109,10 @@ function CandidateChart({ bars, plan }: { bars: Bar[]; plan: RiskResult }) {
         </text>
       </svg>
       <figcaption className="mb-muted">
-        Stored OHLC data, not a screenshot interpretation. Dashed levels are
-        calculated plans—not transmitted orders.
+        Stored OHLC data, not a screenshot interpretation. Dashed levels are {" "}
+        {frozen
+          ? "the frozen, risk-approved plan—not proof of broker execution."
+          : "provisional calculations only; they cannot execute until every gate passes."}
       </figcaption>
     </figure>
   );
@@ -168,7 +178,11 @@ export function CandidateDetail({
             </p>
           )}
           {detail ? (
-            <CandidateChart bars={detail.bars} plan={plan} />
+            <CandidateChart
+              bars={detail.bars}
+              plan={plan}
+              frozen={Boolean(c.plan)}
+            />
           ) : (
             <div className="mb-skeleton" aria-label="Loading chart" />
           )}
@@ -179,9 +193,12 @@ export function CandidateDetail({
                 candidate.staleNow || p.stale ? "STALE DATA" : c.state,
               ],
               ["HTF context", `${p.higherTimeframe} · ${p.marketBias}`],
-              ["Entry", price(plan.entry)],
-              ["Stop / invalidation", price(plan.stop)],
-              ["Target", price(plan.target)],
+              [c.plan ? "Entry" : "Provisional entry", price(plan.entry)],
+              [
+                c.plan ? "Stop / invalidation" : "Provisional invalidation",
+                price(plan.stop),
+              ],
+              [c.plan ? "Target" : "Provisional target", price(plan.target)],
               ["Reward/risk", `${plan.rr.toFixed(2)}R`],
               [
                 "Monetary risk",
