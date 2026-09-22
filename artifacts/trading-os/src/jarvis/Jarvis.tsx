@@ -166,17 +166,19 @@ export default function Jarvis() {
     busy.current = true;
     setTask("EXECUTING");
     microphone.current?.interruptCapture();
+    const token = ++generation.current;
     try {
-      result(
-        await request<JarvisResult>(`/commands/${target.id}`, "POST", {
+      const outcome = await request<JarvisResult>(`/commands/${target.id}`, "POST", {
           decision: value,
           nonce: target.nonce,
-        }),
-      );
+        });
+      if (token === generation.current) result(outcome);
     } catch (error) {
-      setUnknownId(target.id);
-      setTask("ERROR");
-      reply(error instanceof Error ? error.message : "Confirmation failed.");
+      if (token === generation.current) {
+        setUnknownId(target.id);
+        setTask("ERROR");
+        reply(error instanceof Error ? error.message : "Confirmation failed.");
+      }
     } finally {
       busy.current = false;
     }
