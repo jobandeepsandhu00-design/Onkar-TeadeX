@@ -73,6 +73,7 @@ import {
   TradingLifecycle,
 } from "../market-brain/CommandCenterVisuals";
 import { latestApprovedVersions } from "../market-brain/strategy-versions";
+import { LIVE_REFRESH_EVENT } from "../live-refresh";
 import "../market-brain/market-brain.css";
 import { connectedSetups, scannerIsLive } from "./connected-setups";
 import { AGENT_DEFINITIONS } from "./agent-data";
@@ -229,13 +230,17 @@ export default function OnkarAIWorkspace({
   useEffect(() => {
     const controller = new AbortController();
     void refreshScanner(controller.signal);
-    const onCommand = () => void refreshScanner();
+    const onCommand = () => {
+      if (document.visibilityState === "visible") void refreshScanner();
+    };
     window.addEventListener("onkar-jarvis-state-changed", onCommand);
+    window.addEventListener(LIVE_REFRESH_EVENT, onCommand);
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refreshScanner();
     }, 30_000);
     return () => {
       window.removeEventListener("onkar-jarvis-state-changed", onCommand);
+      window.removeEventListener(LIVE_REFRESH_EVENT, onCommand);
       controller.abort();
       window.clearInterval(timer);
     };

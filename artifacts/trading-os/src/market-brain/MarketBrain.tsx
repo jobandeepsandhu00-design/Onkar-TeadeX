@@ -32,6 +32,7 @@ import {
 } from "./CommandCenterVisuals";
 import type { AgentId } from "../onkar-ai/agent-data";
 import { latestApprovedVersions } from "./strategy-versions";
+import { LIVE_REFRESH_EVENT } from "../live-refresh";
 import "./market-brain.css";
 
 export type MarketBrainTab =
@@ -98,9 +99,15 @@ export default function MarketBrain({
     setTab(initialTab);
   }, [initialTab]);
   useEffect(() => {
-    const onCommand = () => void refresh();
+    const onCommand = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
     window.addEventListener("onkar-jarvis-state-changed", onCommand);
-    return () => window.removeEventListener("onkar-jarvis-state-changed", onCommand);
+    window.addEventListener(LIVE_REFRESH_EVENT, onCommand);
+    return () => {
+      window.removeEventListener("onkar-jarvis-state-changed", onCommand);
+      window.removeEventListener(LIVE_REFRESH_EVENT, onCommand);
+    };
   }, [refresh]);
   const selectTab = (next: MarketBrainTab) => {
     setTab(next);

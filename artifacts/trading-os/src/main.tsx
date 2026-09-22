@@ -17,6 +17,7 @@ import "./index.css";
 import { NotificationCenterProvider } from "./notifications/NotificationCenter";
 import Jarvis from "./jarvis/Jarvis";
 import { JARVIS_ENABLED } from "./jarvis/app-bridge";
+import { installAutomaticRefresh } from "./live-refresh";
 
 // Keep one coherent application version when a freshly deployed service
 // worker takes control of an already-open PWA/browser tab. Without this, the
@@ -31,6 +32,11 @@ if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
     window.location.reload();
   });
 }
+
+// Keep server-backed screens fresh after mobile suspension, reconnects and
+// ordinary foreground use. The service worker is checked separately so a new
+// deployment replaces the app shell automatically without clearing auth.
+installAutomaticRefresh();
 
 // Suppress the harmless "ResizeObserver loop limit exceeded" browser error.
 if (typeof window !== "undefined") {

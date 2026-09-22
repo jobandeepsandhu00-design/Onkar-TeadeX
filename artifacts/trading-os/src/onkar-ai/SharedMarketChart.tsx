@@ -21,6 +21,7 @@ import type {
   SetupDetection,
 } from "@workspace/api-zod";
 import { fetchSharedMarket } from "../market-brain/shared-market";
+import { LIVE_REFRESH_EVENT } from "../live-refresh";
 import { getJarvisChart, subscribeJarvisChart } from "../jarvis/app-bridge";
 
 const SYMBOLS: Array<{ value: SharedChartSymbol; label: string }> = [
@@ -155,7 +156,11 @@ export function SharedMarketChart({
     const abort = new AbortController();
     let active = true;
     let timer: number | undefined;
+    let inFlight = false;
     const load = async (initial = false) => {
+      if (inFlight) return;
+      inFlight = true;
+      if (timer) window.clearTimeout(timer);
       if (initial) setLoading(true);
       try {
         const next = await fetchSharedMarket(symbol, timeframe, abort.signal);
@@ -173,14 +178,20 @@ export function SharedMarketChart({
         );
         timer = window.setTimeout(() => void load(), 60_000);
       } finally {
+        inFlight = false;
         if (active) setLoading(false);
       }
     };
+    const refreshNow = () => {
+      if (document.visibilityState === "visible") void load();
+    };
     void load(true);
+    window.addEventListener(LIVE_REFRESH_EVENT, refreshNow);
     return () => {
       active = false;
       abort.abort();
       if (timer) window.clearTimeout(timer);
+      window.removeEventListener(LIVE_REFRESH_EVENT, refreshNow);
     };
   }, [symbol, timeframe]);
 
