@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { scannerConfigSchema, scannerRuntimeSchema } from "@workspace/api-zod";
+import {
+  scannerConfigSchema,
+  scannerConfigWithCurrentScorePolicy,
+  scannerRuntimeSchema,
+} from "@workspace/api-zod";
 
 test("scanner runtime accepts Supabase timestamptz offsets", () => {
   const runtime = scannerRuntimeSchema.parse({
@@ -37,4 +41,21 @@ test("permission center defaults keep analysis and Paper safe while MT5 live is 
   assert.equal(config.tradeManagement.partialClosePercent, 50);
   assert.equal(config.tradeManagement.stopModificationLockR, 0.5);
   assert.equal(config.tradeManagement.tradeCloseTriggerR, 2);
+});
+
+test("opportunity score policy defaults to 20 and upgrades the original profile", () => {
+  const defaults = scannerConfigSchema.parse({});
+  assert.equal(defaults.minimumScore, 20);
+  assert.equal(defaults.aiThreshold, 20);
+  assert.equal(defaults.alertThreshold, 20);
+  assert.throws(() => scannerConfigSchema.parse({ minimumScore: 19 }));
+
+  const upgraded = scannerConfigWithCurrentScorePolicy({
+    minimumScore: 50,
+    aiThreshold: 75,
+    alertThreshold: 80,
+  });
+  assert.equal(upgraded.minimumScore, 20);
+  assert.equal(upgraded.aiThreshold, 20);
+  assert.equal(upgraded.alertThreshold, 20);
 });

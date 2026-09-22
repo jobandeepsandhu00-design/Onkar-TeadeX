@@ -1,8 +1,10 @@
 import { useState } from "react";
 import {
   TIMEFRAMES,
+  OPPORTUNITY_SCORE_THRESHOLD,
   TWELVE_DATA_MIN_CYCLE_SECONDS,
   scannerConfigSchema,
+  scannerConfigWithCurrentScorePolicy,
   type ScannerConfig,
   type ScannerSnapshot,
 } from "@workspace/api-zod";
@@ -28,8 +30,11 @@ export function ScannerSettings({
   onSaved: () => void;
 }) {
   const [draft, setDraft] = useState<ScannerConfig>(() => {
-    const saved = snapshot.config?.config ?? snapshot.defaults;
-    return saved.provider === "twelvedata" && saved.frequencySeconds < TWELVE_DATA_MIN_CYCLE_SECONDS
+    const saved = scannerConfigWithCurrentScorePolicy(
+      snapshot.config?.config ?? snapshot.defaults,
+    );
+    return saved.provider === "twelvedata" &&
+      saved.frequencySeconds < TWELVE_DATA_MIN_CYCLE_SECONDS
       ? { ...saved, frequencySeconds: TWELVE_DATA_MIN_CYCLE_SECONDS }
       : saved;
   });
@@ -223,7 +228,10 @@ export function ScannerSettings({
                   provider,
                   frequencySeconds:
                     provider === "twelvedata"
-                      ? Math.max(TWELVE_DATA_MIN_CYCLE_SECONDS, current.frequencySeconds)
+                      ? Math.max(
+                          TWELVE_DATA_MIN_CYCLE_SECONDS,
+                          current.frequencySeconds,
+                        )
                       : current.frequencySeconds,
                 }));
               }}
@@ -295,6 +303,9 @@ export function ScannerSettings({
               symbols: ["XAUUSD", "GBPJPY"],
               timeframes: ["4h", "1h", "30m"],
               frequencySeconds: TWELVE_DATA_MIN_CYCLE_SECONDS,
+              minimumScore: OPPORTUNITY_SCORE_THRESHOLD,
+              aiThreshold: OPPORTUNITY_SCORE_THRESHOLD,
+              alertThreshold: OPPORTUNITY_SCORE_THRESHOLD,
             }))
           }
         >
@@ -307,20 +318,29 @@ export function ScannerSettings({
               Exact full watchlist cycle (seconds)
               <input
                 type="number"
-                min={draft.provider === "twelvedata" ? TWELVE_DATA_MIN_CYCLE_SECONDS : 60}
+                min={
+                  draft.provider === "twelvedata"
+                    ? TWELVE_DATA_MIN_CYCLE_SECONDS
+                    : 60
+                }
                 max={3600}
                 value={draft.frequencySeconds}
                 onChange={(e) =>
                   update(
                     "frequencySeconds",
                     draft.provider === "twelvedata"
-                      ? Math.max(TWELVE_DATA_MIN_CYCLE_SECONDS, Number(e.target.value))
+                      ? Math.max(
+                          TWELVE_DATA_MIN_CYCLE_SECONDS,
+                          Number(e.target.value),
+                        )
                       : Number(e.target.value),
                   )
                 }
               />
               {draft.provider === "twelvedata" && (
-                <small>Twelve Data is protected by a 900-second (15-minute) minimum.</small>
+                <small>
+                  Twelve Data is protected by a 900-second (15-minute) minimum.
+                </small>
               )}
             </label>
             {(
@@ -338,10 +358,25 @@ export function ScannerSettings({
                 {title}
                 <input
                   type="number"
-                  min={0}
+                  min={
+                    key === "minimumScore" ||
+                    key === "aiThreshold" ||
+                    key === "alertThreshold"
+                      ? OPPORTUNITY_SCORE_THRESHOLD
+                      : 0
+                  }
                   value={draft[key]}
                   onChange={(e) => update(key, Number(e.target.value))}
                 />
+                {(key === "minimumScore" ||
+                  key === "aiThreshold" ||
+                  key === "alertThreshold") && (
+                  <small>
+                    20/100 unlocks opportunity processing. Required setup,
+                    closed-candle, risk, news, fresh-data and execution gates
+                    still must pass.
+                  </small>
+                )}
               </label>
             ))}
           </div>

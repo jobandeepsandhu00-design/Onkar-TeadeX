@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-  scannerConfigSchema,
+  scannerConfigWithCurrentScorePolicy,
   strategyVersionSchema,
   timeframeMs,
   TWELVE_DATA_MIN_CYCLE_SECONDS,
@@ -236,7 +236,7 @@ export async function runScannerJob(
   options: { budgetMs?: number } = {},
 ) {
   const started = Date.now(),
-    config = scannerConfigSchema.parse(job.config),
+    config = scannerConfigWithCurrentScorePolicy(job.config),
     symbol = config.symbols[job.cursor % config.symbols.length],
     budgetMs = Math.max(15_000, options.budgetMs ?? 240_000),
     warmupBudget = Math.min(100_000, budgetMs * 0.42),
@@ -712,7 +712,10 @@ export async function runScannerJob(
     );
   } finally {
     const delay = advance
-      ? Math.max(15, effectiveScannerFrequencySeconds(config) / config.symbols.length)
+      ? Math.max(
+          15,
+          effectiveScannerFrequencySeconds(config) / config.symbols.length,
+        )
       : 60;
     await store.request(
       "scanner_configs",
@@ -731,46 +734,74 @@ export async function runScannerJob(
     );
     if (error) {
       // Uncertain data must never remain armed for a new automatic entry.
-      await store.request(
-        "scanner_runtime_controls",
-        { user_id: `eq.${job.user_id}`, auto_execution_enabled: "eq.true" },
-        "PATCH",
-        { auto_execution_enabled: false, updated_at: new Date().toISOString() },
-        "return=minimal",
-      ).catch((pauseError) =>
-        logger.error({ err: pauseError }, "Failed to persist automatic execution pause"),
-      );
-    } else if (config.provider === "twelvedata" && health.status === "connected") {
+      await store
+        .request(
+          "scanner_runtime_controls",
+          { user_id: `eq.${job.user_id}`, auto_execution_enabled: "eq.true" },
+          "PATCH",
+          {
+            auto_execution_enabled: false,
+            updated_at: new Date().toISOString(),
+          },
+          "return=minimal",
+        )
+        .catch((pauseError) =>
+          logger.error(
+            { err: pauseError },
+            "Failed to persist automatic execution pause",
+          ),
+        );
+    } else if (
+      config.provider === "twelvedata" &&
+      health.status === "connected"
+    ) {
       // A transient provider failure pauses the execution flag but preserves
       // AUTO as the user's requested mode. Restore it only after a complete,
       // fresh scanner cycle; explicit user disable switches mode to CONFIRM.
-      await store.request(
-        "scanner_runtime_controls",
-        {
-          user_id: `eq.${job.user_id}`,
-          trading_mode: "eq.AUTO",
-          auto_execution_enabled: "eq.false",
-          emergency_stop: "eq.false",
-          scanner_state: "eq.RUNNING",
-        },
-        "PATCH",
-        { auto_execution_enabled: true, updated_at: new Date().toISOString() },
-        "return=minimal",
-      ).catch((resumeError) =>
-        logger.error({ err: resumeError }, "Failed to restore automatic execution after fresh data"),
-      );
+      await store
+        .request(
+          "scanner_runtime_controls",
+          {
+            user_id: `eq.${job.user_id}`,
+            trading_mode: "eq.AUTO",
+            auto_execution_enabled: "eq.false",
+            emergency_stop: "eq.false",
+            scanner_state: "eq.RUNNING",
+          },
+          "PATCH",
+          {
+            auto_execution_enabled: true,
+            updated_at: new Date().toISOString(),
+          },
+          "return=minimal",
+        )
+        .catch((resumeError) =>
+          logger.error(
+            { err: resumeError },
+            "Failed to restore automatic execution after fresh data",
+          ),
+        );
     }
-    await new NotificationService(store).systemHealth({
-      userId: job.user_id,
-      component: "Market scanner",
-      healthy: !error && health.status !== "offline",
-      message: error
-        ? `${error} New automatic entries were paused; existing positions remain managed by their execution provider.`
-        : "Scanner cycle completed with fresh shared market data.",
-      metadata: { symbol, health: health.status, checkedAt: health.checkedAt },
-    }).catch((notificationError) =>
-      logger.warn({ err: notificationError }, "System health notification failed"),
-    );
+    await new NotificationService(store)
+      .systemHealth({
+        userId: job.user_id,
+        component: "Market scanner",
+        healthy: !error && health.status !== "offline",
+        message: error
+          ? `${error} New automatic entries were paused; existing positions remain managed by their execution provider.`
+          : "Scanner cycle completed with fresh shared market data.",
+        metadata: {
+          symbol,
+          health: health.status,
+          checkedAt: health.checkedAt,
+        },
+      })
+      .catch((notificationError) =>
+        logger.warn(
+          { err: notificationError },
+          "System health notification failed",
+        ),
+      );
   }
   return { symbol, success: !error, error };
 }

@@ -283,6 +283,62 @@ test("news unavailable cannot silently become READY", () => {
   );
   assert.notEqual(a.status, "READY");
 });
+test("20-point setup becomes READY only after every mandatory gate passes", () => {
+  const history = { "1m": bars(500), "5m": bars(100, 300_000) };
+  const twentyPointStrategy = strategyVersionSchema.parse({
+    ...strategy,
+    rules: [
+      { ...strategy.rules[0], weight: 20 },
+      {
+        ...strategy.rules[0],
+        id: "optional-failing-rule",
+        operator: "lt",
+        expected: 0,
+        required: false,
+        weight: 80,
+      },
+    ],
+  });
+  const lowThresholdConfig = scannerConfigSchema.parse({
+    ...config,
+    minimumScore: 20,
+    aiThreshold: 20,
+    alertThreshold: 20,
+    requireNews: false,
+  });
+  const safe = analyzeCandidate(
+    twentyPointStrategy,
+    history,
+    lowThresholdConfig,
+    account,
+    {
+      status: "safe",
+      checkedAt: new Date(30_000_000).toISOString(),
+      events: [],
+    },
+    30_000_000,
+  );
+  assert.equal(safe.score, 20);
+  assert.equal(safe.requiredPass, true);
+  assert.equal(safe.risk.allowed, true);
+  assert.equal(safe.status, "READY");
+
+  const blocked = analyzeCandidate(
+    twentyPointStrategy,
+    history,
+    lowThresholdConfig,
+    { ...account, dailyPnl: -3_000 },
+    {
+      status: "safe",
+      checkedAt: new Date(30_000_000).toISOString(),
+      events: [],
+    },
+    30_000_000,
+  );
+  assert.equal(blocked.score, 20);
+  assert.equal(blocked.risk.allowed, false);
+  assert.notEqual(blocked.status, "READY");
+});
 test("stale data is flagged", () => {
   assert.equal(timeframeContext(bars(40), "1m", 10_000_000).stale, true);
 });

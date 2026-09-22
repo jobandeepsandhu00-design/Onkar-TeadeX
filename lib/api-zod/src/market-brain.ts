@@ -388,6 +388,7 @@ export const tradeManagementSchema = z
     "The locked R must be below the SL-modification trigger",
   );
 export type TradeManagement = z.infer<typeof tradeManagementSchema>;
+export const OPPORTUNITY_SCORE_THRESHOLD = 20;
 export const scannerConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
@@ -401,9 +402,21 @@ export const scannerConfigSchema = z
     accountId: z.string().max(180).nullable().default(null),
     autoActivateApprovedSetups: z.boolean().default(true),
     strategyVersionIds: z.array(z.string().uuid()).max(100).default([]),
-    minimumScore: z.number().min(0).max(100).default(50),
-    aiThreshold: z.number().min(60).max(100).default(75),
-    alertThreshold: z.number().min(50).max(100).default(80),
+    minimumScore: z
+      .number()
+      .min(OPPORTUNITY_SCORE_THRESHOLD)
+      .max(100)
+      .default(OPPORTUNITY_SCORE_THRESHOLD),
+    aiThreshold: z
+      .number()
+      .min(OPPORTUNITY_SCORE_THRESHOLD)
+      .max(100)
+      .default(OPPORTUNITY_SCORE_THRESHOLD),
+    alertThreshold: z
+      .number()
+      .min(OPPORTUNITY_SCORE_THRESHOLD)
+      .max(100)
+      .default(OPPORTUNITY_SCORE_THRESHOLD),
     visionThreshold: z.number().min(75).max(100).default(85),
     frequencySeconds: z
       .number()
@@ -423,6 +436,24 @@ export const scannerConfigSchema = z
   })
   .strict();
 export type ScannerConfig = z.infer<typeof scannerConfigSchema>;
+/**
+ * Upgrade the original 50/75/80 profile in memory so existing installations
+ * receive the new 20-point opportunity policy without a destructive database
+ * rewrite. Custom thresholds remain custom.
+ */
+export function scannerConfigWithCurrentScorePolicy(value: unknown) {
+  const parsed = scannerConfigSchema.parse(value);
+  return parsed.minimumScore === 50 &&
+    parsed.aiThreshold === 75 &&
+    parsed.alertThreshold === 80
+    ? {
+        ...parsed,
+        minimumScore: OPPORTUNITY_SCORE_THRESHOLD,
+        aiThreshold: OPPORTUNITY_SCORE_THRESHOLD,
+        alertThreshold: OPPORTUNITY_SCORE_THRESHOLD,
+      }
+    : parsed;
+}
 export type RuleResult = MachineRule & {
   actual: string | number | boolean | null;
   passed: boolean;

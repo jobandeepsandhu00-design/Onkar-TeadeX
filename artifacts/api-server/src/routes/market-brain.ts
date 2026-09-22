@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import {
   scannerConfigSchema,
+  scannerConfigWithCurrentScorePolicy,
   strategyVersionSchema,
   scannerChatSchema,
   backtestRequestSchema,
@@ -53,7 +54,10 @@ import {
 } from "../market-brain/execution-router";
 import { selectScannerMarketProvider } from "../market-brain/provider-selection";
 import { logger } from "../lib/logger";
-import { applyScannerControl, saveScannerConfig } from "../market-brain/controls";
+import {
+  applyScannerControl,
+  saveScannerConfig,
+} from "../market-brain/controls";
 
 const router: IRouter = Router();
 const requestTimes = new Map<string, number[]>();
@@ -210,7 +214,10 @@ async function context(req: Request) {
     identity,
     user,
     config: config
-      ? { ...config, config: scannerConfigSchema.parse(config.config) }
+      ? {
+          ...config,
+          config: scannerConfigWithCurrentScorePolicy(config.config),
+        }
       : undefined,
   };
 }
@@ -326,8 +333,7 @@ router.get(
     const effectiveFrequency = config
       ? effectiveScannerFrequencySeconds(config.config)
       : scannerConfigSchema.parse({}).frequencySeconds;
-    const fresh =
-      config && age < Math.max(180_000, effectiveFrequency * 2000);
+    const fresh = config && age < Math.max(180_000, effectiveFrequency * 2000);
     let backendReady = false;
     try {
       ScannerStore.service();
@@ -512,10 +518,7 @@ router.put(
           "Enable Paper-trade execution in Permission Center before arming Twelve Data AUTO.",
           409,
         );
-      if (
-        parsed.data.tradingSource === "MT5" &&
-        !permissions.mt5LiveExecution
-      )
+      if (parsed.data.tradingSource === "MT5" && !permissions.mt5LiveExecution)
         throw new ScannerError(
           "Enable MT5 live execution in Permission Center before arming MT5 AUTO.",
           409,
@@ -605,7 +608,11 @@ router.post(
     const parsed = scannerControlSchema.safeParse(req.body);
     if (!parsed.success)
       throw new ScannerError("Invalid scanner control action.", 400);
-    const runtime = await applyScannerControl(identity.userId, config, parsed.data.action);
+    const runtime = await applyScannerControl(
+      identity.userId,
+      config,
+      parsed.data.action,
+    );
     res.json({ saved: true, action: parsed.data.action, runtime });
   }),
 );
@@ -709,9 +716,7 @@ router.post(
     if (!memberships[0])
       throw new ScannerError("Existing workspace not found.", 409);
     const compiled = records(source.setups)
-      .map((setup) =>
-        compileLibrarySetup(setup, { approveCanonical: true }),
-      )
+      .map((setup) => compileLibrarySetup(setup, { approveCanonical: true }))
       .filter((value): value is NonNullable<typeof value> => Boolean(value));
     if (!compiled.length) {
       res.json({
@@ -858,14 +863,22 @@ router.get(
     const offset = Math.max(0, Number(req.query.offset) || 0);
     const category = String(req.query.category || "").toUpperCase();
     const priority = String(req.query.priority || "").toUpperCase();
-    const safeValue = (value: unknown) => String(value || "").trim().replace(/[^a-zA-Z0-9_\-/.: ]/g, "").slice(0, 80);
+    const safeValue = (value: unknown) =>
+      String(value || "")
+        .trim()
+        .replace(/[^a-zA-Z0-9_\-/.: ]/g, "")
+        .slice(0, 80);
     const query: Record<string, string> = {
       order: "updated_at.desc",
       limit: String(limit),
       offset: String(offset),
     };
-    if (["TRADING", "SETUPS", "AI", "RISK", "NEWS", "SYSTEM"].includes(category)) query.category = `eq.${category}`;
-    if (["INFO", "IMPORTANT", "HIGH", "CRITICAL"].includes(priority)) query.priority = `eq.${priority}`;
+    if (
+      ["TRADING", "SETUPS", "AI", "RISK", "NEWS", "SYSTEM"].includes(category)
+    )
+      query.category = `eq.${category}`;
+    if (["INFO", "IMPORTANT", "HIGH", "CRITICAL"].includes(priority))
+      query.priority = `eq.${priority}`;
     const symbol = safeValue(req.query.symbol);
     const timeframe = safeValue(req.query.timeframe);
     const agent = safeValue(req.query.agent);
@@ -873,12 +886,20 @@ router.get(
     if (timeframe) query.timeframe = `eq.${timeframe}`;
     if (agent) query.agent_source = `eq.${agent}`;
     if (req.query.unread === "true") query.read_at = "is.null";
-    if (req.query.before) query.updated_at = `lt.${new Date(String(req.query.before)).toISOString()}`;
+    if (req.query.before)
+      query.updated_at = `lt.${new Date(String(req.query.before)).toISOString()}`;
     const [items, preferenceRows] = await Promise.all([
       user.request("notifications", query),
-      user.request<Array<Record<string, unknown>>>("notification_preferences", { user_id: `eq.${identity.userId}`, limit: "1" }),
+      user.request<Array<Record<string, unknown>>>("notification_preferences", {
+        user_id: `eq.${identity.userId}`,
+        limit: "1",
+      }),
     ]);
-    res.json({ items, preferences: preferenceRows[0] ?? notificationPreferencesSchema.parse({}), page: { limit, offset } });
+    res.json({
+      items,
+      preferences: preferenceRows[0] ?? notificationPreferencesSchema.parse({}),
+      page: { limit, offset },
+    });
   }),
 );
 router.get(
@@ -886,9 +907,18 @@ router.get(
   route(async (req, res) => {
     const { identity, user } = await context(req);
     const id = uuid(req.params.id);
-    const [owned] = await user.request<Array<{ id: string }>>("notifications", { id: `eq.${id}`, user_id: `eq.${identity.userId}`, select: "id", limit: "1" });
+    const [owned] = await user.request<Array<{ id: string }>>("notifications", {
+      id: `eq.${id}`,
+      user_id: `eq.${identity.userId}`,
+      select: "id",
+      limit: "1",
+    });
     if (!owned) throw new ScannerError("Notification not found", 404);
-    const items = await user.request("notification_events", { notification_id: `eq.${id}`, order: "created_at.desc", limit: "200" });
+    const items = await user.request("notification_events", {
+      notification_id: `eq.${id}`,
+      order: "created_at.desc",
+      limit: "200",
+    });
     res.json({ items });
   }),
 );
@@ -897,13 +927,27 @@ router.post(
   route(async (req, res) => {
     const { identity } = await context(req);
     const action = String(req.body?.action || "");
-    const patch = action === "READ" ? { read_at: new Date().toISOString() }
-      : action === "ACKNOWLEDGE" ? { read_at: new Date().toISOString(), acknowledged_at: new Date().toISOString() }
-        : action === "VOICE_SPOKEN" ? { voice_spoken_at: new Date().toISOString() }
-          : action === "PUSH_SENT" ? { push_sent_at: new Date().toISOString() }
-            : null;
+    const patch =
+      action === "READ"
+        ? { read_at: new Date().toISOString() }
+        : action === "ACKNOWLEDGE"
+          ? {
+              read_at: new Date().toISOString(),
+              acknowledged_at: new Date().toISOString(),
+            }
+          : action === "VOICE_SPOKEN"
+            ? { voice_spoken_at: new Date().toISOString() }
+            : action === "PUSH_SENT"
+              ? { push_sent_at: new Date().toISOString() }
+              : null;
     if (!patch) throw new ScannerError("Unsupported notification action", 400);
-    await ScannerStore.service().request("notifications", { id: `eq.${uuid(req.params.id)}`, user_id: `eq.${identity.userId}` }, "PATCH", patch, "return=minimal");
+    await ScannerStore.service().request(
+      "notifications",
+      { id: `eq.${uuid(req.params.id)}`, user_id: `eq.${identity.userId}` },
+      "PATCH",
+      patch,
+      "return=minimal",
+    );
     res.json({ saved: true });
   }),
 );
@@ -911,7 +955,13 @@ router.post(
   "/market-brain/notifications/actions/read-all",
   route(async (req, res) => {
     const { identity } = await context(req);
-    await ScannerStore.service().request("notifications", { user_id: `eq.${identity.userId}`, read_at: "is.null" }, "PATCH", { read_at: new Date().toISOString() }, "return=minimal");
+    await ScannerStore.service().request(
+      "notifications",
+      { user_id: `eq.${identity.userId}`, read_at: "is.null" },
+      "PATCH",
+      { read_at: new Date().toISOString() },
+      "return=minimal",
+    );
     res.json({ saved: true });
   }),
 );
@@ -933,11 +983,17 @@ router.delete(
   "/market-brain/notifications/read",
   route(async (req, res) => {
     const { identity } = await context(req);
-    await ScannerStore.service().request("notifications", {
-      user_id: `eq.${identity.userId}`,
-      read_at: "not.is.null",
-      or: "(priority.neq.CRITICAL,acknowledged_at.not.is.null)",
-    }, "DELETE", undefined, "return=minimal");
+    await ScannerStore.service().request(
+      "notifications",
+      {
+        user_id: `eq.${identity.userId}`,
+        read_at: "not.is.null",
+        or: "(priority.neq.CRITICAL,acknowledged_at.not.is.null)",
+      },
+      "DELETE",
+      undefined,
+      "return=minimal",
+    );
     res.json({ cleared: true });
   }),
 );
@@ -946,11 +1002,17 @@ router.put(
   route(async (req, res) => {
     const { identity } = await context(req);
     const preferences = notificationPreferencesSchema.parse(req.body);
-    const [saved] = await ScannerStore.service().request<Array<Record<string, unknown>>>(
+    const [saved] = await ScannerStore.service().request<
+      Array<Record<string, unknown>>
+    >(
       "notification_preferences",
       { on_conflict: "user_id" },
       "POST",
-      { user_id: identity.userId, ...preferences, updated_at: new Date().toISOString() },
+      {
+        user_id: identity.userId,
+        ...preferences,
+        updated_at: new Date().toISOString(),
+      },
       "resolution=merge-duplicates,return=representation",
     );
     res.json(saved);
