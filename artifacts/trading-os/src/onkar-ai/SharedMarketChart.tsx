@@ -47,6 +47,7 @@ const detectionColors: Record<SetupDetection["status"], string> = {
   CONFIRMED: "#2ee6a6",
   INVALID: "#ff647c",
 };
+const TWELVE_DATA_CHART_REFRESH_MS = 15 * 60_000;
 
 export function SharedMarketChart({
   compact = false,
@@ -153,6 +154,7 @@ export function SharedMarketChart({
   useEffect(() => {
     const abort = new AbortController();
     let active = true;
+    let timer: number | undefined;
     const load = async (initial = false) => {
       if (initial) setLoading(true);
       try {
@@ -160,21 +162,25 @@ export function SharedMarketChart({
         if (!active) return;
         setSnapshot(next);
         setError("");
+        timer = window.setTimeout(
+          () => void load(),
+          next.provider === "mt5" ? 15_000 : TWELVE_DATA_CHART_REFRESH_MS,
+        );
       } catch (cause) {
         if (!active || abort.signal.aborted) return;
         setError(
           cause instanceof Error ? cause.message : "Market data unavailable.",
         );
+        timer = window.setTimeout(() => void load(), 60_000);
       } finally {
         if (active) setLoading(false);
       }
     };
     void load(true);
-    const interval = window.setInterval(() => void load(), 15_000);
     return () => {
       active = false;
       abort.abort();
-      window.clearInterval(interval);
+      if (timer) window.clearTimeout(timer);
     };
   }, [symbol, timeframe]);
 
@@ -277,7 +283,7 @@ export function SharedMarketChart({
           <small>
             {snapshot?.provider === "mt5"
               ? "MT5 BROKER FEED · SHARED MARKET CONTEXT"
-              : "DATA SOURCE: FALLBACK · TWELVE DATA"}
+              : `DATA SOURCE: ${snapshot?.dataSource === "fallback" ? "FALLBACK" : "PRIMARY"} · TWELVE DATA`}
           </small>
           <h3>
             {snapshot?.displaySymbol ||
@@ -286,7 +292,13 @@ export function SharedMarketChart({
           <span
             className={`oai-market-state is-${snapshot?.dataStatus || "loading"}`}
           >
-            <i /> {loading ? "Loading" : snapshot?.dataStatus || "Unavailable"}
+            <i />{" "}
+            {loading
+              ? "Loading"
+              : snapshot?.provider === "twelvedata" &&
+                  snapshot?.dataStatus === "live"
+                ? "FORMING · 15M REFRESH"
+                : snapshot?.dataStatus || "Unavailable"}
           </span>
           {snapshot?.provider === "mt5" && snapshot.broker && (
             <small className="oai-market-broker">

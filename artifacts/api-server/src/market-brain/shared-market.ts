@@ -1,6 +1,7 @@
 import {
   sharedMarketSnapshotSchema,
   timeframeMs,
+  TWELVE_DATA_MIN_CYCLE_SECONDS,
   type Candle,
   type SharedChartSymbol,
   type SharedChartTimeframe,
@@ -194,11 +195,7 @@ export async function sharedProviderCandles(
       ? 10_000
       : cacheMode === "closed-candle"
         ? closedCandleCacheMs(timeframe, now)
-      : timeframe === "4h"
-        ? 5 * 60_000
-        : timeframe === "1h"
-          ? 2 * 60_000
-          : 55_000;
+        : TWELVE_DATA_MIN_CYCLE_SECONDS * 1000;
   snapshotPromises.set(cacheKey, { expiresAt: now + cacheMs, promise });
   void promise.then((result) => {
     if (result.dataStatus !== "cached" && result.dataStatus !== "unavailable")
@@ -222,7 +219,7 @@ function detectionStatus(candidate: CandidateRow): SetupDetection["status"] {
   return "PARTIAL";
 }
 
-function mapDetection(candidate: CandidateRow): SetupDetection {
+export function mapDetection(candidate: CandidateRow): SetupDetection {
   const rules = candidate.payload.rules ?? [];
   const interval = timeframeMs[candidate.timeframe as SharedChartTimeframe];
   const closed =
@@ -267,11 +264,13 @@ function mapDetection(candidate: CandidateRow): SetupDetection {
       rules
         .filter((rule) => !rule.passed)
         .map((rule) => rule.explanation || rule.id),
-    entry: candidate.plan?.entry ?? candidate.payload.entryZone?.low ?? null,
-    stopLoss: candidate.plan?.stop ?? candidate.payload.invalidation ?? null,
-    takeProfit:
-      candidate.plan?.target ?? candidate.payload.targets?.[0] ?? null,
-    riskReward: candidate.plan?.rr ?? candidate.payload.risk?.rr ?? null,
+    // Only a confirmed server-approved risk plan may be labelled Entry/SL/TP.
+    // Partial detections still expose evidence zones below, but never
+    // masquerade as executable trade levels on the chart.
+    entry: candidate.plan?.entry ?? null,
+    stopLoss: candidate.plan?.stop ?? null,
+    takeProfit: candidate.plan?.target ?? null,
+    riskReward: candidate.plan?.rr ?? null,
     learningInsight,
     reason: `${candidate.payload.passed}/${candidate.payload.total} deterministic rules matched; confluence ${candidate.score}/100.${workflow ? ` Parent workflow: ${workflow.masterStatus.replaceAll("_", " ")}.` : ""}`,
     waitFor:
@@ -336,7 +335,12 @@ export async function getSharedMarketSnapshot(args: {
             args.symbol,
             timeframe,
             Date.now(),
-            { cacheMode: requestedProvider === "twelvedata" ? "closed-candle" : "live" },
+            {
+              // The selected chart receives the provider's forming candle.
+              // The scanner contexts remain closed-candle-only.
+              cacheMode:
+                timeframe === args.timeframe ? "live" : "closed-candle",
+            },
           ),
         ] as const,
     ),
@@ -360,7 +364,10 @@ export async function getSharedMarketSnapshot(args: {
               args.symbol,
               timeframe,
               Date.now(),
-              { cacheMode: "closed-candle" },
+              {
+                cacheMode:
+                  timeframe === args.timeframe ? "live" : "closed-candle",
+              },
             ),
           ] as const,
       ),
@@ -371,8 +378,9 @@ export async function getSharedMarketSnapshot(args: {
       ...(args.config ? { config_id: `eq.${args.config.id}` } : {}),
       symbol: `eq.${args.symbol}`,
       timeframe: `eq.${args.timeframe}`,
+      state: "in.(SCANNING,DEVELOPING,WATCH,READY,TRIGGERED)",
       order: "updated_at.desc",
-      limit: "30",
+      limit: "100",
     }),
   ]);
   const marketByTimeframe = new Map(marketEntries);
@@ -391,7 +399,19 @@ export async function getSharedMarketSnapshot(args: {
         .reverse()
         .find((candle) => !candle.closed) ?? null,
   });
-  const detections = candidates.map(mapDetection);
+  const priority: Record<SetupDetection["status"], number> = {
+    CONFIRMED: 0,
+    WATCHING: 1,
+    PARTIAL: 2,
+    INVALID: 3,
+  };
+  const detections = candidates
+    .map(mapDetection)
+    .sort(
+      (a, b) =>
+        priority[a.status] - priority[b.status] ||
+        Date.parse(b.timestamp) - Date.parse(a.timestamp),
+    );
   let account: Awaited<ReturnType<typeof getMT5Account>> | null = null;
   let quote: Awaited<ReturnType<ReturnType<typeof getMarketProvider>["getQuote"]>> | null = null;
   if (activeProvider === "mt5") {
@@ -456,6 +476,11 @@ export async function getSharedMarketSnapshot(args: {
       ...(!args.config?.enabled
         ? [
             "Continuous scanner is not enabled; chart candles can still refresh on demand.",
+          ]
+        : []),
+      ...(activeProvider === "twelvedata"
+        ? [
+            `Twelve Data REST chart candles refresh at most every ${TWELVE_DATA_MIN_CYCLE_SECONDS / 60} minutes to protect the provider quota. Scanner decisions use only fully closed candles.`,
           ]
         : []),
     ],

@@ -691,6 +691,17 @@ export async function runScannerJob(
         "Scanner candidate saved",
       );
     }
+    logger.info(
+      {
+        event: "scanner_setup_coverage",
+        symbol,
+        evaluated: setupEvaluations.length,
+        eligible: versions.length,
+        complete: setupEvaluations.length === versions.length,
+        lastCandleAt: health.lastCandleAt,
+      },
+      "Scanner evaluated every eligible setup against shared market data",
+    );
     advance = true;
   } catch (e) {
     error = e instanceof Error ? e.message : "Scanner failed";

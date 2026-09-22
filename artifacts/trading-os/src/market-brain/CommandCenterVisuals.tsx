@@ -424,6 +424,28 @@ export function SetupActivationPanel({
                       : "No completed evaluation yet"}
                   </small>
                 </div>
+                <details className="mb-setup-proof">
+                  <summary>Scanner evidence by market</summary>
+                  {evaluations.length ? (
+                    evaluations.map((result) => (
+                      <div key={`${result.versionId}:${result.symbol}`}>
+                        <strong>
+                          {result.symbol} · {result.status} · {result.score}/100
+                        </strong>
+                        <small>
+                          {result.passed}/{result.total} rules · candle {localTime(result.lastCandleAt)}
+                        </small>
+                        <small>
+                          {result.requiredMissing.length
+                            ? `Required missing: ${result.requiredMissing.join(", ")}`
+                            : "All required rules passed"}
+                        </small>
+                      </div>
+                    ))
+                  ) : (
+                    <p>Awaiting the first completed scanner cycle.</p>
+                  )}
+                </details>
                 <footer>
                   {version.definition.autoExecutionAllowed
                     ? "AUTO PERMITTED"
@@ -573,7 +595,11 @@ export function LiveCandidateCarousel({
   onOpen: (id: string) => void;
 }) {
   const candidates = snapshot.candidates
-    .filter((item) => !["COMPLETED", "EXPIRED"].includes(item.state))
+    .filter((item) =>
+      ["SCANNING", "DEVELOPING", "WATCH", "READY", "TRIGGERED"].includes(
+        item.state,
+      ),
+    )
     .sort((a, b) => b.score - a.score);
   const approved = latestApprovedVersions(snapshot);
   const activeVersionIds = new Set(
@@ -581,11 +607,35 @@ export function LiveCandidateCarousel({
       ? approved.map((version) => version.id)
       : (snapshot.config?.config.strategyVersionIds ?? []),
   );
-  const evaluated = new Set(
-    setupCoverage(snapshot)
-      .filter((result) => activeVersionIds.has(result.versionId))
-      .map((result) => result.versionId),
-  ).size;
+  const coverage = setupCoverage(snapshot).filter((result) =>
+    activeVersionIds.has(result.versionId),
+  );
+  const markets = snapshot.config?.config.symbols ?? [];
+  const eligibleChecks = approved.flatMap((version) =>
+    markets
+      .filter(
+        (symbol) =>
+          activeVersionIds.has(version.id) &&
+          (!version.definition.symbols.length ||
+            version.definition.symbols.includes(symbol)),
+      )
+      .map((symbol) => `${version.id}:${symbol}`),
+  );
+  const completedChecks = new Set(
+    coverage.map((result) => `${result.versionId}:${result.symbol}`),
+  );
+  const completedEligibleChecks = eligibleChecks.filter((key) =>
+    completedChecks.has(key),
+  ).length;
+  const coverageByMarket = markets.map((symbol) => {
+    const eligible = eligibleChecks.filter((key) => key.endsWith(`:${symbol}`));
+    const complete = eligible.filter((key) => completedChecks.has(key)).length;
+    const scannedAt = coverage
+      .filter((result) => result.symbol === symbol)
+      .map((result) => result.analyzedAt)
+      .sort((a, b) => b.localeCompare(a))[0];
+    return { symbol, eligible: eligible.length, complete, scannedAt };
+  });
   return (
     <section className="mb-os-panel">
       <div className="mb-section-heading">
@@ -596,7 +646,7 @@ export function LiveCandidateCarousel({
         <div className="mb-chip-row">
           <span className="mb-badge">{candidates.length} QUALIFIED</span>
           <span className="mb-badge mb-positive">
-            {evaluated}/{activeVersionIds.size} SETUPS CHECKED
+            {completedEligibleChecks}/{eligibleChecks.length} SETUP-MARKET CHECKS
           </span>
         </div>
       </div>
@@ -691,6 +741,30 @@ export function LiveCandidateCarousel({
           })}
         </div>
       )}
+      <div className="mb-coverage-proof" aria-label="Scanner setup coverage">
+        <strong>
+          Deterministic scanner: {activeVersionIds.size} approved setup versions
+          {markets.length ? ` across ${markets.length} markets` : ""}
+        </strong>
+        <p>
+          Candles are fetched once per timeframe and reused for every setup. AI
+          explanations run only after deterministic confluence reaches your AI
+          threshold.
+        </p>
+        <div className="mb-chip-row">
+          {coverageByMarket.map((item) => (
+            <span key={item.symbol}>
+              {item.symbol} {item.complete}/{item.eligible}
+              {item.scannedAt
+                ? ` · ${new Intl.DateTimeFormat("en-GB", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }).format(new Date(item.scannedAt))}`
+                : " · awaiting scan"}
+            </span>
+          ))}
+        </div>
+      </div>
       <p className="mb-hub-note">
         Scores measure rule confluence—not probability. Every required rule must
         still pass.

@@ -7,7 +7,9 @@ import { configuredPrimary } from "./provider-selection";
 import {
   closedCandleCacheMs,
   latestClosedCandleOpenTime,
+  mapDetection,
 } from "./shared-market";
+import type { CandidateRow } from "./store";
 
 test("scanner candle cache refreshes just after the next timeframe close", () => {
   const now = Date.UTC(2026, 8, 21, 9, 7, 0);
@@ -45,6 +47,50 @@ test("approved Setup Library versions auto-activate by default", () => {
   const config = scannerConfigSchema.parse({});
   assert.equal(config.autoActivateApprovedSetups, true);
   assert.deepEqual(config.strategyVersionIds, []);
+});
+test("chart labels trade levels only after a server-approved risk plan exists", () => {
+  const candidate = {
+    id: "candidate",
+    symbol: "XAUUSD",
+    timeframe: "30m",
+    state: "WATCH",
+    score: 70,
+    payload: {
+      strategyName: "Fakeout at S/R",
+      direction: "long",
+      stale: false,
+      lastCandleAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+      analyzedAt: new Date().toISOString(),
+      passed: 7,
+      total: 10,
+      rules: [],
+      entryZone: { low: 4300, high: 4305 },
+      invalidation: 4290,
+      targets: [4330],
+      risk: { rr: 2 },
+      warnings: [],
+    },
+    plan: null,
+  } as unknown as CandidateRow;
+  const partial = mapDetection(candidate);
+  assert.equal(partial.entry, null);
+  assert.equal(partial.stopLoss, null);
+  assert.equal(partial.takeProfit, null);
+  assert.equal(partial.riskReward, null);
+  assert.ok(partial.zones.some((zone) => zone.kind === "entry"));
+
+  candidate.state = "READY";
+  candidate.plan = {
+    entry: 4304,
+    stop: 4290,
+    target: 4332,
+    rr: 2,
+  } as CandidateRow["plan"];
+  const ready = mapDetection(candidate);
+  assert.equal(ready.entry, 4304);
+  assert.equal(ready.stopLoss, 4290);
+  assert.equal(ready.takeProfit, 4332);
+  assert.equal(ready.riskReward, 2);
 });
 test("unconfigured Twelve Data does not fall back to simulated candles", async () => {
   const provider = new TwelveDataProvider("");
