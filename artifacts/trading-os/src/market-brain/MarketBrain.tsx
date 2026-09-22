@@ -97,6 +97,11 @@ export default function MarketBrain({
   useEffect(() => {
     setTab(initialTab);
   }, [initialTab]);
+  useEffect(() => {
+    const onCommand = () => void refresh();
+    window.addEventListener("onkar-jarvis-state-changed", onCommand);
+    return () => window.removeEventListener("onkar-jarvis-state-changed", onCommand);
+  }, [refresh]);
   const selectTab = (next: MarketBrainTab) => {
     setTab(next);
     onTabChange?.(next);

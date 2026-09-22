@@ -10,6 +10,7 @@ import mediaRouter from "./media";
 import marketBrainRouter from "./market-brain";
 import mt5Router from "./mt5";
 import knowledgeRouter from "./knowledge";
+import jarvisRouter from "./jarvis";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(mediaRouter);
 router.use(marketBrainRouter);
 router.use(mt5Router);
 router.use(knowledgeRouter);
+router.use(jarvisRouter);
 
 export default router;

@@ -2,6 +2,7 @@ import { scannerConfigSchema, strategyVersionSchema } from "@workspace/api-zod";
 import { getMarketProvider } from "./providers";
 import { accountContext } from "./journal";
 import { calculateRisk } from "./evaluation";
+import { automaticEntryStillAllowed } from "./controls";
 import {
   paperInstrumentSizingFromRate,
   resolvePaperInstrumentSizing,
@@ -642,6 +643,8 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
     "Opening virtual position in the selected Onkar Paper account.",
     config.accountId,
   );
+  if (!await automaticEntryStillAllowed(store, runtime.user_id, configRow.id, "TWELVE_DATA"))
+    return { blocked: true, reason: "Automatic entry was paused during preparation. No Paper order submitted." };
   const [trade] = await store.request<PaperTrade[]>(
     "paper_trades",
     {},

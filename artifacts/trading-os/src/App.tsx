@@ -41,6 +41,7 @@ const loadOnkarAIWorkspace = () => import("./onkar-ai/OnkarAIWorkspace");
 const OnkarAIWorkspace = React.lazy(loadOnkarAIWorkspace);
 import "./onkar-ai/onkar-ai.css";
 import { NotificationCenterBell } from "./notifications/NotificationCenter";
+import { installJarvisBridge, JARVIS_ENABLED } from "./jarvis/app-bridge";
 
 /* ============================================================
    UTILITIES
@@ -6573,8 +6574,9 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
       </>
     )}
 
-    {/* ── Floating AI Coach button ── */}
-    <button
+    {/* Existing coach remains available when the Jarvis feature flag is disabled. */}
+    {JARVIS_ENABLED && <button onClick={() => setAiOpen(true)} className="mx-4 mb-4 rounded-xl border border-violet-400/20 px-4 py-2 text-xs text-violet-300">Open journal AI Coach</button>}
+    {!JARVIS_ENABLED && <button
       onClick={() => setAiOpen((o) => !o)}
       className="fixed z-50 w-12 h-12 rounded-full flex items-center justify-center transition-all active:scale-95 shadow-lg"
       style={{
@@ -6588,7 +6590,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
       aria-label="AI Coach"
     >
       {aiOpen ? <X size={20} className="text-white" /> : <Brain size={20} className="text-white" />}
-    </button>
+    </button>}
 
     {/* ── Floating Quick-Log button ── */}
     {settings.showQuickLogFAB !== false && (
@@ -15948,6 +15950,25 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
     if (tab === "academy" && sub) setAcademySubTab(sub);
     if (tab === "more" && sub) setMoreSubTab(sub);
   };
+
+  useEffect(() => installJarvisBridge({
+    navigate(destination) {
+      if (destination === "notifications") { window.dispatchEvent(new Event("onkar-open-notifications")); return; }
+      const paths = { onkar: "/onkar-ai", command: "/onkar-ai/assistant", scanner: "/onkar-ai/scanner", knowledge: "/onkar-ai/knowledge", evolution: "/onkar-ai/evolution", settings: "/onkar-ai/settings", risk: "/onkar-ai/risk", connections: "/onkar-ai/integrations", charts: "/onkar-ai/charts", trades: "/onkar-ai", news: "/onkar-ai/news", notifications: "/onkar-ai" };
+      if (destination === "tradex") goTo("home", undefined);
+      else if (destination === "setups") goTo("library", "Setups");
+      else if (destination === "library") goTo("academy", "Video Lessons");
+      else if (destination === "journal") goTo("journal", undefined);
+      else if (destination === "backtests" || destination === "simulation") goTo("backtest", undefined);
+      else if (destination === "performance") goTo("more", "Performance");
+      else goTo("onkar-ai", paths[destination]);
+    },
+    context() {
+      const selected = (data as any)?.tradingAccounts?.find((item: any) => item.id === (data as any)?.activeAccountId);
+      return { page: onkarAIPath || (videoLessonId ? "Video lesson" : `TradeX / ${activeTab}${activeTab === "academy" ? ` / ${academySubTab}` : activeTab === "library" ? ` / ${librarySubTab}` : activeTab === "more" ? ` / ${moreSubTab}` : ""}`), account: selected?.alias || selected?.accountNumber || null, accountId: selected?.id || null };
+    },
+    hasPendingSave: () => Boolean(pendingSaveRef.current || saveInFlightRef.current),
+  }));
 
   /* ── Accent color CSS variable injection ── */
   useEffect(() => {

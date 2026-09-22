@@ -21,6 +21,7 @@ import type {
   SetupDetection,
 } from "@workspace/api-zod";
 import { fetchSharedMarket } from "../market-brain/shared-market";
+import { getJarvisChart, subscribeJarvisChart } from "../jarvis/app-bridge";
 
 const SYMBOLS: Array<{ value: SharedChartSymbol; label: string }> = [
   { value: "EURUSD", label: "EUR/USD" },
@@ -62,15 +63,25 @@ export function SharedMarketChart({
   const lines = useRef<IPriceLine[]>([]);
   const markers = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
   const lastKey = useRef("");
-  const [symbol, setSymbol] = useState<SharedChartSymbol>(initialSymbol);
+  const [symbol, setSymbol] = useState<SharedChartSymbol>(() => (getJarvisChart()?.symbol as SharedChartSymbol) || initialSymbol);
   const [timeframe, setTimeframe] =
-    useState<SharedChartTimeframe>(initialTimeframe);
+    useState<SharedChartTimeframe>(() => getJarvisChart()?.timeframe || initialTimeframe);
   const [snapshot, setSnapshot] = useState<SharedMarketSnapshot | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [timezone, setTimezone] = useState<"local" | "broker" | "utc">(
     "local",
   );
+  useEffect(() => subscribeJarvisChart(command => {
+    if (command.symbol && SYMBOLS.some(item => item.value === command.symbol)) setSymbol(command.symbol as SharedChartSymbol);
+    if (command.timeframe) setTimeframe(command.timeframe);
+    const scale = chart.current?.timeScale();
+    if (command.zoom === "reset") scale?.fitContent();
+    else if (command.zoom && scale) {
+      const range = scale.getVisibleLogicalRange();
+      if (range) { const center = (range.from + range.to) / 2, half = (range.to - range.from) * (command.zoom === "in" ? 0.4 : 0.625); scale.setVisibleLogicalRange({ from: center - half, to: center + half }); }
+    }
+  }), []);
 
   useEffect(() => {
     if (!container.current) return;

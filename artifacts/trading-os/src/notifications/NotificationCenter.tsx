@@ -116,13 +116,14 @@ function useNotificationInboxInternal() {
       const voiceAllowed = categoryPreference.voice ?? priorityPreference.voice ?? (item.priority === "HIGH" || item.priority === "CRITICAL");
       const pushAllowed = categoryPreference.push ?? priorityPreference.push ?? (item.priority === "HIGH" || item.priority === "CRITICAL");
       if (voiceEligible && voiceAllowed && preferences.voice_enabled && !item.voice_spoken_at) {
-        const queued = agentVoice.enqueueAlert({
+        agentVoice.enqueueAlert({
           key: `${item.event_key}:${item.updated_at}`,
           candidateId: item.setup_id || item.id,
           text: `Boss, ${item.title}. ${item.message}`,
           priority: item.priority === "CRITICAL" ? 100 : 70,
+          expiresAt: Math.min(Date.parse(item.updated_at) + 120_000, item.expires_at ? Date.parse(item.expires_at) : Infinity),
+          onSpoken: () => { void state(item.id, "VOICE_SPOKEN").catch(() => undefined); },
         });
-        if (queued) void state(item.id, "VOICE_SPOKEN");
       }
       if (preferences.push_enabled && pushAllowed && !item.push_sent_at && item.priority !== "INFO") {
         void browserNotify(item).then((sent) => sent && state(item.id, "PUSH_SENT"));
@@ -203,6 +204,11 @@ function NotificationCard({ item, onNavigate, onRefresh }: { item: OnkarNotifica
 export function NotificationCenterBell({ onNavigate, compact = false }: Props) {
   const inbox = useNotificationInbox();
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener("onkar-open-notifications", show);
+    return () => window.removeEventListener("onkar-open-notifications", show);
+  }, []);
   const [filter, setFilter] = useState<(typeof categories)[number]>("ALL");
   const [search, setSearch] = useState("");
   const [symbol, setSymbol] = useState("ALL");

@@ -53,6 +53,7 @@ import {
 } from "../market-brain/execution-router";
 import { selectScannerMarketProvider } from "../market-brain/provider-selection";
 import { logger } from "../lib/logger";
+import { applyScannerControl, saveScannerConfig } from "../market-brain/controls";
 
 const router: IRouter = Router();
 const requestTimes = new Map<string, number[]>();
@@ -604,51 +605,8 @@ router.post(
     const parsed = scannerControlSchema.safeParse(req.body);
     if (!parsed.success)
       throw new ScannerError("Invalid scanner control action.", 400);
-    const action = parsed.data.action;
-    const patch: Record<string, unknown> = {
-      updated_at: new Date().toISOString(),
-    };
-    if (action === "PAUSE") patch.scanner_state = "PAUSED";
-    if (action === "RESUME") patch.scanner_state = "RUNNING";
-    if (action === "STOP") patch.scanner_state = "STOPPED";
-    if (action === "DISABLE_AUTO") {
-      patch.trading_mode = "CONFIRM";
-      patch.auto_execution_enabled = false;
-    }
-    if (action === "EMERGENCY_STOP") {
-      patch.scanner_state = "PAUSED";
-      patch.trading_mode = "ANALYSIS";
-      patch.auto_execution_enabled = false;
-      patch.emergency_stop = true;
-    }
-    const existing = await ScannerStore.service().request<RuntimeRow[]>(
-      "scanner_runtime_controls",
-      { user_id: `eq.${identity.userId}`, limit: "1" },
-    );
-    if (existing[0])
-      await ScannerStore.service().request(
-        "scanner_runtime_controls",
-        { user_id: `eq.${identity.userId}` },
-        "PATCH",
-        patch,
-      );
-    else
-      await ScannerStore.service().request(
-        "scanner_runtime_controls",
-        {},
-        "POST",
-        {
-          user_id: identity.userId,
-          workspace_id: config.workspace_id,
-          scanner_config_id: config.id,
-          scanner_state: patch.scanner_state ?? "STOPPED",
-          trading_mode: patch.trading_mode ?? "ANALYSIS",
-          auto_execution_enabled: patch.auto_execution_enabled ?? false,
-          emergency_stop: patch.emergency_stop ?? false,
-          auto_start: false,
-        },
-      );
-    res.json({ saved: true, action });
+    const runtime = await applyScannerControl(identity.userId, config, parsed.data.action);
+    res.json({ saved: true, action: parsed.data.action, runtime });
   }),
 );
 router.get(
@@ -692,55 +650,7 @@ router.put(
           .join("; "),
         400,
       );
-    const source = await user.source(identity.userId);
-    if (
-      parsed.data.accountId &&
-      !records(source.tradingAccounts).some(
-        (a) => a.id === parsed.data.accountId,
-      )
-    )
-      throw new ScannerError("Select one of your existing accounts.", 400);
-    const versions = await user.request<VersionRow[]>(
-      "scanner_strategy_versions",
-    );
-    const selectableVersions = latestApprovedVersions(versions);
-    if (
-      parsed.data.strategyVersionIds.some(
-        (id) =>
-          !selectableVersions.some(
-            (v) => v.id === id && v.definition.approval === "approved",
-          ),
-      )
-    )
-      throw new ScannerError(
-        "Only your approved rule versions can be scanned.",
-        400,
-      );
-    if (
-      parsed.data.enabled &&
-      !parsed.data.autoActivateApprovedSetups &&
-      !parsed.data.strategyVersionIds.length
-    )
-      throw new ScannerError(
-        "Approve a rule version before enabling scanning.",
-        400,
-      );
-    const memberships = await user.request<Array<{ workspace_id: string }>>(
-      "workspace_members",
-      { user_id: `eq.${identity.userId}`, limit: "1" },
-    );
-    if (!memberships[0])
-      throw new ScannerError(
-        "No existing workspace found. Open your journal once, then retry.",
-        409,
-      );
-    const store = ScannerStore.service();
-    // Cancel/fence any in-flight job when risk, account or strategy selection changes.
-    await store.rpc("configure_scanner", {
-      p_user: identity.userId,
-      p_workspace: config?.workspace_id ?? memberships[0].workspace_id,
-      p_config: parsed.data,
-    });
+    await saveScannerConfig(identity, parsed.data, config);
     res.json({ saved: true });
   }),
 );

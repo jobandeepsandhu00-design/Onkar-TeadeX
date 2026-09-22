@@ -1,0 +1,32 @@
+(async () => {
+  if (location.hostname !== "127.0.0.1" || location.pathname !== "/jarvis-qa.html") throw new Error("Isolated QA page required");
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  const wait = () => new Promise(resolve => setTimeout(resolve, 120));
+  assert(document.querySelectorAll(".jarvis-root").length === 1, "one persistent avatar");
+  if (!document.querySelector(".jarvis-panel")) document.querySelector(".jarvis-avatar").click();
+  await wait();
+  const panel = document.querySelector(".jarvis-panel").getBoundingClientRect();
+  assert(panel.left >= 0 && panel.right <= innerWidth && panel.top >= 0 && panel.bottom <= innerHeight, "panel contained in viewport");
+  assert(document.documentElement.scrollWidth <= innerWidth, "no horizontal overflow");
+  const input = document.querySelector('[aria-label="Command or question for Jarvis"]');
+  const send = async value => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await wait();
+    input.closest("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await wait();
+  };
+  await send("Open TradeX dashboard");
+  assert(document.querySelector('[role="log"]').textContent.includes("TradeX / home"), "TradeX navigation verified");
+  await send("Open Onkar AI");
+  assert(document.querySelector('[role="log"]').textContent.includes("/onkar-ai/onkar"), "Onkar navigation distinct");
+  await send("Don't buy gold");
+  assert(document.querySelector('[role="log"]').textContent.includes("No unconfirmed action"), "negation does not trade");
+  await send("Set voice volume to forty percent");
+  assert(document.querySelector('[role="log"]').textContent.includes("40 percent"), "voice preference saved");
+  document.querySelector('[aria-label="Minimize Jarvis"]').click(); await wait();
+  assert(!document.querySelector(".jarvis-panel"), "panel minimized");
+  document.querySelector(".jarvis-avatar").click(); await wait();
+  assert(document.querySelectorAll(".jarvis-root").length === 1, "no duplicate avatar after reopen");
+  return { passed: true, viewport: [innerWidth, innerHeight], oneAvatar: true, distinctDashboards: true, negationSafe: true, volumeSaved: true, overflow: false, testData: "isolated fixture; no backend or microphone claims" };
+})();

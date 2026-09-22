@@ -79,6 +79,7 @@ import { AGENT_DEFINITIONS } from "./agent-data";
 import { agentRuntime } from "./agent-runtime";
 import "./onkar-ai.css";
 import { NotificationCenterBell } from "../notifications/NotificationCenter";
+import { JARVIS_ENABLED } from "../jarvis/app-bridge";
 import {
   Dialog,
   DialogContent,
@@ -228,10 +229,13 @@ export default function OnkarAIWorkspace({
   useEffect(() => {
     const controller = new AbortController();
     void refreshScanner(controller.signal);
+    const onCommand = () => void refreshScanner();
+    window.addEventListener("onkar-jarvis-state-changed", onCommand);
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refreshScanner();
     }, 30_000);
     return () => {
+      window.removeEventListener("onkar-jarvis-state-changed", onCommand);
       controller.abort();
       window.clearInterval(timer);
     };
@@ -1178,7 +1182,7 @@ export default function OnkarAIWorkspace({
           </footer>
         </main>
       </div>
-      <button
+      {!JARVIS_ENABLED && <button
         className="oai-master-command-orb"
         onClick={() => navigate("/onkar-ai/assistant")}
         aria-label="Open Master AI command assistant"
@@ -1190,7 +1194,7 @@ export default function OnkarAIWorkspace({
         <small>
           {scannerSnapshot ? scannerSnapshot.runtime.scannerState : "CHECKING"}
         </small>
-      </button>
+      </button>}
       <nav className="oai-mobile-tabbar" aria-label="Onkar AI quick navigation">
         <button
           className={segment === "dashboard" ? "active" : ""}

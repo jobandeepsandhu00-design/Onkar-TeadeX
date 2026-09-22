@@ -242,6 +242,18 @@ test("Voice OFF suppresses Kokoro while leaving non-voice alert delivery indepen
   assert.equal(calls, 0);
   assert.equal(voice.getSnapshot().queueLength, 0);
 });
+test("queued voice alerts expire instead of speaking stale trading events", () => {
+  const callbacks: Parameters<AgentVoiceProvider["speak"]>[3][] = [];
+  const voice = createAgentVoiceManager({ available: () => true, speak(_agent, _text, _settings, next) { callbacks.push(next); }, stop() {} });
+  let delivered = 0;
+  voice.enqueueAlert({ key: "fresh", candidateId: "one", text: "Current alert", onSpoken: () => { delivered++; } });
+  voice.enqueueAlert({ key: "old", candidateId: "two", text: "Expired alert", expiresAt: Date.now() - 1, onSpoken: () => { delivered++; } });
+  assert.equal(delivered, 0);
+  callbacks[0].start(); callbacks[0].end();
+  assert.equal(callbacks.length, 1); assert.equal(voice.getSnapshot().queueLength, 0);
+  assert.equal(delivered, 1);
+  voice.stop(); agentRuntime.reset();
+});
 const runId = "76129217-b596-4fb7-b7ae-cf811820ca20";
 const response: MasterAIResponse = {
   runId,

@@ -4,6 +4,7 @@ import express from "express";
 import type { AddressInfo } from "node:net";
 import router from "../routes/market-brain";
 import knowledgeRouter from "../routes/knowledge";
+import jarvisRouter from "../routes/jarvis";
 import { scannerToolInputSchema } from "@workspace/api-zod";
 
 test("all private scanner APIs reject anonymous requests", async () => {
@@ -11,11 +12,17 @@ test("all private scanner APIs reject anonymous requests", async () => {
   app.use(express.json());
   app.use(router);
   app.use(knowledgeRouter);
+  app.use(jarvisRouter);
   const server = app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
     for (const [method, path] of [
+      ["GET", "/onkar-ai/jarvis/capabilities"],
+      ["GET", "/onkar-ai/jarvis/history"],
+      ["GET", "/onkar-ai/jarvis/commands/00000000-0000-4000-8000-000000000001"],
+      ["POST", "/onkar-ai/jarvis/commands"],
+      ["POST", "/onkar-ai/jarvis/commands/00000000-0000-4000-8000-000000000001"],
       ["GET", "/market-brain"],
       ["GET", "/market-brain/notifications"],
       ["GET", "/market-brain/notifications/00000000-0000-4000-8000-000000000001/events"],

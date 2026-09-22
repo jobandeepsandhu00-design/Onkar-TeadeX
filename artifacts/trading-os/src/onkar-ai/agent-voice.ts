@@ -52,6 +52,8 @@ export type MasterAlertSpeech = {
   candidateId: string;
   text: string;
   priority?: number;
+  expiresAt?: number;
+  onSpoken?: () => void;
 };
 
 const defaults: VoiceSettings = {
@@ -231,6 +233,8 @@ type QueueItem = {
   candidateId?: string;
   text: string;
   priority: number;
+  expiresAt?: number;
+  onSpoken?: () => void;
 };
 
 export function createAgentVoiceManager(provider: AgentVoiceProvider) {
@@ -257,8 +261,11 @@ export function createAgentVoiceManager(provider: AgentVoiceProvider) {
   };
   const startNext = () => {
     if (active || !queue.length || !snapshot.settings.enabled) return;
+    queue = queue.filter(item => !item.expiresAt || item.expiresAt > Date.now());
+    if (!queue.length) { update({ queueLength: 0 }); return; }
     active = queue.shift()!;
     const token = ++generation;
+    let spoken = false;
     update({
       agent: "master",
       pending: true,
@@ -286,6 +293,7 @@ export function createAgentVoiceManager(provider: AgentVoiceProvider) {
       provider.speak("master", active.text, snapshot.settings, {
         start() {
           if (token !== generation) return;
+          if (!spoken) { spoken = true; active?.onSpoken?.(); }
           clearTimeout(startupTimer);
           agentRuntime.speaking("master", true);
           update({ agent: "master", pending: false });
@@ -407,6 +415,7 @@ export function createAgentVoiceManager(provider: AgentVoiceProvider) {
         return false;
       const item: QueueItem = {
         ...alert,
+        expiresAt: alert.expiresAt ?? Date.now() + 120_000,
         priority: alert.priority ?? 50,
         text: alert.text.replace(/[#*_`]/g, "").slice(0, 1200),
       };

@@ -1,4 +1,5 @@
 import { scannerConfigSchema, strategyVersionSchema } from "@workspace/api-zod";
+import { automaticEntryStillAllowed } from "./controls";
 import {
   checkMT5Order,
   executeMT5Order,
@@ -511,6 +512,8 @@ export async function runNextAutoExecution() {
     "EXECUTING",
     "Order submitted to the connected MT5 bridge.",
   );
+  if (!await automaticEntryStillAllowed(store, runtime.user_id, runtime.scanner_config_id, "MT5"))
+    return { blocked: true, reason: "Automatic entry was paused during broker checks. No order submitted." };
   const result = await executeMT5Order(order);
   const succeeded = Boolean(result.ok);
   await event(

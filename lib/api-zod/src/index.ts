@@ -4,3 +4,4 @@ export * from "./market-brain";
 export * from "./onkar-ai";
 export * from "./mt5";
 export * from "./notifications";
+export * from "./jarvis";
