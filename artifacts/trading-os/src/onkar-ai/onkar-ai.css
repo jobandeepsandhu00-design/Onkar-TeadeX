@@ -4684,6 +4684,7 @@
 /* Shared Twelve Data + Lightweight Charts v5 surface */
 .oai-live-chart {
   position: relative;
+  container-type: inline-size;
   overflow: hidden;
   border: 1px solid rgba(60, 153, 255, 0.32);
   border-radius: 18px;
@@ -5082,13 +5083,18 @@
     padding: 13px 12px 8px;
   }
   .oai-live-chart-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
-    justify-content: space-between;
+    gap: 8px;
   }
   .oai-live-chart-controls select {
-    min-width: 118px;
+    width: 100%;
+    min-width: 0;
   }
   .oai-live-chart-controls > div {
+    grid-row: 2;
+    grid-column: 1 / -1;
     flex: 1;
     justify-content: flex-end;
   }
@@ -5118,6 +5124,32 @@
   }
   .oai-live-chart.is-compact .oai-chart-detections {
     display: none;
+  }
+}
+@container (max-width: 620px) {
+  .oai-live-chart-head {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 13px 12px 8px;
+  }
+  .oai-live-chart-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+  }
+  .oai-live-chart-controls select {
+    width: 100%;
+    min-width: 0;
+  }
+  .oai-live-chart-controls > div {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .oai-live-chart-controls button {
+    flex: 1;
   }
 }
 .oai-tabs button.active {
@@ -5313,8 +5345,11 @@
     min-height: 66px;
     padding: 5px 7px calc(6px + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid rgba(66, 118, 171, 0.36);
-    background:
-      linear-gradient(180deg, rgba(8, 19, 36, 0.94), rgba(3, 10, 22, 0.99));
+    background: linear-gradient(
+      180deg,
+      rgba(8, 19, 36, 0.94),
+      rgba(3, 10, 22, 0.99)
+    );
     box-shadow: 0 -16px 38px rgba(0, 5, 17, 0.54);
     backdrop-filter: blur(20px) saturate(145%);
   }

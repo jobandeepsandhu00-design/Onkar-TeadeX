@@ -4,11 +4,13 @@ import {
   ColorType,
   CrosshairMode,
   LineStyle,
+  TickMarkType,
   createChart,
   createSeriesMarkers,
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type SeriesMarker,
   type Time,
   type UTCTimestamp,
@@ -49,41 +51,344 @@ const detectionColors: Record<SetupDetection["status"], string> = {
   INVALID: "#ff647c",
 };
 const TWELVE_DATA_CHART_REFRESH_MS = 15 * 60_000;
+type ChartTimezone = "local" | "utc";
+const LOCAL_TIMEZONE =
+  Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+function chartTimeDate(time: Time) {
+  if (typeof time === "number") return new Date(time * 1000);
+  if (typeof time === "string") return new Date(`${time}T00:00:00Z`);
+  return new Date(Date.UTC(time.year, time.month - 1, time.day));
+}
+
+function chartTimeZone(timezone: ChartTimezone) {
+  return timezone === "utc" ? "UTC" : LOCAL_TIMEZONE;
+}
+
+function formatChartTick(
+  time: Time,
+  tickMarkType: TickMarkType,
+  locale: string,
+  timezone: ChartTimezone,
+) {
+  const date = chartTimeDate(time);
+  const timeZone = chartTimeZone(timezone);
+  if (tickMarkType === TickMarkType.Year)
+    return new Intl.DateTimeFormat(locale, {
+      timeZone,
+      year: "numeric",
+    }).format(date);
+  if (tickMarkType === TickMarkType.Month)
+    return new Intl.DateTimeFormat(locale, {
+      timeZone,
+      month: "short",
+    }).format(date);
+  if (tickMarkType === TickMarkType.DayOfMonth)
+    return new Intl.DateTimeFormat(locale, {
+      timeZone,
+      day: "2-digit",
+      month: "short",
+    }).format(date);
+  return new Intl.DateTimeFormat(locale, {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    second:
+      tickMarkType === TickMarkType.TimeWithSeconds ? "2-digit" : undefined,
+    hourCycle: "h23",
+  }).format(date);
+}
+
+function formatChartCrosshair(time: Time, timezone: ChartTimezone) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: chartTimeZone(timezone),
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(chartTimeDate(time));
+}
+
+type Workflow = NonNullable<SharedMarketSnapshot["workflow"]>;
+type WorkflowZone = NonNullable<Workflow["fourHour"]["support"]>;
+
+type ZoneOverlay = {
+  low: number;
+  high: number;
+  labels: string[];
+  color: string;
+};
+
+type StructureOverlay = {
+  price: number;
+  labels: string[];
+  color: string;
+};
+
+const zoneKey = (low: number, high: number) =>
+  `${low.toPrecision(12)}:${high.toPrecision(12)}`;
+
+const priceKey = (price: number) => price.toPrecision(12);
+
+function zoneDescription(
+  timeframe: "4H" | "1H" | "30M",
+  zone: WorkflowZone,
+  suffix = "",
+) {
+  const type = zone.type.replaceAll("_", " ").toUpperCase();
+  const touches = `${zone.touches} TOUCH${zone.touches === 1 ? "" : "ES"}`;
+  return `${timeframe} ${type}${suffix} · FRESHNESS ${Math.round(zone.freshness)}% · ${touches}`;
+}
+
+function workflowZoneOverlays(workflow: Workflow): ZoneOverlay[] {
+  const rows: Array<{
+    zone: WorkflowZone | null;
+    label: string;
+    color: string;
+  }> = [
+    {
+      zone: workflow.fourHour.support,
+      label: workflow.fourHour.support
+        ? zoneDescription("4H", workflow.fourHour.support)
+        : "",
+      color: "#31d9a8",
+    },
+    {
+      zone: workflow.fourHour.resistance,
+      label: workflow.fourHour.resistance
+        ? zoneDescription("4H", workflow.fourHour.resistance)
+        : "",
+      color: "#ff7187",
+    },
+    {
+      zone: workflow.oneHour.support,
+      label: workflow.oneHour.support
+        ? zoneDescription("1H", workflow.oneHour.support)
+        : "",
+      color: "#45cbb1",
+    },
+    {
+      zone: workflow.oneHour.resistance,
+      label: workflow.oneHour.resistance
+        ? zoneDescription("1H", workflow.oneHour.resistance)
+        : "",
+      color: "#f08b9a",
+    },
+    {
+      zone: workflow.oneHour.setupZone,
+      label: workflow.oneHour.setupZone
+        ? zoneDescription("1H", workflow.oneHour.setupZone, " · SETUP AREA")
+        : "",
+      color: "#9f8cff",
+    },
+    {
+      zone: workflow.thirtyMinute.support,
+      label: workflow.thirtyMinute.support
+        ? zoneDescription("30M", workflow.thirtyMinute.support)
+        : "",
+      color: "#35bfa4",
+    },
+    {
+      zone: workflow.thirtyMinute.resistance,
+      label: workflow.thirtyMinute.resistance
+        ? zoneDescription("30M", workflow.thirtyMinute.resistance)
+        : "",
+      color: "#dd8090",
+    },
+  ];
+  const overlays = new Map<string, ZoneOverlay>();
+  for (const row of rows) {
+    if (!row.zone) continue;
+    const key = zoneKey(row.zone.low, row.zone.high);
+    const current = overlays.get(key);
+    if (current) {
+      if (!current.labels.includes(row.label)) current.labels.push(row.label);
+      continue;
+    }
+    overlays.set(key, {
+      low: row.zone.low,
+      high: row.zone.high,
+      labels: [row.label],
+      color: row.color,
+    });
+  }
+  return [...overlays.values()];
+}
+
+function workflowStructureOverlays(workflow: Workflow): StructureOverlay[] {
+  const fourHigh = workflow.fourHour.structure.includes("HH")
+    ? "4H HH"
+    : workflow.fourHour.structure.includes("LH")
+      ? "4H LH"
+      : "4H SWING HIGH";
+  const fourLow = workflow.fourHour.structure.includes("HL")
+    ? "4H HL"
+    : workflow.fourHour.structure.includes("LL")
+      ? "4H LL"
+      : "4H SWING LOW";
+  const rows: Array<{
+    price: number | null;
+    label: string;
+    color: string;
+  }> = [
+    {
+      price: workflow.fourHour.swingHigh,
+      label: `${fourHigh}${workflow.fourHour.brokenStructure === "bullish" ? " · BULLISH BOS LEVEL" : ""}`,
+      color: "#d8a9ff",
+    },
+    {
+      price: workflow.fourHour.swingLow,
+      label: `${fourLow}${workflow.fourHour.brokenStructure === "bearish" ? " · BEARISH BOS LEVEL" : ""}`,
+      color: "#c58cff",
+    },
+    {
+      price: workflow.oneHour.swingHigh,
+      label: `1H SWING HIGH${workflow.oneHour.brokenStructure === "bullish" ? " · BULLISH BOS LEVEL" : ""}`,
+      color: "#6baeff",
+    },
+    {
+      price: workflow.oneHour.swingLow,
+      label: `1H SWING LOW${workflow.oneHour.brokenStructure === "bearish" ? " · BEARISH BOS LEVEL" : ""}`,
+      color: "#4e91ed",
+    },
+    {
+      price: workflow.thirtyMinute.swingHigh,
+      label: `30M SWING HIGH${workflow.thirtyMinute.brokenStructure === "bullish" ? " · BULLISH BOS LEVEL" : ""}`,
+      color: "#55d7ef",
+    },
+    {
+      price: workflow.thirtyMinute.swingLow,
+      label: `30M SWING LOW${workflow.thirtyMinute.brokenStructure === "bearish" ? " · BEARISH BOS LEVEL" : ""}`,
+      color: "#32b4d1",
+    },
+  ];
+  const overlays = new Map<string, StructureOverlay>();
+  for (const row of rows) {
+    if (row.price === null) continue;
+    const key = priceKey(row.price);
+    const current = overlays.get(key);
+    if (current) {
+      if (!current.labels.includes(row.label)) current.labels.push(row.label);
+      continue;
+    }
+    overlays.set(key, {
+      price: row.price,
+      labels: [row.label],
+      color: row.color,
+    });
+  }
+  return [...overlays.values()];
+}
+
+function markerTime(
+  candles: SharedMarketSnapshot["candles"],
+  timestamp: string,
+): UTCTimestamp | null {
+  const analyzedAt = Date.parse(timestamp);
+  if (!Number.isFinite(analyzedAt)) return null;
+  let match: number | null = null;
+  for (const candle of candles) {
+    if (candle.t > analyzedAt) break;
+    match = candle.t;
+  }
+  return match === null ? null : (Math.floor(match / 1000) as UTCTimestamp);
+}
+
+export type SharedChartTradeOverlay = {
+  id: string;
+  direction: "BUY" | "SELL";
+  entry: number;
+  stopLoss: number | null;
+  takeProfit: number | null;
+  status: "OPEN" | "CLOSED" | "INVALIDATED";
+  openedAt?: string | null;
+  closedAt?: string | null;
+  source: "PAPER" | "MT5";
+};
+
+const EMPTY_TRADE_OVERLAYS: SharedChartTradeOverlay[] = [];
+
+export type SharedMarketChartProps = {
+  compact?: boolean;
+  initialSymbol?: SharedChartSymbol;
+  initialTimeframe?: SharedChartTimeframe;
+  tradeOverlays?: SharedChartTradeOverlay[];
+  onSnapshot?: (snapshot: SharedMarketSnapshot) => void;
+  onUnavailable?: (message: string) => void;
+  onContextChange?: (
+    symbol: SharedChartSymbol,
+    timeframe: SharedChartTimeframe,
+  ) => void;
+};
 
 export function SharedMarketChart({
   compact = false,
   initialSymbol = "XAUUSD",
   initialTimeframe = "15m",
-}: {
-  compact?: boolean;
-  initialSymbol?: SharedChartSymbol;
-  initialTimeframe?: SharedChartTimeframe;
-}) {
+  tradeOverlays = EMPTY_TRADE_OVERLAYS,
+  onSnapshot,
+  onUnavailable,
+  onContextChange,
+}: SharedMarketChartProps) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const series = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lines = useRef<IPriceLine[]>([]);
-  const markers = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
+  const markers = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const lastKey = useRef("");
-  const [symbol, setSymbol] = useState<SharedChartSymbol>(() => (getJarvisChart()?.symbol as SharedChartSymbol) || initialSymbol);
-  const [timeframe, setTimeframe] =
-    useState<SharedChartTimeframe>(() => getJarvisChart()?.timeframe || initialTimeframe);
+  const onSnapshotRef = useRef(onSnapshot);
+  const onUnavailableRef = useRef(onUnavailable);
+  const onContextChangeRef = useRef(onContextChange);
+  const [symbol, setSymbol] = useState<SharedChartSymbol>(
+    () => (getJarvisChart()?.symbol as SharedChartSymbol) || initialSymbol,
+  );
+  const [timeframe, setTimeframe] = useState<SharedChartTimeframe>(
+    () => getJarvisChart()?.timeframe || initialTimeframe,
+  );
   const [snapshot, setSnapshot] = useState<SharedMarketSnapshot | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [timezone, setTimezone] = useState<"local" | "broker" | "utc">(
-    "local",
+  const [timezone, setTimezone] = useState<ChartTimezone>("local");
+  useEffect(() => {
+    onSnapshotRef.current = onSnapshot;
+  }, [onSnapshot]);
+  useEffect(() => {
+    onUnavailableRef.current = onUnavailable;
+  }, [onUnavailable]);
+  useEffect(() => {
+    onContextChangeRef.current = onContextChange;
+  }, [onContextChange]);
+  useEffect(() => {
+    onContextChangeRef.current?.(symbol, timeframe);
+  }, [symbol, timeframe]);
+  useEffect(
+    () =>
+      subscribeJarvisChart((command) => {
+        if (
+          command.symbol &&
+          SYMBOLS.some((item) => item.value === command.symbol)
+        )
+          setSymbol(command.symbol as SharedChartSymbol);
+        if (command.timeframe) setTimeframe(command.timeframe);
+        const scale = chart.current?.timeScale();
+        if (command.zoom === "reset") scale?.fitContent();
+        else if (command.zoom && scale) {
+          const range = scale.getVisibleLogicalRange();
+          if (range) {
+            const center = (range.from + range.to) / 2,
+              half =
+                (range.to - range.from) * (command.zoom === "in" ? 0.4 : 0.625);
+            scale.setVisibleLogicalRange({
+              from: center - half,
+              to: center + half,
+            });
+          }
+        }
+      }),
+    [],
   );
-  useEffect(() => subscribeJarvisChart(command => {
-    if (command.symbol && SYMBOLS.some(item => item.value === command.symbol)) setSymbol(command.symbol as SharedChartSymbol);
-    if (command.timeframe) setTimeframe(command.timeframe);
-    const scale = chart.current?.timeScale();
-    if (command.zoom === "reset") scale?.fitContent();
-    else if (command.zoom && scale) {
-      const range = scale.getVisibleLogicalRange();
-      if (range) { const center = (range.from + range.to) / 2, half = (range.to - range.from) * (command.zoom === "in" ? 0.4 : 0.625); scale.setVisibleLogicalRange({ from: center - half, to: center + half }); }
-    }
-  }), []);
 
   useEffect(() => {
     if (!container.current) return;
@@ -149,8 +454,25 @@ export function SharedMarketChart({
       chart.current = null;
       series.current = null;
       markers.current = null;
+      lines.current = [];
+      lastKey.current = "";
     };
   }, [compact]);
+
+  useEffect(() => {
+    chart.current?.applyOptions({
+      localization: {
+        timeFormatter: (time: Time) => formatChartCrosshair(time, timezone),
+      },
+      timeScale: {
+        tickMarkFormatter: (
+          time: Time,
+          tickMarkType: TickMarkType,
+          locale: string,
+        ) => formatChartTick(time, tickMarkType, locale, timezone),
+      },
+    });
+  }, [compact, timezone]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -166,6 +488,7 @@ export function SharedMarketChart({
         const next = await fetchSharedMarket(symbol, timeframe, abort.signal);
         if (!active) return;
         setSnapshot(next);
+        onSnapshotRef.current?.(next);
         setError("");
         timer = window.setTimeout(
           () => void load(),
@@ -173,9 +496,10 @@ export function SharedMarketChart({
         );
       } catch (cause) {
         if (!active || abort.signal.aborted) return;
-        setError(
-          cause instanceof Error ? cause.message : "Market data unavailable.",
-        );
+        const message =
+          cause instanceof Error ? cause.message : "Market data unavailable.";
+        setError(message);
+        onUnavailableRef.current?.(message);
         timer = window.setTimeout(() => void load(), 60_000);
       } finally {
         inFlight = false;
@@ -206,40 +530,89 @@ export function SharedMarketChart({
       close: candle.c,
     }));
     const key = `${snapshot.symbol}:${snapshot.timeframe}`;
+    // Reconcile the whole bounded series. Updating only the newest bar leaves
+    // the previous forming candle with stale OHLC after it closes.
+    candleSeries.setData(data);
     if (lastKey.current !== key) {
-      candleSeries.setData(data);
       chart.current?.timeScale().fitContent();
       lastKey.current = key;
-    } else if (data.length) {
-      candleSeries.update(data[data.length - 1]);
     }
     for (const line of lines.current) candleSeries.removePriceLine(line);
     lines.current = [];
-    for (const detection of snapshot.detections.slice(0, 4)) {
-      const color = detectionColors[detection.status];
-      const levels = [
-        [detection.entry, `${detection.setup} · Entry`],
-        [detection.stopLoss, "SL / invalidation"],
-        [detection.takeProfit, "TP"],
-      ] as const;
-      for (const [value, title] of levels) {
-        if (value === null) continue;
+    if (snapshot.workflow) {
+      for (const zone of workflowZoneOverlays(snapshot.workflow)) {
+        const title = zone.labels.join(" / ");
         lines.current.push(
           candleSeries.createPriceLine({
-            price: value,
-            color: title.startsWith("SL")
-              ? "#ff647c"
-              : title === "TP"
-                ? "#2ee6a6"
-                : color,
+            price: zone.low,
+            color: zone.color,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dotted,
+            axisLabelVisible: false,
+            title: `${title} · LOW`,
+          }),
+        );
+        if (zone.high !== zone.low) {
+          lines.current.push(
+            candleSeries.createPriceLine({
+              price: zone.high,
+              color: zone.color,
+              lineWidth: 1,
+              lineStyle: LineStyle.Dotted,
+              axisLabelVisible: true,
+              title,
+            }),
+          );
+        }
+      }
+      for (const level of workflowStructureOverlays(snapshot.workflow)) {
+        lines.current.push(
+          candleSeries.createPriceLine({
+            price: level.price,
+            color: level.color,
             lineWidth: 1,
             lineStyle: LineStyle.Dashed,
             axisLabelVisible: true,
-            title,
+            title: level.labels.join(" / "),
           }),
         );
       }
-      for (const zone of detection.zones) {
+    }
+    for (const detection of snapshot.detections.slice(0, 4)) {
+      const color = detectionColors[detection.status];
+      const setupLabel = `${detection.timeframe.toUpperCase()} ${detection.setup}`;
+      if (detection.status === "CONFIRMED" && detection.candleClosed) {
+        const levels = [
+          [detection.entry, `${setupLabel} · Entry`],
+          [
+            detection.stopLoss,
+            `${detection.timeframe.toUpperCase()} SL / invalidation`,
+          ],
+          [detection.takeProfit, `${detection.timeframe.toUpperCase()} TP`],
+        ] as const;
+        for (const [value, title] of levels) {
+          if (value === null) continue;
+          lines.current.push(
+            candleSeries.createPriceLine({
+              price: value,
+              color: title.includes("SL / invalidation")
+                ? "#ff647c"
+                : title.endsWith(" TP")
+                  ? "#2ee6a6"
+                  : color,
+              lineWidth: 1,
+              lineStyle: LineStyle.Dashed,
+              axisLabelVisible: true,
+              title,
+            }),
+          );
+        }
+      }
+      // Workflow zones are rendered once above. Candidate entry evidence is
+      // retained here without duplicating every 4H/1H/30M boundary.
+      for (const zone of detection.zones.filter(
+        (item) => item.kind === "entry",
+      )) {
         lines.current.push(
           candleSeries.createPriceLine({
             price: zone.low,
@@ -247,7 +620,7 @@ export function SharedMarketChart({
             lineWidth: 1,
             lineStyle: LineStyle.Dotted,
             axisLabelVisible: false,
-            title: `${zone.kind} low`,
+            title: `${setupLabel} · entry evidence low`,
           }),
         );
         lines.current.push(
@@ -257,34 +630,99 @@ export function SharedMarketChart({
             lineWidth: 1,
             lineStyle: LineStyle.Dotted,
             axisLabelVisible: false,
-            title: `${zone.kind} high`,
+            title: `${setupLabel} · entry evidence high`,
           }),
         );
       }
     }
-    const markerRows: SeriesMarker<Time>[] = snapshot.detections
-      .filter((item) =>
-        snapshot.candles.some(
-          (candle) =>
-            Math.floor(candle.t / 1000) ===
-            Math.floor(Date.parse(item.timestamp) / 1000),
-        ),
-      )
+    for (const trade of tradeOverlays.filter(
+      (item) => item.status === "OPEN",
+    )) {
+      const atBreakEven =
+        trade.stopLoss !== null &&
+        Math.abs(trade.stopLoss - trade.entry) <=
+          Math.max(Math.abs(trade.entry) * 0.000001, Number.EPSILON);
+      const levels = [
+        [trade.entry, `${trade.source} ${trade.direction} · Entry`, "#54b8ff"],
+        [
+          trade.stopLoss,
+          atBreakEven ? "Break-even" : "Active trade SL",
+          atBreakEven ? "#f5bb55" : "#ff647c",
+        ],
+        [trade.takeProfit, "Active trade TP", "#2ee6a6"],
+      ] as const;
+      for (const [value, title, color] of levels) {
+        if (value === null) continue;
+        lines.current.push(
+          candleSeries.createPriceLine({
+            price: value,
+            color,
+            lineWidth: title.includes("Entry") ? 2 : 1,
+            lineStyle: title.includes("Entry")
+              ? LineStyle.Solid
+              : LineStyle.Dashed,
+            axisLabelVisible: true,
+            title,
+          }),
+        );
+      }
+    }
+    const detectionMarkers: SeriesMarker<Time>[] = snapshot.detections
       .slice(0, 12)
-      .map((item) => ({
-        time: Math.floor(Date.parse(item.timestamp) / 1000) as UTCTimestamp,
-        position: item.direction === "SELL" ? "aboveBar" : "belowBar",
-        color: detectionColors[item.status],
-        shape:
-          item.direction === "SELL"
-            ? "arrowDown"
-            : item.direction === "BUY"
-              ? "arrowUp"
-              : "circle",
-        text: `${item.setup} · ${item.status}`,
-      }));
-    markers.current?.setMarkers(markerRows);
-  }, [snapshot]);
+      .flatMap((item) => {
+        const time = markerTime(snapshot.candles, item.decisionCandleAt);
+        return time === null
+          ? []
+          : [
+              {
+                time,
+                position: item.direction === "SELL" ? "aboveBar" : "belowBar",
+                color: detectionColors[item.status],
+                shape:
+                  item.direction === "SELL"
+                    ? "arrowDown"
+                    : item.direction === "BUY"
+                      ? "arrowUp"
+                      : "circle",
+                text: `${item.timeframe.toUpperCase()} ${item.setup} · ${item.status}`,
+              } satisfies SeriesMarker<Time>,
+            ];
+      })
+      .sort((left, right) => Number(left.time) - Number(right.time));
+    const tradeMarkers: SeriesMarker<Time>[] = tradeOverlays.flatMap(
+      (trade) => {
+        const openTime = trade.openedAt
+          ? markerTime(snapshot.candles, trade.openedAt)
+          : null;
+        const closeTime = trade.closedAt
+          ? markerTime(snapshot.candles, trade.closedAt)
+          : null;
+        const rows: SeriesMarker<Time>[] = [];
+        if (openTime !== null)
+          rows.push({
+            time: openTime,
+            position: trade.direction === "SELL" ? "aboveBar" : "belowBar",
+            color: "#54b8ff",
+            shape: trade.direction === "SELL" ? "arrowDown" : "arrowUp",
+            text: `${trade.source} ${trade.direction} · OPEN`,
+          });
+        if (closeTime !== null)
+          rows.push({
+            time: closeTime,
+            position: trade.direction === "SELL" ? "belowBar" : "aboveBar",
+            color: trade.status === "INVALIDATED" ? "#ff647c" : "#f5bb55",
+            shape: "circle",
+            text: `${trade.source} · ${trade.status}`,
+          });
+        return rows;
+      },
+    );
+    markers.current?.setMarkers(
+      [...detectionMarkers, ...tradeMarkers].sort(
+        (left, right) => Number(left.time) - Number(right.time),
+      ),
+    );
+  }, [compact, snapshot, tradeOverlays]);
 
   const latest = snapshot?.candles.at(-1);
   return (
@@ -313,7 +751,8 @@ export function SharedMarketChart({
           </span>
           {snapshot?.provider === "mt5" && snapshot.broker && (
             <small className="oai-market-broker">
-              {snapshot.broker} · {snapshot.accountType} · {snapshot.quote?.brokerSymbol}
+              {snapshot.broker} · {snapshot.accountType} ·{" "}
+              {snapshot.quote?.brokerSymbol}
             </small>
           )}
         </div>
@@ -346,37 +785,42 @@ export function SharedMarketChart({
             aria-label="Chart timezone"
             value={timezone}
             onChange={(event) =>
-              setTimezone(event.target.value as "local" | "broker" | "utc")
+              setTimezone(event.target.value as ChartTimezone)
             }
           >
-            <option value="local">Europe/Vienna / Local</option>
-            <option value="broker">Broker Server Time</option>
+            <option value="local">{LOCAL_TIMEZONE} · Local</option>
             <option value="utc">UTC</option>
           </select>
         </div>
       </div>
       {snapshot?.quote && (
         <div className="oai-live-ohlc" aria-label="MT5 live quote">
-          <span>Bid <b>{snapshot.quote.bid}</b></span>
-          <span>Ask <b>{snapshot.quote.ask}</b></span>
-          <span>Spread <b>{snapshot.quote.spread}</b></span>
-          <span>Latency <b>{snapshot.quote.approximateLatencyMs ?? "—"} ms</b></span>
-          <span className={snapshot.quote.state === "CONNECTED" ? "is-closed" : "is-forming"}>
+          <span>
+            Bid <b>{snapshot.quote.bid}</b>
+          </span>
+          <span>
+            Ask <b>{snapshot.quote.ask}</b>
+          </span>
+          <span>
+            Spread <b>{snapshot.quote.spread}</b>
+          </span>
+          <span>
+            Latency <b>{snapshot.quote.approximateLatencyMs ?? "—"} ms</b>
+          </span>
+          <span
+            className={
+              snapshot.quote.state === "CONNECTED" ? "is-closed" : "is-forming"
+            }
+          >
             {snapshot.quote.state}
           </span>
           <span>
             {new Intl.DateTimeFormat("en-GB", {
-              timeZone:
-                timezone === "utc"
-                  ? "UTC"
-                  : timezone === "local"
-                    ? "Europe/Vienna"
-                    : "UTC",
+              timeZone: timezone === "utc" ? "UTC" : LOCAL_TIMEZONE,
               hour: "2-digit",
               minute: "2-digit",
               second: "2-digit",
             }).format(new Date(snapshot.quote.timestamp))}
-            {timezone === "broker" ? " broker epoch" : ""}
           </span>
         </div>
       )}
@@ -452,7 +896,9 @@ export function SharedMarketChart({
             fully closed 4H, 1H and 30M candles.
           </p>
           <ol>
-            <li>Twelve Data candles are normalized and checked for freshness.</li>
+            <li>
+              Twelve Data candles are normalized and checked for freshness.
+            </li>
             <li>4H bias and major structure are calculated.</li>
             <li>1H alignment, price location and setup zone are calculated.</li>
             <li>Every approved setup is scored from its own machine rules.</li>
@@ -463,7 +909,8 @@ export function SharedMarketChart({
             <strong>
               Parent gate: {snapshot.workflow.gate.passed.length}/
               {snapshot.workflow.gate.passed.length +
-                snapshot.workflow.gate.missing.length} conditions passed
+                snapshot.workflow.gate.missing.length}{" "}
+              conditions passed
             </strong>
             <span>
               {snapshot.detections.length
@@ -512,7 +959,9 @@ export function SharedMarketChart({
                 } as CSSProperties
               }
             >
-              <span>{item.status}</span>
+              <span>
+                {item.status} · {item.timeframe.toUpperCase()}
+              </span>
               <strong>{item.setup}</strong>
               <small>
                 {item.direction} · {item.reason}

@@ -15,7 +15,10 @@ test("scanner candle cache refreshes just after the next timeframe close", () =>
   const now = Date.UTC(2026, 8, 21, 9, 7, 0);
   assert.equal(closedCandleCacheMs("30m", now), 23 * 60_000 + 15_000);
   assert.equal(closedCandleCacheMs("1h", now), 53 * 60_000 + 15_000);
-  assert.equal(closedCandleCacheMs("4h", now), 2 * 60 * 60_000 + 53 * 60_000 + 15_000);
+  assert.equal(
+    closedCandleCacheMs("4h", now),
+    2 * 60 * 60_000 + 53 * 60_000 + 15_000,
+  );
 });
 
 test("durable scanner cache targets the latest fully closed candle", () => {
@@ -49,6 +52,7 @@ test("approved Setup Library versions auto-activate by default", () => {
   assert.deepEqual(config.strategyVersionIds, []);
 });
 test("chart labels trade levels only after a server-approved risk plan exists", () => {
+  const decisionCandleAt = new Date(Date.now() - 60 * 60_000).toISOString();
   const candidate = {
     id: "candidate",
     symbol: "XAUUSD",
@@ -59,7 +63,7 @@ test("chart labels trade levels only after a server-approved risk plan exists", 
       strategyName: "Fakeout at S/R",
       direction: "long",
       stale: false,
-      lastCandleAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+      lastCandleAt: decisionCandleAt,
       analyzedAt: new Date().toISOString(),
       passed: 7,
       total: 10,
@@ -71,8 +75,10 @@ test("chart labels trade levels only after a server-approved risk plan exists", 
       warnings: [],
     },
     plan: null,
+    last_candle_at: decisionCandleAt,
   } as unknown as CandidateRow;
   const partial = mapDetection(candidate);
+  assert.equal(partial.decisionCandleAt, decisionCandleAt);
   assert.equal(partial.entry, null);
   assert.equal(partial.stopLoss, null);
   assert.equal(partial.takeProfit, null);
@@ -102,17 +108,50 @@ test("unconfigured Twelve Data does not fall back to simulated candles", async (
 });
 test("Twelve Data series is normalized oldest-first while analysis excludes the forming candle", async (t) => {
   const now = Date.UTC(2026, 8, 13, 12, 7, 0);
-  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({
-    status: "ok",
-    values: [
-      { datetime: "2026-09-13 12:00:00", open: "100", high: "104", low: "99", close: "103" },
-      { datetime: "2026-09-13 11:45:00", open: "98", high: "101", low: "97", close: "100" },
-    ],
-  }), { headers: { "Content-Type": "application/json" } }));
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        JSON.stringify({
+          status: "ok",
+          values: [
+            {
+              datetime: "2026-09-13 12:00:00",
+              open: "100",
+              high: "104",
+              low: "99",
+              close: "103",
+            },
+            {
+              datetime: "2026-09-13 11:45:00",
+              open: "98",
+              high: "101",
+              low: "97",
+              close: "100",
+            },
+          ],
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+  );
   const provider = new TwelveDataProvider("test-key");
-  const includingOpen = await provider.getBarsIncludingOpen("XAUUSD", "15m", now - 3_600_000, now);
-  assert.deepEqual(includingOpen.map((bar) => bar.t), [Date.UTC(2026, 8, 13, 11, 45), Date.UTC(2026, 8, 13, 12, 0)]);
-  const closed = await provider.getHistoricalBars("XAUUSD", "15m", now - 3_600_000, now);
+  const includingOpen = await provider.getBarsIncludingOpen(
+    "XAUUSD",
+    "15m",
+    now - 3_600_000,
+    now,
+  );
+  assert.deepEqual(
+    includingOpen.map((bar) => bar.t),
+    [Date.UTC(2026, 8, 13, 11, 45), Date.UTC(2026, 8, 13, 12, 0)],
+  );
+  const closed = await provider.getHistoricalBars(
+    "XAUUSD",
+    "15m",
+    now - 3_600_000,
+    now,
+  );
   assert.equal(closed.length, 1);
   assert.equal(closed[0].t, Date.UTC(2026, 8, 13, 11, 45));
 });

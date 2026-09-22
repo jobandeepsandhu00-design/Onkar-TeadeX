@@ -281,6 +281,7 @@ export function mapDetection(candidate: CandidateRow): SetupDetection {
           candidate.payload.warnings?.[0] ||
           "Next required rule confirmation on a closed candle.",
     candleClosed: closed,
+    decisionCandleAt: candidate.last_candle_at,
     timestamp: candidate.payload.analyzedAt,
     zones: [
       ...(candidate.payload.entryZone
@@ -377,7 +378,7 @@ export async function getSharedMarketSnapshot(args: {
     args.user.request<CandidateRow[]>("setup_candidates", {
       ...(args.config ? { config_id: `eq.${args.config.id}` } : {}),
       symbol: `eq.${args.symbol}`,
-      timeframe: `eq.${args.timeframe}`,
+      "payload->>provider": `eq.${activeProvider}`,
       state: "in.(SCANNING,DEVELOPING,WATCH,READY,TRIGGERED)",
       order: "updated_at.desc",
       limit: "100",
@@ -413,7 +414,9 @@ export async function getSharedMarketSnapshot(args: {
         Date.parse(b.timestamp) - Date.parse(a.timestamp),
     );
   let account: Awaited<ReturnType<typeof getMT5Account>> | null = null;
-  let quote: Awaited<ReturnType<ReturnType<typeof getMarketProvider>["getQuote"]>> | null = null;
+  let quote: Awaited<
+    ReturnType<ReturnType<typeof getMarketProvider>["getQuote"]>
+  > | null = null;
   if (activeProvider === "mt5") {
     try {
       [account, quote] = await Promise.all([
@@ -466,7 +469,9 @@ export async function getSharedMarketSnapshot(args: {
       ...selected.warnings,
       ...(fallbackWarning ? [fallbackWarning] : []),
       ...(requestedProvider === "mt5" && !quote
-        ? ["MT5 bridge is disconnected or not configured. No broker price is being invented."]
+        ? [
+            "MT5 bridge is disconnected or not configured. No broker price is being invented.",
+          ]
         : []),
       ...(!workflow
         ? [
