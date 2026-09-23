@@ -90,6 +90,14 @@ export function ScannerSettings({
     value: ScannerConfig[K],
   ) => setDraft((d) => ({ ...d, [key]: value }));
   async function save() {
+    if (
+      draft.paperFastEntry &&
+      !snapshot.config?.config.paperFastEntry &&
+      !window.confirm(
+        "Enable Paper Fast Entry? Approved canonical setups can use their own closed-30M-candle trigger without the shared ten-check gate. Account, fresh data, risk, news, permissions and AUTO mode still apply. This does not arm automatic trading or enable MT5 live execution.",
+      )
+    )
+      return;
     const parsed = scannerConfigSchema.safeParse({
       ...draft,
       frequencySeconds:
@@ -268,6 +276,22 @@ export function ScannerSettings({
             </small>
           </label>
         </div>
+        <label className="mb-paper-fast-entry">
+          <input
+            type="checkbox"
+            checked={draft.paperFastEntry}
+            onChange={(event) => update("paperFastEntry", event.target.checked)}
+          />
+          <span>
+            <strong>Paper Fast Entry</strong>
+            <small>
+              Off by default. For approved canonical setups on Twelve Data
+              Paper only, use the setup-specific closed 30M trigger instead of
+              the shared ten-check gate. Fresh candles, account, risk, news,
+              permissions and AUTO mode remain mandatory. MT5 is unchanged.
+            </small>
+          </span>
+        </label>
         <div
           className="mb-cadence-picker"
           role="group"

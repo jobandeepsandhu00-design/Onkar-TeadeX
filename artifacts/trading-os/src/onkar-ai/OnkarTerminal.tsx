@@ -342,6 +342,12 @@ export function OnkarTerminal({
 
   const setupBlockingReasons = useMemo(() => {
     const reasons: string[] = [];
+    const paperFast = Boolean(
+      candidate?.payload.paperFastEntryApplied &&
+        scannerSnapshot?.config?.config.paperFastEntry &&
+        scannerSnapshot.runtime.tradingSource === "TWELVE_DATA" &&
+        market?.provider === "twelvedata",
+    );
     if (scannerError) reasons.push(`Scanner unavailable: ${scannerError}`);
     if (!market) reasons.push("Waiting for shared market data");
     else if (market.dataStatus !== "live")
@@ -354,10 +360,20 @@ export function OnkarTerminal({
         reasons.push("Candidate evidence is stale");
       if (candidate.state !== "READY")
         reasons.push(`Setup state is ${candidate.state}`);
-      if (candidate.payload.globalWorkflow?.gate.status !== "UNLOCKED")
+      if (
+        candidate.payload.paperFastEntryApplied &&
+        !scannerSnapshot?.config?.config.paperFastEntry
+      )
+        reasons.push("Paper Fast Entry is now off; wait for a new scan");
+      if (
+        !paperFast &&
+        candidate.payload.globalWorkflow?.gate.status !== "UNLOCKED"
+      )
         reasons.push("Frozen candidate 4H → 1H → closed 30M gate is locked");
-      if (market?.workflow?.gate.status !== "UNLOCKED")
+      if (!paperFast && market?.workflow?.gate.status !== "UNLOCKED")
         reasons.push("Current 4H → 1H → closed 30M gate is locked");
+      if (paperFast && market?.workflow?.thirtyMinute.candle.closed !== true)
+        reasons.push("Current 30M confirmation candle has not closed");
       if (
         candidate.payload.setupWorkflow &&
         (!candidate.payload.setupWorkflow.patternMatched ||
@@ -375,15 +391,23 @@ export function OnkarTerminal({
     return [...new Set(reasons.filter(Boolean))];
   }, [candidate, market, scannerError, scannerSnapshot]);
 
+  const paperFastPlan = Boolean(
+    candidate?.payload.paperFastEntryApplied &&
+      scannerSnapshot?.config?.config.paperFastEntry &&
+      scannerSnapshot.runtime.tradingSource === "TWELVE_DATA" &&
+      market?.provider === "twelvedata" &&
+      market.workflow?.thirtyMinute.candle.closed,
+  );
   const plan =
     !scannerError &&
     market?.dataStatus === "live" &&
-    market.workflow?.gate.status === "UNLOCKED" &&
+    (market.workflow?.gate.status === "UNLOCKED" || paperFastPlan) &&
     candidate?.payload.provider === market.provider &&
     candidate?.state === "READY" &&
     !candidate.staleNow &&
     !candidate.payload.stale &&
-    candidate.payload.globalWorkflow?.gate.status === "UNLOCKED" &&
+    (candidate.payload.globalWorkflow?.gate.status === "UNLOCKED" ||
+      paperFastPlan) &&
     (!candidate.payload.setupWorkflow ||
       (candidate.payload.setupWorkflow.patternMatched &&
         candidate.payload.setupWorkflow.entryTrigger))

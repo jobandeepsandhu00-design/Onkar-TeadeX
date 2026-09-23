@@ -20,7 +20,7 @@ import {
   finalizeGlobalTradingWorkflow,
   globalWorkflowRequired,
 } from "./global-workflow";
-import { evaluateSetupWorkflow } from "./setup-workflows";
+import { canonicalSetupWorkflow, evaluateSetupWorkflow } from "./setup-workflows";
 import { floorVolume, type InstrumentSizing } from "./risk-sizing";
 
 export type NewsCheck = {
@@ -226,6 +226,22 @@ export function calculateRisk(
     executionEnabled: allowed,
   };
 }
+export function eligibleForPaperFastEntry(
+  strategy: StrategyVersion,
+  config: ScannerConfig,
+  symbol: string,
+  paperMarketData: boolean,
+) {
+  return Boolean(
+    config.paperFastEntry &&
+      paperMarketData &&
+      globalWorkflowRequired(symbol) &&
+      strategy.approval === "approved" &&
+      strategy.autoExecutionAllowed &&
+      canonicalSetupWorkflow(strategy.name),
+  );
+}
+
 export function analyzeCandidate(
   strategy: StrategyVersion,
   histories: Partial<Record<Timeframe, Candle[]>>,
@@ -234,6 +250,7 @@ export function analyzeCandidate(
   news: NewsCheck,
   now: number,
   symbol = "",
+  paperMarketData = false,
 ) {
   const contexts: Partial<Record<Timeframe, TimeframeContext>> = {};
   for (const [tf, bars] of Object.entries(histories))
@@ -244,6 +261,12 @@ export function analyzeCandidate(
   if (!primary || !higher)
     throw new Error("Insufficient primary/higher timeframe history");
   const requiresGlobalWorkflow = globalWorkflowRequired(symbol);
+  const paperFastEntryApplied = eligibleForPaperFastEntry(
+    strategy,
+    config,
+    symbol,
+    paperMarketData,
+  );
   const parentWorkflow = requiresGlobalWorkflow
     ? buildGlobalTradingWorkflow({ symbol, histories, now })
     : null;
@@ -252,6 +275,7 @@ export function analyzeCandidate(
     requestedDirection: strategy.direction,
     workflow: parentWorkflow,
     closedThirtyMinuteCandles: histories["30m"] ?? [],
+    requireParentGate: !paperFastEntryApplied,
   });
   const direction =
     setupWorkflow?.direction ??
@@ -333,7 +357,11 @@ export function analyzeCandidate(
     ? finalizeGlobalTradingWorkflow(parentWorkflow, setupMatched, risk.allowed)
     : null;
   const parentGatePassed =
-    !requiresGlobalWorkflow || globalWorkflow?.gate.status === "UNLOCKED";
+    !requiresGlobalWorkflow ||
+    globalWorkflow?.gate.status === "UNLOCKED" ||
+    (paperFastEntryApplied &&
+      globalWorkflow?.thirtyMinute.candle.closed === true &&
+      setupWorkflow?.entryTrigger === true);
   const canReady =
     score.requiredPass &&
     risk.allowed &&
@@ -355,7 +383,32 @@ export function analyzeCandidate(
           ? "READY"
           : score.score >= 65
             ? "WATCH"
-            : "DEVELOPING";
+          : "DEVELOPING";
+  const readinessBlockers = [
+    ...rules
+      .filter((rule) => rule.required && !rule.passed)
+      .map((rule) => `Required setup rule: ${rule.id}`),
+    ...(score.score < config.alertThreshold
+      ? [`Confluence ${score.score}/100 is below the ${config.alertThreshold}/100 READY threshold`]
+      : []),
+    ...risk.warnings,
+    ...(sessionPass ? [] : ["Outside the setup's allowed session"]),
+    ...(stale ? ["Required market candles are stale or unavailable"] : []),
+    ...(requiresGlobalWorkflow && !globalWorkflow
+      ? ["Shared multi-timeframe data is incomplete"]
+      : !parentGatePassed
+        ? [
+            paperFastEntryApplied
+              ? globalWorkflow?.thirtyMinute.candle.closed
+                ? (setupWorkflow?.waitFor ?? "Setup-specific 30M trigger is missing")
+                : "The setup's 30M confirmation candle has not closed"
+              : `Shared workflow: ${globalWorkflow?.gate.missing[0] ?? "not ready"}`,
+          ]
+        : []),
+    ...(config.requireNews && news.status !== "safe"
+      ? [`News clearance is ${news.status}`]
+      : []),
+  ];
   return {
     engineVersion: "onkar-global-workflow-v2",
     source: "calculated" as const,
@@ -366,6 +419,8 @@ export function analyzeCandidate(
     risk,
     globalWorkflow,
     globalWorkflowRequired: requiresGlobalWorkflow,
+    paperFastEntryApplied,
+    readinessBlockers,
     setupWorkflow,
     contexts,
     news,
@@ -394,7 +449,7 @@ export function analyzeCandidate(
         : []),
       ...(requiresGlobalWorkflow && !globalWorkflow
         ? ["Global 4H → 1H → 30M workflow data is incomplete"]
-        : globalWorkflow?.gate.status === "LOCKED"
+        : !paperFastEntryApplied && globalWorkflow?.gate.status === "LOCKED"
           ? [`Setup AI locked: ${globalWorkflow.gate.missing.join("; ")}`]
           : []),
       ...(setupWorkflow?.invalidated

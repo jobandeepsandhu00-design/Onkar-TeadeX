@@ -687,6 +687,7 @@ export default function OnkarAIWorkspace({
                     <TradeCommandCenter
                       snapshot={scannerSnapshot}
                       onOpenJournal={() => onExit("journal")}
+                      onOpenControls={() => navigate("/onkar-ai/settings")}
                     />
                     <MarketCandleCards onOpenChart={() => navigate("/onkar-ai/charts")} />
                     <MasterAIOrbitalHub

@@ -1,4 +1,9 @@
-import { scannerConfigSchema, strategyVersionSchema } from "@workspace/api-zod";
+import {
+  scannerConfigSchema,
+  strategyVersionSchema,
+  timeframeMs,
+  type Timeframe,
+} from "@workspace/api-zod";
 import { getMarketProvider } from "./providers";
 import { accountContext } from "./journal";
 import { calculateRisk } from "./evaluation";
@@ -21,6 +26,7 @@ import {
 } from "./execution-candle";
 import { orderExecutionCandidates } from "./execution-queue";
 import { NotificationService } from "../notifications/service";
+import { canonicalSetupWorkflow } from "./setup-workflows";
 
 type PaperRuntime = {
   user_id: string;
@@ -562,6 +568,7 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
         !item.payload.stale &&
         item.payload.risk.allowed &&
         item.payload.risk.warnings.length === 0 &&
+        (!item.payload.paperFastEntryApplied || config.paperFastEntry) &&
         (!config.requireNews || item.payload.news.status === "safe"),
     ),
     recentBlocks,
@@ -669,6 +676,18 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
       reason: "Setup is not approved for AUTO execution.",
     };
   }
+  if (
+    candidate.payload.paperFastEntryApplied &&
+    (!config.paperFastEntry || !canonicalSetupWorkflow(definition.name))
+  )
+    return recordPaperBlock(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      config.accountId ?? "",
+      "Paper Fast Entry is no longer enabled for this approved setup.",
+    );
   if (!account || !accountRecord || !config.accountId)
     return recordPaperBlock(
       store,
@@ -785,6 +804,9 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
       positionSize: liveRisk.positionSize,
       estimatedLossAtStop: liveRisk.estimatedLossAtStop,
       sizingSource: liveRisk.sizingSource,
+      entryPolicy: candidate.payload.paperFastEntryApplied
+        ? "PAPER_FAST_ENTRY"
+        : "STANDARD",
     },
   );
   await executionEvent(
@@ -809,6 +831,69 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
       reason:
         "Automatic entry was paused during preparation. No Paper order submitted.",
     };
+  const [[latestConfig], [latestCandidate], [latestRuntime]] = await Promise.all([
+    store.request<ConfigRow[]>("scanner_configs", {
+      id: `eq.${configRow.id}`,
+      user_id: `eq.${runtime.user_id}`,
+      enabled: "eq.true",
+      limit: "1",
+    }),
+    store.request<CandidateRow[]>("setup_candidates", {
+      id: `eq.${candidate.id}`,
+      user_id: `eq.${runtime.user_id}`,
+      state: "eq.READY",
+      limit: "1",
+    }),
+    store.request<PaperRuntime[]>("scanner_runtime_controls", {
+      user_id: `eq.${runtime.user_id}`,
+      scanner_config_id: `eq.${configRow.id}`,
+      trading_source: "eq.TWELVE_DATA",
+      scanner_state: "eq.RUNNING",
+      trading_mode: "eq.AUTO",
+      auto_execution_enabled: "eq.true",
+      emergency_stop: "eq.false",
+      limit: "1",
+    }),
+  ]);
+  if (
+    !latestConfig ||
+    !latestCandidate ||
+    !latestRuntime ||
+    JSON.stringify(latestConfig.config) !== JSON.stringify(configRow.config) ||
+    !confirmationAfterSourceActivation(
+      candidate.last_candle_at,
+      candidate.timeframe,
+      latestRuntime.source_activated_at,
+    ) ||
+    latestCandidate.last_candle_at !== candidate.last_candle_at ||
+    latestCandidate.payload.stale ||
+    latestCandidate.payload.paperFastEntryApplied !==
+      candidate.payload.paperFastEntryApplied ||
+    (candidate.payload.paperFastEntryApplied &&
+      !scannerConfigSchema.parse(latestConfig.config).paperFastEntry)
+  )
+    return recordPaperBlock(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      config.accountId,
+      "Setup or Paper entry policy changed during preparation. No order submitted.",
+    );
+  const submittedAt = new Date().toISOString();
+  const candleCloseAt = new Date(
+    Date.parse(candidate.last_candle_at) +
+      timeframeMs[candidate.timeframe as Timeframe],
+  ).toISOString();
+  const executionTiming = {
+    candleCloseAt,
+    analyzedAt: candidate.payload.analyzedAt,
+    submittedAt,
+    candleToAnalysisMs:
+      Date.parse(candidate.payload.analyzedAt) - Date.parse(candleCloseAt),
+    analysisToOrderMs:
+      Date.parse(submittedAt) - Date.parse(candidate.payload.analyzedAt),
+  };
   const [trade] = await store.request<PaperTrade[]>(
     "paper_trades",
     {},
@@ -834,6 +919,10 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
         accountName: accountRecord.alias || accountRecord.accountNumber,
         accountCurrency: account.currency,
         setupName: version.name,
+        entryPolicy: candidate.payload.paperFastEntryApplied
+          ? "PAPER_FAST_ENTRY"
+          : "STANDARD",
+        executionTiming,
         valuePerPriceUnit: liveRisk.valuePerPriceUnit,
         contractSize: liveRisk.contractSize,
         profitCurrency: liveRisk.profitCurrency,
@@ -866,6 +955,10 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
       entry,
       positionSize: liveRisk.positionSize,
       estimatedLossAtStop: liveRisk.estimatedLossAtStop,
+      entryPolicy: candidate.payload.paperFastEntryApplied
+        ? "PAPER_FAST_ENTRY"
+        : "STANDARD",
+      executionTiming,
     },
   );
   await store.request(

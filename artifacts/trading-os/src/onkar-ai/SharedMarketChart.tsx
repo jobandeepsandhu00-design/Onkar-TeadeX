@@ -893,7 +893,7 @@ export function SharedMarketChart({
             <strong>EVALUATING</strong>
           </div>
           <div>
-            <small>TRADE GATE</small>
+            <small>SHARED GATE</small>
             <strong>{snapshot.workflow.gate.status}</strong>
           </div>
           {!compact && (
@@ -939,7 +939,7 @@ export function SharedMarketChart({
           </div>
           {snapshot.workflow.gate.missing.length > 0 && (
             <div className="oai-workflow-audit__missing">
-              <b>Execution waiting for:</b>
+              <b>Shared workflow missing (Paper Fast Entry can use a setup-specific closed-candle path):</b>
               {snapshot.workflow.gate.missing.map((item) => (
                 <span key={item}>{item}</span>
               ))}

@@ -155,13 +155,15 @@ function directionFor(
 
 /**
  * Evaluates the document's setup-specific 30M pattern using closed candles only.
- * The mandatory 4H → 1H → 30M parent gate remains separate and must unlock first.
+ * The shared parent gate is mandatory by default. Opt-in Paper Fast Entry may
+ * evaluate the documented setup trigger independently; MT5 remains unchanged.
  */
 export function evaluateSetupWorkflow(args: {
   setupName: string;
   requestedDirection: "long" | "short" | "both";
   workflow: GlobalTradingWorkflow | null;
   closedThirtyMinuteCandles: Candle[];
+  requireParentGate?: boolean;
 }): SetupWorkflowEvaluation | null {
   const setup = canonicalSetupWorkflow(args.setupName);
   const workflow = args.workflow;
@@ -404,7 +406,9 @@ export function evaluateSetupWorkflow(args: {
   }
 
   const parentGateUnlocked = workflow.gate.status === "UNLOCKED";
-  if (!parentGateUnlocked) {
+  const parentGateRequired = args.requireParentGate !== false;
+  const confirmationCandleClosed = workflow.thirtyMinute.candle.closed;
+  if (parentGateRequired && !parentGateUnlocked) {
     conditionsMissing.unshift(
       ...workflow.gate.missing.map((item) => `Parent gate — ${item}`),
     );
@@ -415,6 +419,8 @@ export function evaluateSetupWorkflow(args: {
   } else if (triggerPresent) {
     conditionsMatched.push("Closed 30M entry-trigger candle");
   }
+  if (!confirmationCandleClosed)
+    conditionsMissing.push("30M confirmation candle is still forming");
   const invalidated =
     workflow.priceLocation === "AT_OPPOSING_ZONE" ||
     workflow.availableRange.status === "INSUFFICIENT_RANGE";
@@ -424,7 +430,11 @@ export function evaluateSetupWorkflow(args: {
     patternMatched,
     // Setup recognition remains visible while execution stays fail-closed.
     entryTrigger:
-      parentGateUnlocked && patternMatched && triggerPresent && !invalidated,
+      (!parentGateRequired || parentGateUnlocked) &&
+      confirmationCandleClosed &&
+      patternMatched &&
+      triggerPresent &&
+      !invalidated,
     conditionsMatched: [...new Set(conditionsMatched)],
     conditionsMissing: [...new Set(conditionsMissing)],
     invalidated,
@@ -432,7 +442,11 @@ export function evaluateSetupWorkflow(args: {
     features: {
       setupPatternMatched: patternMatched,
       entryTrigger:
-        parentGateUnlocked && patternMatched && triggerPresent && !invalidated,
+        (!parentGateRequired || parentGateUnlocked) &&
+        confirmationCandleClosed &&
+        patternMatched &&
+        triggerPresent &&
+        !invalidated,
       volumeWindow: volumeAvailable ? volumeImpulse : null,
     },
   };

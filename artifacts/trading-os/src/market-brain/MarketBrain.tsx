@@ -605,6 +605,7 @@ export default function MarketBrain({
                 <TradeCommandCenter
                   snapshot={snapshot}
                   onOpenJournal={onJournal}
+                  onOpenControls={() => selectTab("Settings")}
                 />
                 {snapshot.config?.config ? (
                   <PermissionCenter

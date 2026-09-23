@@ -26,6 +26,7 @@ import {
   nextLifecycle,
   historicalMatches,
   analyzeCandidate,
+  eligibleForPaperFastEntry,
 } from "./evaluation";
 import { verifyWebhook, secretHash } from "./webhook";
 import { accountContext } from "./journal";
@@ -75,6 +76,25 @@ const account = {
   openRiskMoney: 0,
   valuePerUnit: 1,
 };
+test("Paper Fast Entry is opt-in and never applies to MT5 or unapproved custom setups", () => {
+  const enabled = scannerConfigSchema.parse({ paperFastEntry: true });
+  const canonical = strategyVersionSchema.parse({
+    ...strategy,
+    name: "Breakout Small Body",
+    autoExecutionAllowed: true,
+  });
+  assert.equal(eligibleForPaperFastEntry(canonical, config, "GBPJPY", true), false);
+  assert.equal(eligibleForPaperFastEntry(canonical, enabled, "GBPJPY", false), false);
+  assert.equal(eligibleForPaperFastEntry(canonical, enabled, "GBPJPY", true), true);
+  assert.equal(
+    eligibleForPaperFastEntry({ ...canonical, approval: "draft" }, enabled, "GBPJPY", true),
+    false,
+  );
+  assert.equal(
+    eligibleForPaperFastEntry({ ...canonical, name: "Custom setup" }, enabled, "GBPJPY", true),
+    false,
+  );
+});
 test("timeframe aliases normalize without silently accepting unsupported intervals", () => {
   assert.equal(normalizeTimeframe("M15"), "15m");
   assert.equal(normalizeTimeframe("H4"), "4h");

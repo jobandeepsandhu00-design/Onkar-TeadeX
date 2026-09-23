@@ -130,6 +130,36 @@ test("small-body breakout confirms only with an unlocked gate and a later closed
   assert.ok(
     locked.conditionsMissing.some((item) => item.startsWith("Parent gate —")),
   );
+
+  const paperFast = evaluateSetupWorkflow({
+    setupName: "Breakout Small Body",
+    requestedDirection: "both",
+    workflow: workflow("LOCKED"),
+    closedThirtyMinuteCandles: bars,
+    requireParentGate: false,
+  });
+  assert.ok(paperFast);
+  assert.equal(paperFast.entryTrigger, true);
+  assert.equal(
+    paperFast.conditionsMissing.some((item) => item.startsWith("Parent gate —")),
+    false,
+  );
+
+  const forming = evaluateSetupWorkflow({
+    setupName: "Breakout Small Body",
+    requestedDirection: "both",
+    workflow: {
+      ...workflow("LOCKED"),
+      thirtyMinute: {
+        ...workflow("LOCKED").thirtyMinute,
+        candle: { ...workflow("LOCKED").thirtyMinute.candle, closed: false },
+      },
+    },
+    closedThirtyMinuteCandles: bars,
+    requireParentGate: false,
+  });
+  assert.ok(forming);
+  assert.equal(forming.entryTrigger, false);
 });
 
 test("counter workflow resolves opposite the prevailing 4H trend", () => {

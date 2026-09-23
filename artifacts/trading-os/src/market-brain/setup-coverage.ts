@@ -13,6 +13,8 @@ export type SetupCoverageEvaluation = {
   passed: number;
   total: number;
   requiredMissing: string[];
+  readinessBlockers?: string[];
+  paperFastEntryApplied?: boolean;
   lastCandleAt: string;
   analyzedAt: string;
   stale: boolean;

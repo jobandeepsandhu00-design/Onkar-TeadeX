@@ -56,6 +56,7 @@ export const analysisFingerprint = (candidate: CandidateRow) =>
     candidate.score,
     candidate.payload.rules.map((r) => [r.id, r.actual, r.passed]),
     candidate.payload.risk,
+    candidate.payload.paperFastEntryApplied,
     candidate.state,
     candidate.plan,
     candidate.payload.news.status,
@@ -507,6 +508,7 @@ export async function runScannerJob(
         news,
         now,
         symbol,
+        activeProvider === "twelvedata",
       );
       setupEvaluations.push({
         versionId: version.id,
@@ -526,6 +528,8 @@ export async function runScannerJob(
         lastCandleAt: analysis.lastCandleAt,
         analyzedAt: analysis.analyzedAt,
         stale: analysis.stale,
+        paperFastEntryApplied: analysis.paperFastEntryApplied,
+        readinessBlockers: analysis.readinessBlockers,
       });
       health.setupCoverage = {
         ...priorCoverage,

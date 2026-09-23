@@ -411,6 +411,7 @@ export const scannerConfigSchema = z
       .max(8)
       .default(["15m", "30m", "1h"]),
     accountId: z.string().max(180).nullable().default(null),
+    paperFastEntry: z.boolean().default(false),
     autoActivateApprovedSetups: z.boolean().default(true),
     strategyVersionIds: z.array(z.string().uuid()).max(100).default([]),
     minimumScore: z
@@ -564,6 +565,8 @@ export type ScannerCandidate = {
     };
     globalWorkflow?: GlobalTradingWorkflow | null;
     globalWorkflowRequired?: boolean;
+    paperFastEntryApplied?: boolean;
+    readinessBlockers?: string[];
     setupWorkflow?: {
       setup: string;
       direction: "long" | "short";

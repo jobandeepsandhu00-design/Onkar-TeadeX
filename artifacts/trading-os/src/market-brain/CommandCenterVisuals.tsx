@@ -65,9 +65,17 @@ function candidateBlocker(
 ) {
   if (candidate.staleNow || candidate.payload.stale)
     return "Market data is stale; wait for a fresh closed candle.";
+  if (
+    candidate.payload.paperFastEntryApplied &&
+    !snapshot.config?.config.paperFastEntry
+  )
+    return "Paper Fast Entry was switched off; wait for a new scanner check.";
   if (candidate.score === 100 && candidate.payload.risk.warnings.length)
     return `Risk blocked: ${candidate.payload.risk.warnings[0]}.`;
-  if (candidate.payload.globalWorkflow?.gate.status === "LOCKED")
+  if (
+    !candidate.payload.paperFastEntryApplied &&
+    candidate.payload.globalWorkflow?.gate.status === "LOCKED"
+  )
     return `Setup gate: ${candidate.payload.globalWorkflow.gate.missing[0] ?? "higher-timeframe confirmation is missing"}.`;
   if (
     candidate.payload.setupWorkflow &&
@@ -1006,9 +1014,11 @@ export function BossBriefing({ snapshot }: { snapshot: ScannerSnapshot }) {
 export function TradeCommandCenter({
   snapshot,
   onOpenJournal,
+  onOpenControls,
 }: {
   snapshot: ScannerSnapshot;
   onOpenJournal: () => void;
+  onOpenControls?: () => void;
 }) {
   const preparing = snapshot.candidates.filter((item) =>
     ["DEVELOPING", "WATCH", "READY"].includes(item.state),
@@ -1017,9 +1027,61 @@ export function TradeCommandCenter({
   const closed = snapshot.paperTrades.filter(
     (item) => item.status === "CLOSED",
   );
-  const [view, setView] = useState<"PREPARING" | "ACTIVE" | "CLOSED">(
-    "PREPARING",
+  const approved = latestApprovedVersions(snapshot);
+  const configuredMarkets = snapshot.config?.config.symbols ?? [];
+  const enabledVersions = new Set(
+    snapshot.config?.config.autoActivateApprovedSetups
+      ? approved.map((version) => version.id)
+      : (snapshot.config?.config.strategyVersionIds ?? []),
   );
+  const coverage = new Map(
+    setupCoverage(snapshot).map((result) => [
+      `${result.versionId}:${result.symbol}`,
+      result,
+    ]),
+  );
+  const setupChecks = approved.flatMap((version) => {
+    const markets = configuredMarkets.filter(
+      (symbol) =>
+        !version.definition.symbols.length ||
+        version.definition.symbols.includes(symbol),
+    );
+    return (markets.length ? markets : ["—"]).map((symbol) => {
+      const enabled = enabledVersions.has(version.id);
+      const result = coverage.get(`${version.id}:${symbol}`);
+      const candidate = snapshot.candidates.find(
+        (item) =>
+          item.version_id === version.id &&
+          item.symbol === symbol &&
+          item.last_candle_at === result?.lastCandleAt,
+      );
+      const reason = !enabled
+        ? "Setup detection is off. Enable this approved version in Rules."
+        : symbol === "—"
+          ? "No configured market matches this setup."
+          : !result
+            ? "Awaiting this setup's first completed scanner check."
+            : result.stale
+              ? "Market data is stale; wait for a fresh closed candle."
+              : candidate
+                ? candidateBlocker(candidate, snapshot)
+                : result.readinessBlockers?.length
+                  ? `Blocked: ${result.readinessBlockers[0]}.`
+                  : result.requiredMissing.length
+                    ? `Missing: ${result.requiredMissing[0]}.`
+                  : "No current READY signal; open Rules for the full scanner evidence.";
+      return { version, symbol, result, reason, enabled };
+    });
+  });
+  const completedChecks = setupChecks.filter(
+    (item) => item.enabled && item.result,
+  ).length;
+  const expectedChecks = setupChecks.filter(
+    (item) => item.enabled && item.symbol !== "—",
+  ).length;
+  const [view, setView] = useState<
+    "PREPARING" | "ACTIVE" | "CLOSED" | "SETUPS"
+  >("PREPARING");
   return (
     <section className="mb-os-panel">
       <div className="mb-section-heading">
@@ -1029,9 +1091,10 @@ export function TradeCommandCenter({
         </div>
       </div>
       <div className="mb-os-segments">
-        {(["PREPARING", "ACTIVE", "CLOSED"] as const).map((item) => (
+        {(["PREPARING", "ACTIVE", "CLOSED", "SETUPS"] as const).map((item) => (
           <button
             className={view === item ? "is-active" : ""}
+            aria-pressed={view === item}
             onClick={() => setView(item)}
             key={item}
           >
@@ -1041,12 +1104,55 @@ export function TradeCommandCenter({
                 ? preparing.length
                 : item === "ACTIVE"
                   ? active.length
-                  : closed.length}
+                  : item === "CLOSED"
+                    ? closed.length
+                    : `${completedChecks}/${expectedChecks}`}
             </b>
           </button>
         ))}
       </div>
       <div className="mb-os-trade-list">
+        {view === "SETUPS" && (
+          <div className="mb-setup-audit">
+            <p>
+              Every approved setup is checked against each matching configured
+              market. A 100/100 pattern score is not order approval; data,
+              account, risk, permissions and the execution source must also
+              pass.
+            </p>
+            <div className="mb-setup-audit-list">
+              {setupChecks.map(
+                ({ version, symbol, result, reason, enabled }) => (
+                  <article key={`${version.id}:${symbol}`}>
+                    <div>
+                      <strong>
+                        {symbol} · {version.name}
+                      </strong>
+                      <small>
+                        {version.definition.timeframe.toUpperCase()} ·{" "}
+                        {enabled ? (result?.status ?? "AWAITING SCAN") : "OFF"}
+                        {" · "}
+                        {version.definition.autoExecutionAllowed
+                          ? "AUTO PERMITTED"
+                          : "REVIEW / MANUAL"}
+                      </small>
+                      <small className="mb-trade-blocker">{reason}</small>
+                      {result?.paperFastEntryApplied && (
+                        <small>Paper Fast Entry · closed-candle setup trigger</small>
+                      )}
+                    </div>
+                    <span>{result ? `${result.score}/100` : "—"}</span>
+                  </article>
+                ),
+              )}
+              {!setupChecks.length && (
+                <div className="mb-os-empty">
+                  No approved setups are configured.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {view === "PREPARING" &&
           preparing.map((item) => (
             <article key={item.id}>
@@ -1110,6 +1216,11 @@ export function TradeCommandCenter({
           </div>
         ) : null}
       </div>
+      {onOpenControls && (
+        <button className="mb-os-link" onClick={onOpenControls}>
+          Open execution controls <ChevronRight size={15} />
+        </button>
+      )}
       <button className="mb-os-link" onClick={onOpenJournal}>
         Open trade journal <ChevronRight size={15} />
       </button>

@@ -184,7 +184,22 @@ export async function saveScannerConfig(
       "No existing workspace found. Open your journal once, then retry.",
       409,
     );
-  await ScannerStore.service().rpc("configure_scanner", {
+  const store = ScannerStore.service();
+  if (parsed.paperFastEntry !== Boolean(config?.config.paperFastEntry)) {
+    const activatedAt = new Date().toISOString();
+    // A policy change fences old Paper confirmations before configuration
+    // changes. A failed config write leaves entries more restricted, not less.
+    await store.request(
+      "scanner_runtime_controls",
+      {
+        user_id: `eq.${identity.userId}`,
+        trading_source: "eq.TWELVE_DATA",
+      },
+      "PATCH",
+      { source_activated_at: activatedAt, updated_at: activatedAt },
+    );
+  }
+  await store.rpc("configure_scanner", {
     p_user: identity.userId,
     p_workspace: config?.workspace_id ?? membership.workspace_id,
     p_config: parsed,

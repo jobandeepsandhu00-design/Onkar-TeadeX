@@ -223,7 +223,7 @@ export function CandidateDetail({
                         "Master status",
                         p.globalWorkflow.masterStatus.replaceAll("_", " "),
                       ],
-                      ["Setup AI gate", p.globalWorkflow.gate.status],
+                      ["Shared workflow gate", p.globalWorkflow.gate.status],
                       ["4H bias", p.globalWorkflow.fourHour.bias],
                       ["4H support", zone(p.globalWorkflow.fourHour.support)],
                       [
@@ -274,7 +274,7 @@ export function CandidateDetail({
                   </div>
                   {p.globalWorkflow.gate.missing.length > 0 && (
                     <>
-                      <h4>Waiting for</h4>
+                      <h4>Shared workflow missing</h4>
                       <ul className="mb-warning">
                         {p.globalWorkflow.gate.missing.map((item) => (
                           <li key={item}>{item}</li>
@@ -283,9 +283,9 @@ export function CandidateDetail({
                     </>
                   )}
                   <p className="mb-muted">
-                    Setup matching cannot become READY until every parent gate
-                    is satisfied from closed market candles. Risk AI retains
-                    veto authority.
+                    {p.paperFastEntryApplied
+                      ? "Paper Fast Entry uses this approved setup's own closed-30M trigger; the shared workflow remains visible for context. Risk, fresh data, news and execution permissions still have veto authority. MT5 remains on the standard gate."
+                      : "Setup matching cannot become READY until every shared workflow gate is satisfied from closed market candles. Risk AI retains veto authority."}
                   </p>
                 </>
               ) : (
@@ -353,6 +353,13 @@ export function CandidateDetail({
           )}
           <section>
             <h3>Why / why not</h3>
+            {p.readinessBlockers && p.readinessBlockers.length > 0 && (
+              <ul className="mb-warning">
+                {p.readinessBlockers.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
             <div className="mb-stack">
               {p.rules.map((r) => (
                 <div className="mb-rule" key={r.id}>
