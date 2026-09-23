@@ -246,7 +246,7 @@ export function CandidateDetail({
                         ),
                       ],
                       [
-                        "30M candle",
+                        "Last evaluated 30M candle",
                         p.globalWorkflow.thirtyMinute.candle.closed
                           ? "CLOSED"
                           : "FORMING",

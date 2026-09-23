@@ -1,5 +1,4 @@
 import {
-  timeframeMs,
   type ScannerCandidate,
   type ScannerConfig,
   type ScannerPermissions,
@@ -39,13 +38,14 @@ import {
 } from "lucide-react";
 import { latestApprovedVersions } from "./strategy-versions";
 import { setupCoverage } from "./setup-coverage";
+import { nextCandidateCloseAt } from "./candidate-timing";
 import type { AgentId } from "../onkar-ai/agent-data";
 import { useAgentAnimationState } from "../onkar-ai/useAgentAnimationState";
 
 const lifecycle = [
   ["SCANNING", "Scanning", ScanLine],
   ["DEVELOPING", "Approaching", Activity],
-  ["WATCH", "Waiting close", CircleDot],
+  ["WATCH", "Watching", CircleDot],
   ["READY", "Confirmed", Check],
   ["TRIGGERED", "Active", Zap],
   ["COMPLETED", "Closed", History],
@@ -55,6 +55,52 @@ const stageIndex = (state?: string) => {
   const found = lifecycle.findIndex(([id]) => id === state);
   return found < 0 ? 0 : found;
 };
+
+function candidateBlocker(candidate: ScannerCandidate) {
+  if (candidate.staleNow || candidate.payload.stale)
+    return "Market data is stale; wait for a fresh closed candle.";
+  if (candidate.score === 100 && candidate.payload.risk.warnings.length)
+    return `Risk blocked: ${candidate.payload.risk.warnings[0]}.`;
+  if (candidate.payload.globalWorkflow?.gate.status === "LOCKED")
+    return `Setup gate: ${candidate.payload.globalWorkflow.gate.missing[0] ?? "higher-timeframe confirmation is missing"}.`;
+  if (
+    candidate.payload.setupWorkflow &&
+    !candidate.payload.setupWorkflow.entryTrigger
+  )
+    return candidate.payload.setupWorkflow.waitFor;
+  if (candidate.payload.risk.warnings.length)
+    return `Risk blocked: ${candidate.payload.risk.warnings[0]}.`;
+  if (candidate.payload.news.status === "blocked")
+    return "News restriction blocks a new entry.";
+  return candidate.state === "READY"
+    ? "Confirmed; awaiting execution checks."
+    : "Watching for the next qualifying closed candle.";
+}
+
+function CandleCloseCountdown({
+  lastCandleAt,
+  timeframe,
+}: {
+  lastCandleAt: string;
+  timeframe: string;
+}) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const nextClose = nextCandidateCloseAt(lastCandleAt, timeframe);
+  if (nextClose === null) return <>UNKNOWN</>;
+  const remaining = nextClose - now;
+  if (remaining <= 0) return <>AWAITING SCAN</>;
+  const minutes = Math.floor(remaining / 60_000);
+  const seconds = Math.floor((remaining % 60_000) / 1_000);
+  return <>{`${minutes}:${String(seconds).padStart(2, "0")}`}</>;
+}
+
+function previewPrice(value: number) {
+  return Number.isFinite(value) ? value.toFixed(3) : "—";
+}
 
 export function TradingLifecycle({
   candidate,
@@ -644,7 +690,7 @@ export function LiveCandidateCarousel({
           <h3>Candidate command rail</h3>
         </div>
         <div className="mb-chip-row">
-          <span className="mb-badge">{candidates.length} QUALIFIED</span>
+          <span className="mb-badge">{candidates.length} TRACKED</span>
           <span className="mb-badge mb-positive">
             {completedEligibleChecks}/{eligibleChecks.length} SETUP-MARKET CHECKS
           </span>
@@ -661,12 +707,10 @@ export function LiveCandidateCarousel({
       ) : (
         <div className="mb-os-candidate-rail">
           {candidates.map((candidate) => {
-            const timeframe =
-              timeframeMs[candidate.timeframe as keyof typeof timeframeMs] ?? 0;
-            const nextClose = Date.parse(candidate.last_candle_at) + timeframe;
-            const remaining = Math.max(0, nextClose - Date.now());
-            const minutes = Math.floor(remaining / 60_000);
-            const seconds = Math.floor((remaining % 60_000) / 1000);
+            const risk = candidate.payload.risk;
+            const tradePlan = candidate.state === "READY" && candidate.plan
+              ? candidate.plan
+              : risk;
             const passed = candidate.payload.rules.filter(
               (rule) => rule.passed,
             ).length;
@@ -695,7 +739,7 @@ export function LiveCandidateCarousel({
                 </div>
                 <div className="mb-os-evidence">
                   <span>
-                    Rules{" "}
+                    Signal checks{" "}
                     <b>
                       {passed}/{candidate.payload.rules.length}
                     </b>
@@ -704,35 +748,47 @@ export function LiveCandidateCarousel({
                     News <b>{candidate.payload.news.status}</b>
                   </span>
                   <span>
-                    Risk <b>{candidate.plan?.allowed ? "PASS" : "PENDING"}</b>
+                    Risk{" "}
+                    <b className={risk.allowed ? "" : "mb-risk-blocked"}>
+                      {risk.allowed ? "PASS" : "BLOCKED"}
+                    </b>
                   </span>
                   <span>
-                    Close{" "}
+                    Next close{" "}
                     <b>
-                      {remaining
-                        ? `${minutes}:${String(seconds).padStart(2, "0")}`
-                        : "CLOSED"}
+                      <CandleCloseCountdown
+                        lastCandleAt={candidate.last_candle_at}
+                        timeframe={candidate.timeframe}
+                      />
                     </b>
                   </span>
                 </div>
+                <p className="mb-candidate-blocker">
+                  {candidateBlocker(candidate)}
+                </p>
                 <div className="mb-trade-plan">
                   <span>
                     <small>ENTRY</small>
-                    {candidate.plan?.entry ?? "—"}
+                    {previewPrice(tradePlan.entry)}
                   </span>
                   <span>
                     <small>SL</small>
-                    {candidate.plan?.stop ?? "—"}
+                    {previewPrice(tradePlan.stop)}
                   </span>
                   <span>
                     <small>TP</small>
-                    {candidate.plan?.target ?? "—"}
+                    {previewPrice(tradePlan.target)}
                   </span>
                   <span>
                     <small>R:R</small>
-                    {candidate.plan?.rr?.toFixed(2) ?? "—"}
+                    {tradePlan.rr?.toFixed(2) ?? "—"}
                   </span>
                 </div>
+                {candidate.state !== "READY" || !candidate.plan ? (
+                  <small className="mb-plan-preview">
+                    Preview only · no order is armed
+                  </small>
+                ) : null}
                 <button onClick={() => onOpen(candidate.id)}>
                   View full analysis <ChevronRight size={15} />
                 </button>
@@ -766,15 +822,21 @@ export function LiveCandidateCarousel({
         </div>
       </div>
       <p className="mb-hub-note">
-        Scores measure rule confluence—not probability. Every required rule must
-        still pass.
+        Scores measure compiled signal checks—not probability or permission to
+        trade. Closed-candle, setup, news, risk, and execution gates must also
+        pass.
       </p>
     </section>
   );
 }
 
 export function BossBriefing({ snapshot }: { snapshot: ScannerSnapshot }) {
-  const waiting = snapshot.candidates.filter((item) => item.state === "WATCH");
+  const waiting = snapshot.candidates.filter(
+    (item) => item.state === "WATCH" && item.payload.risk.allowed,
+  );
+  const riskHeld = snapshot.candidates.filter(
+    (item) => item.state === "WATCH" && !item.payload.risk.allowed,
+  );
   const ready = snapshot.candidates.filter((item) => item.state === "READY");
   const blocked = snapshot.candidates.filter(
     (item) => item.payload.warnings.length > 0 || item.staleNow,
@@ -793,7 +855,10 @@ export function BossBriefing({ snapshot }: { snapshot: ScannerSnapshot }) {
       ? `${ready.length} setup${ready.length === 1 ? " is" : "s are"} confirmed and ready for execution checks.`
       : null,
     waiting.length
-      ? `${waiting.length} setup${waiting.length === 1 ? " is" : "s are"} waiting for required candle confirmation.`
+      ? `${waiting.length} setup${waiting.length === 1 ? " is" : "s are"} watching for confirmation.`
+      : null,
+    riskHeld.length
+      ? `${riskHeld.length} setup${riskHeld.length === 1 ? " is" : "s are"} blocked by risk checks.`
       : null,
     blocked.length
       ? `${blocked.length} candidate${blocked.length === 1 ? " has" : "s have"} stale-data, news or risk warnings.`
@@ -840,7 +905,7 @@ export function BossBriefing({ snapshot }: { snapshot: ScannerSnapshot }) {
             <b>{ready.length}</b> Confirmed
           </span>
           <span>
-            <b>{waiting.length}</b> Waiting close
+            <b>{waiting.length}</b> Watching
           </span>
           <span>
             <b>{open.length}</b> Active
@@ -908,8 +973,9 @@ export function TradeCommandCenter({
                 </strong>
                 <small>
                   {titleState(item.state)} · {item.timeframe.toUpperCase()} ·{" "}
-                  {item.payload.passed}/{item.payload.total} rules
+                  {item.payload.passed}/{item.payload.total} signal checks
                 </small>
+                <small className="mb-trade-blocker">{candidateBlocker(item)}</small>
               </div>
               <span>{item.score}/100</span>
             </article>

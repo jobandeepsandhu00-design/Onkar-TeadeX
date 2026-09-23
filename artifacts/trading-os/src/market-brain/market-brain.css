@@ -2000,6 +2000,8 @@
 .mb-os-evidence span {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px;
   padding: 7px 8px;
   border-radius: 9px;
   background: rgba(2, 11, 23, 0.55);
@@ -2009,6 +2011,22 @@
 .mb-os-evidence b {
   color: #bcd3e9;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.mb-os-evidence .mb-risk-blocked,
+.mb-candidate-blocker {
+  color: #f4ae85;
+}
+.mb-candidate-blocker {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.mb-plan-preview {
+  color: #8197ae;
+  font-size: 0.68rem;
 }
 .mb-os-candidate > button {
   margin-top: auto;
@@ -2153,6 +2171,10 @@
 .mb-os-trade-list small {
   color: #7088a4;
   margin-top: 3px;
+}
+.mb-os-trade-list .mb-trade-blocker {
+  color: #f4ae85;
+  line-height: 1.35;
 }
 .mb-os-trade-list article > span {
   color: #49dfba;

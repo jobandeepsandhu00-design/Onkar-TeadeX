@@ -54,6 +54,7 @@ import {
 } from "../market-brain/execution-router";
 import { selectScannerMarketProvider } from "../market-brain/provider-selection";
 import { logger } from "../lib/logger";
+import { chooseOptionalCronStage } from "../market-brain/cron-scheduling";
 import {
   applyScannerControl,
   saveScannerConfig,
@@ -148,6 +149,7 @@ async function requireCronAuthorization(req: Request) {
 }
 
 const cronHandler = route(async (req, res) => {
+  const startedAt = Date.now();
   await requireCronAuthorization(req);
   if (process.env.SCANNER_ENABLED !== "true")
     throw new ScannerError("Scanner background processing is disabled", 503);
@@ -159,8 +161,8 @@ const cronHandler = route(async (req, res) => {
         error instanceof Error ? error.message : "MT5 journal sync failed",
     })),
   ]);
-  const learning = await runNextLearningJob();
-  const knowledge = await runNextKnowledgeJob();
+  // A completed scanner decision must reach the execution worker before
+  // optional learning jobs consume the remaining function time budget.
   const execution = await runNextExecution().catch((error) => ({
     skipped: true,
     reason:
@@ -168,6 +170,26 @@ const cronHandler = route(async (req, res) => {
         ? error.message
         : "AUTO execution worker failed safely",
   }));
+  const scannerBusy = !("idle" in result && result.idle);
+  // Learning and knowledge ingestion can each be long-running. Run at most
+  // one on idle cron ticks, leaving active market scans isolated from them.
+  const optionalStage = chooseOptionalCronStage(
+    startedAt,
+    Date.now(),
+    scannerBusy,
+  );
+  const learning = optionalStage === "learning"
+    ? await runNextLearningJob()
+    : { status: "deferred" as const };
+  const knowledge = optionalStage === "knowledge"
+    ? await runNextKnowledgeJob()
+    : { status: "deferred" as const };
+  logger.info({
+    event: "scanner_cron_stages",
+    scannerBusy,
+    optionalStage,
+    elapsedMs: Date.now() - startedAt,
+  }, "Scanner cron stages completed");
   res.json({
     ok: true,
     result,
