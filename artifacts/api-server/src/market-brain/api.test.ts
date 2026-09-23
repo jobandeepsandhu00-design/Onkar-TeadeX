@@ -37,6 +37,7 @@ test("all private scanner APIs reject anonymous requests", async () => {
       ["PATCH", "/onkar-ai/knowledge/00000000-0000-4000-8000-000000000001"],
       ["PUT", "/onkar-ai/learning/preferences"],
       ["GET", "/market-brain/shared-market?symbol=XAUUSD&timeframe=15m"],
+      ["GET", "/market-brain/candle-closures?symbol=XAUUSD"],
       ["PUT", "/market-brain/config"],
       ["POST", "/market-brain/strategies"],
       ["POST", "/market-brain/strategies/sync-library"],

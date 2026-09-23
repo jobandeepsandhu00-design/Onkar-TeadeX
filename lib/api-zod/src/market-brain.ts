@@ -272,6 +272,17 @@ export const sharedMarketSnapshotSchema = z.object({
   source: z.array(z.string()),
 });
 export type SharedMarketSnapshot = z.infer<typeof sharedMarketSnapshotSchema>;
+export const candleClosureSnapshotSchema = z.object({
+  symbol: sharedChartSymbolSchema,
+  provider: z.enum(["mt5", "twelvedata"]),
+  fetchedAt: z.string().datetime(),
+  candles: z.array(z.object({
+    timeframe: sharedChartTimeframeSchema,
+    lastClosedOpenTime: z.number().int().nonnegative().nullable(),
+    storedAt: z.string().datetime({ offset: true }).nullable(),
+  })),
+});
+export type CandleClosureSnapshot = z.infer<typeof candleClosureSnapshotSchema>;
 export const FEATURES = [
   "trend",
   "structure",

@@ -1,8 +1,10 @@
 import {
+  candleClosureSnapshotSchema,
   sharedMarketSnapshotSchema,
   timeframeMs,
   TWELVE_DATA_MIN_CYCLE_SECONDS,
   type Candle,
+  type CandleClosureSnapshot,
   type SharedChartSymbol,
   type SharedChartTimeframe,
   type SharedMarketSnapshot,
@@ -49,6 +51,55 @@ const snapshotPromises = new Map<
     }>;
   }
 >();
+
+/** Read the scanner/chart's persisted CLOSED candles without contacting a provider. */
+export async function getCandleClosureSnapshot(args: {
+  config?: ConfigRow;
+  symbol: SharedChartSymbol;
+  store?: Pick<ScannerStore, "request">;
+}): Promise<CandleClosureSnapshot> {
+  const now = Date.now();
+  const timeframes = ["15m", "30m", "1h", "4h"] as const;
+  const service = args.store ?? ScannerStore.service();
+  const requestedProvider = args.config?.config.provider === "mt5" ? "mt5" : "twelvedata";
+  const read = (provider: "mt5" | "twelvedata") => Promise.all(
+    timeframes.map(async (timeframe) => {
+      const [row] = await service.request<Array<{ open_time: number; ingested_at: string }>>(
+        "market_candles",
+        {
+          select: "open_time,ingested_at",
+          provider: `eq.${provider}`,
+          symbol: `eq.${args.symbol}`,
+          timeframe: `eq.${timeframe}`,
+          open_time: `lte.${now - timeframeMs[timeframe]}`,
+          order: "open_time.desc",
+          limit: "1",
+        },
+      );
+      return {
+        timeframe,
+        lastClosedOpenTime: row ? Number(row.open_time) : null,
+        storedAt: row?.ingested_at ?? null,
+      };
+    }),
+  );
+  let provider: "mt5" | "twelvedata" = requestedProvider;
+  let candles = await read(provider);
+  if (
+    provider === "mt5" &&
+    candles.every((item) => item.lastClosedOpenTime === null) &&
+    process.env.MARKET_DATA_FALLBACK_ENABLED === "true"
+  ) {
+    provider = "twelvedata";
+    candles = await read(provider);
+  }
+  return candleClosureSnapshotSchema.parse({
+    symbol: args.symbol,
+    provider,
+    fetchedAt: new Date(now).toISOString(),
+    candles,
+  });
+}
 
 type ProviderBar = Candle & { closed?: boolean };
 

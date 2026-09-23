@@ -25,6 +25,7 @@ import { TradeSetupDashboard } from "./trade-setups/TradeSetupBoard";
 import { DashboardVideoSection, VideoLearningHub, VideoLessonPage } from "./video-lessons";
 import { mergeDashboardSections, moveDashboardSection } from "./market-brain/dashboard-order";
 import { AccountCommandCarousel } from "./market-brain/AccountCommandCarousel";
+import { CandleClosureCard } from "./market-brain/CandleClosureCard";
 import { brainRequest } from "./market-brain/api";
 import type { ScannerSnapshot } from "@workspace/api-zod";
 import { connectedSetups, scannerIsLive } from "./onkar-ai/connected-setups";
@@ -869,6 +870,7 @@ const DEFAULT_SETTINGS = () => ({
     moolMantar:      true,
     liveTicker:      true,
     marketOverview:  true,
+    candleClosures: true,
     marketSessions:  true,
     accountOverview: true,
     videoLearning: true,
@@ -890,7 +892,7 @@ const DEFAULT_SETTINGS = () => ({
     onkarAICommandCenter: true,
     knowledgeBrain: true,
   },
-  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","onkarAICommandCenter","knowledgeBrain","marketBrain","videoLearning","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
+  dashSectionOrder: ["moolMantar","marketOverview","candleClosures","liveTicker","activeTrades","accountOverview","onkarAICommandCenter","knowledgeBrain","marketBrain","videoLearning","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -6165,6 +6167,12 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
     const OLD_DEFAULT = ["moolMantar","liveTicker","activeTrades","marketOverview","marketSessions","accountOverview","todaysFocus","propChallenges","thisWeek","riskTools","equityCurve","tvChart","recentTrades","insightsEdge","setupLibrary","marketCalendar","statistics","reference"];
     if (JSON.stringify(stored) === JSON.stringify(OLD_DEFAULT)) return allKeys;
     const merged = mergeDashboardSections(stored, allKeys);
+    if (!stored.includes("candleClosures")) {
+      const currentIndex = merged.indexOf("candleClosures");
+      if (currentIndex >= 0) merged.splice(currentIndex, 1);
+      const marketIndex = merged.indexOf("marketOverview");
+      merged.splice(marketIndex >= 0 ? marketIndex + 1 : 0, 0, "candleClosures");
+    }
     if (!stored.includes("knowledgeBrain")) {
       const withoutNew = merged.filter((key) => key !== "knowledgeBrain");
       const commandIndex = withoutNew.indexOf("onkarAICommandCenter");
@@ -6238,6 +6246,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
         </div>
       </div>
     ),
+    candleClosures: <CandleClosureCard onOpenChart={() => goTo("onkar-ai", "/onkar-ai/charts")} />,
     marketSessions: <ForexMarketClock />,
     accountOverview: (
       <div className="market-brain dashboard-account-command">
@@ -13088,6 +13097,7 @@ const CARD_BG_OPTIONS = [
 const DASH_SECTION_META = [
   { key: "moolMantar",      label: "Mool Mantar",           icon: "🙏" },
   { key: "marketOverview",  label: "Market Overview Chart",  icon: "📈" },
+  { key: "candleClosures", label: "Candle Close Times", icon: "🕒" },
   { key: "liveTicker",      label: "Live Market Ticker",    icon: "📊" },
   { key: "activeTrades",    label: "Active Trades Monitor",  icon: "📡" },
   { key: "accountOverview", label: "Account Overview",       icon: "💰" },

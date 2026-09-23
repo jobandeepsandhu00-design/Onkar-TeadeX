@@ -43,7 +43,7 @@ import { openAIConfigured, openAIHealth } from "../lib/openai";
 import { runMasterAI } from "../onkar-ai/orchestrator";
 import { runNextLearningJob } from "../onkar-ai/learning-worker";
 import { runNextKnowledgeJob } from "../onkar-ai/knowledge-service";
-import { getSharedMarketSnapshot } from "../market-brain/shared-market";
+import { getCandleClosureSnapshot, getSharedMarketSnapshot } from "../market-brain/shared-market";
 import { compileLibrarySetup } from "../market-brain/strategy-compiler";
 import { latestApprovedVersions } from "../market-brain/strategy-selection";
 import { syncConfiguredMT5Journal } from "../mt5/journal-sync";
@@ -636,6 +636,19 @@ router.post(
       parsed.data.action,
     );
     res.json({ saved: true, action: parsed.data.action, runtime });
+  }),
+);
+router.get(
+  "/market-brain/candle-closures",
+  route(async (req, res) => {
+    const { config } = await context(req);
+    const symbol = sharedChartSymbolSchema.safeParse(
+      String(req.query.symbol || "XAUUSD").toUpperCase().replace(/[/-]/g, ""),
+    );
+    if (!symbol.success)
+      throw new ScannerError("Choose a supported watchlist symbol.", 400);
+    rateLimit(`candle-clock:${config?.user_id || "user"}`, 30);
+    res.json(await getCandleClosureSnapshot({ config, symbol: symbol.data }));
   }),
 );
 router.get(

@@ -39,6 +39,7 @@ import {
 import { latestApprovedVersions } from "./strategy-versions";
 import { setupCoverage } from "./setup-coverage";
 import { nextCandidateCloseAt } from "./candidate-timing";
+import { formatCandleCountdown } from "./candle-closure";
 import type { AgentId } from "../onkar-ai/agent-data";
 import { useAgentAnimationState } from "../onkar-ai/useAgentAnimationState";
 
@@ -93,9 +94,7 @@ function CandleCloseCountdown({
   if (nextClose === null) return <>UNKNOWN</>;
   const remaining = nextClose - now;
   if (remaining <= 0) return <>AWAITING SCAN</>;
-  const minutes = Math.floor(remaining / 60_000);
-  const seconds = Math.floor((remaining % 60_000) / 1_000);
-  return <>{`${minutes}:${String(seconds).padStart(2, "0")}`}</>;
+  return <>{formatCandleCountdown(remaining)}</>;
 }
 
 function previewPrice(value: number) {

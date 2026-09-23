@@ -23,6 +23,7 @@ import type {
   SetupDetection,
 } from "@workspace/api-zod";
 import { fetchSharedMarket } from "../market-brain/shared-market";
+import { CandleClosureReadout } from "../market-brain/CandleClosureCard";
 import { LIVE_REFRESH_EVENT } from "../live-refresh";
 import { getJarvisChart, subscribeJarvisChart } from "../jarvis/app-bridge";
 
@@ -54,6 +55,23 @@ const TWELVE_DATA_CHART_REFRESH_MS = 15 * 60_000;
 type ChartTimezone = "local" | "utc";
 const LOCAL_TIMEZONE =
   Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+function ChartCandleClosure({ snapshot }: { snapshot: SharedMarketSnapshot }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") setNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const lastClosed = [...snapshot.candles].reverse().find((candle) => candle.closed);
+  return <CandleClosureReadout
+    timeframe={snapshot.timeframe}
+    lastClosedOpenTime={lastClosed?.t ?? null}
+    sourceAvailable={snapshot.dataStatus !== "cached" && snapshot.dataStatus !== "unavailable"}
+    now={now}
+  />;
+}
 
 function chartTimeDate(time: Time) {
   if (typeof time === "number") return new Date(time * 1000);
@@ -848,6 +866,7 @@ export function SharedMarketChart({
           </span>
         </div>
       )}
+      {snapshot && <ChartCandleClosure snapshot={snapshot} />}
       {snapshot?.workflow && (
         <div
           className={`oai-workflow-strip is-${snapshot.workflow.gate.status.toLowerCase()}`}
