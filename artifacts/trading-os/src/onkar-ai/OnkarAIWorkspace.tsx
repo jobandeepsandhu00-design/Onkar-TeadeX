@@ -657,7 +657,6 @@ export default function OnkarAIWorkspace({
           {segment !== "charts" && <AgentWorkspacePresence section={segment} />}
           {segment === "dashboard" ? (
             <>
-              <MarketCandleCards onOpenChart={() => navigate("/onkar-ai/charts")} />
               {scannerSnapshot ? (
                 <>
                   <div className="market-brain oai-account-command mb-stack">
@@ -689,6 +688,7 @@ export default function OnkarAIWorkspace({
                       snapshot={scannerSnapshot}
                       onOpenJournal={() => onExit("journal")}
                     />
+                    <MarketCandleCards onOpenChart={() => navigate("/onkar-ai/charts")} />
                     <MasterAIOrbitalHub
                       onOpen={(agentId) => {
                         const agent = AGENT_DEFINITIONS.find(
