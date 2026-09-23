@@ -4860,18 +4860,58 @@ function useSessionCountdown() {
 
 function AnimatedCandlestickChart() {
   const TOTAL = 40;
-  const REPLAY_SPEED = 110; // ms per candle reveal
+  const chartRef = useRef<HTMLDivElement>(null);
 
   /* tick drives both reveal (mod TOTAL) and live-tick animation */
   const [tick, setTick] = useState(0);
   const [liveTick, setLiveTick] = useState(0);
-  const now = useUtcNow();
+  const [inView, setInView] = useState(false);
+  const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
-    const replay = setInterval(() => setTick((t) => t + 1), REPLAY_SPEED);
-    const live   = setInterval(() => setLiveTick((t) => t + 1), 60);
-    return () => { clearInterval(replay); clearInterval(live); };
+    const element = chartRef.current;
+    if (!element) return;
+    if (!("IntersectionObserver" in window)) {
+      setInView(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setInView(Boolean(entry?.isIntersecting)),
+      { rootMargin: "120px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (!inView) return;
+    setNow(new Date());
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [inView]);
+
+  useEffect(() => {
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let timer: number | undefined;
+    const syncAnimation = () => {
+      if (timer !== undefined) window.clearInterval(timer);
+      timer = undefined;
+      if (!inView || document.hidden || reducedMotion.matches) return;
+      // A decorative chart does not need to redraw dozens of times per second.
+      timer = window.setInterval(() => {
+        setTick((value) => value + 1);
+        setLiveTick((value) => value + 1);
+      }, 250);
+    };
+    syncAnimation();
+    document.addEventListener("visibilitychange", syncAnimation);
+    reducedMotion.addEventListener?.("change", syncAnimation);
+    return () => {
+      if (timer !== undefined) window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", syncAnimation);
+      reducedMotion.removeEventListener?.("change", syncAnimation);
+    };
+  }, [inView]);
 
   /* Generate a realistic trending candle series */
   const allCandles = useMemo(() => {
@@ -4945,7 +4985,7 @@ function AnimatedCandlestickChart() {
   const cursorX = visible > 0 ? PAD_L + (visible - 0.5) * cw : null;
 
   return (
-    <div className="relative w-full" style={{ height: 210 }}>
+    <div ref={chartRef} className="relative w-full" style={{ height: 210 }}>
       {/* ── Session legend row ── */}
       <div className="absolute top-0 left-0 right-0 flex items-center gap-3 px-1 pb-1 z-10" style={{ top: 0 }}>
         {SESSIONS.map((s) => {

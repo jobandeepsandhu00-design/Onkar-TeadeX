@@ -99,9 +99,19 @@ function CandlestickBackground() {
     for (let i = 0; i < initCount; i++) addCandle();
 
     let offset = 0;
-    let animId: number;
+    let animId: number | null = null;
+    let lastDrawAt = 0;
 
-    const draw = () => {
+    const draw = (time: number) => {
+      if (document.hidden) {
+        animId = null;
+        return;
+      }
+      if (time - lastDrawAt < 50) {
+        animId = requestAnimationFrame(draw);
+        return;
+      }
+      lastDrawAt = time;
       const W = canvas.width;
       const H = canvas.height;
 
@@ -324,13 +334,32 @@ function CandlestickBackground() {
         addCandle();
       }
 
+      // Keep only the visible window and moving-average context. Without
+      // pruning, an open login tab grows this array for as long as it runs.
+      const maxCandles = Math.ceil(W / TOTAL_W) + MA_PERIOD + 32;
+      if (candles.length > maxCandles) {
+        const removed = candles.length - maxCandles;
+        candles.splice(0, removed);
+        offset = Math.max(0, offset - removed * TOTAL_W);
+      }
+
       animId = requestAnimationFrame(draw);
     };
 
-    animId = requestAnimationFrame(draw);
+    const syncAnimation = () => {
+      if (document.hidden) {
+        if (animId !== null) cancelAnimationFrame(animId);
+        animId = null;
+      } else if (animId === null) {
+        animId = requestAnimationFrame(draw);
+      }
+    };
+    document.addEventListener("visibilitychange", syncAnimation);
+    syncAnimation();
 
     return () => {
-      cancelAnimationFrame(animId);
+      if (animId !== null) cancelAnimationFrame(animId);
+      document.removeEventListener("visibilitychange", syncAnimation);
       window.removeEventListener("resize", resize);
     };
   }, []);
