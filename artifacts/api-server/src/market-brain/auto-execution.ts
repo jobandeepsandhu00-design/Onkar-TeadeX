@@ -19,6 +19,11 @@ import {
   type VersionRow,
 } from "./store";
 import { executionRequestId } from "./execution-identity";
+import {
+  confirmationAfterSourceActivation,
+  earliestEligibleCandleOpen,
+} from "./execution-candle";
+import { orderExecutionCandidates } from "./execution-queue";
 import { NotificationService } from "../notifications/service";
 
 type RuntimeRow = {
@@ -185,16 +190,18 @@ async function event(
     account_id: candidate.payload.scopeAccountId ?? null,
     detail,
   });
-  await new NotificationService(store).execution({
-    userId: runtime.user_id,
-    candidate,
-    state,
-    reason,
-    provider: "MT5",
-    eventKey: requestId,
-    tradeId: typeof detail.tradeId === "string" ? detail.tradeId : null,
-    detail,
-  }).catch(() => undefined);
+  await new NotificationService(store)
+    .execution({
+      userId: runtime.user_id,
+      candidate,
+      state,
+      reason,
+      provider: "MT5",
+      eventKey: requestId,
+      tradeId: typeof detail.tradeId === "string" ? detail.tradeId : null,
+      detail,
+    })
+    .catch(() => undefined);
 }
 
 const accountMatches = (stored: Record<string, unknown>, masked: string) => {
@@ -252,20 +259,65 @@ export async function runNextAutoExecution() {
       reason:
         "Automatic risk calculation or order preparation is disabled in Permission Center.",
     };
+  const earliestOpen = earliestEligibleCandleOpen(runtime.source_activated_at);
+  if (!earliestOpen)
+    return {
+      skipped: true,
+      reason: "Execution source activation time is invalid.",
+    };
   const candidates = await store.request<CandidateRow[]>("setup_candidates", {
     config_id: `eq.${configRow.id}`,
     user_id: `eq.${owner}`,
     state: "eq.READY",
-    last_candle_at: `gte.${runtime.source_activated_at}`,
+    last_candle_at: `gte.${earliestOpen}`,
+    expires_at: `gt.${new Date().toISOString()}`,
     order: "updated_at.asc",
-    limit: "10",
+    limit: "100",
   });
-  const candidate = candidates.find(
-    (item) =>
-      item.payload.provider === "mt5" &&
-      !item.payload.stale &&
-      item.payload.risk.allowed &&
-      item.payload.risk.warnings.length === 0,
+  const candidateIds = candidates.map((item) => item.id).join(",");
+  const [blockedEvents, executedEvents] = candidateIds
+    ? await Promise.all([
+        store.request<
+          Array<{ candidate_id: string | null; created_at: string }>
+        >("scanner_execution_events", {
+          user_id: `eq.${owner}`,
+          candidate_id: `in.(${candidateIds})`,
+          state: "eq.BLOCKED",
+          select: "candidate_id,created_at",
+          order: "created_at.desc",
+          limit: "100",
+        }),
+        store.request<Array<{ candidate_id: string | null }>>(
+          "scanner_execution_events",
+          {
+            user_id: `eq.${owner}`,
+            candidate_id: `in.(${candidateIds})`,
+            state: "eq.EXECUTED",
+            select: "candidate_id",
+            limit: "100",
+          },
+        ),
+      ])
+    : [[], []];
+  const [candidate] = orderExecutionCandidates(
+    candidates.filter(
+      (item) =>
+        confirmationAfterSourceActivation(
+          item.last_candle_at,
+          item.timeframe,
+          runtime.source_activated_at,
+        ) &&
+        item.payload.provider === "mt5" &&
+        !item.payload.stale &&
+        item.payload.risk.allowed &&
+        item.payload.risk.warnings.length === 0,
+    ),
+    blockedEvents,
+    new Set(
+      executedEvents
+        .map((item) => item.candidate_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
   );
   if (!candidate)
     return {
@@ -512,8 +564,19 @@ export async function runNextAutoExecution() {
     "EXECUTING",
     "Order submitted to the connected MT5 bridge.",
   );
-  if (!await automaticEntryStillAllowed(store, runtime.user_id, runtime.scanner_config_id, "MT5"))
-    return { blocked: true, reason: "Automatic entry was paused during broker checks. No order submitted." };
+  if (
+    !(await automaticEntryStillAllowed(
+      store,
+      runtime.user_id,
+      runtime.scanner_config_id,
+      "MT5",
+    ))
+  )
+    return {
+      blocked: true,
+      reason:
+        "Automatic entry was paused during broker checks. No order submitted.",
+    };
   const result = await executeMT5Order(order);
   const succeeded = Boolean(result.ok);
   await event(

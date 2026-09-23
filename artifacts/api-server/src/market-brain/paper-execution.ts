@@ -15,6 +15,11 @@ import {
   type VersionRow,
 } from "./store";
 import { executionRequestId } from "./execution-identity";
+import {
+  confirmationAfterSourceActivation,
+  earliestEligibleCandleOpen,
+} from "./execution-candle";
+import { orderExecutionCandidates } from "./execution-queue";
 import { NotificationService } from "../notifications/service";
 
 type PaperRuntime = {
@@ -176,16 +181,58 @@ async function executionEvent(
     account_id: accountId,
     detail,
   });
-  await new NotificationService(store).execution({
-    userId: runtime.user_id,
-    candidate,
-    state,
-    reason,
-    provider: "PAPER",
-    eventKey: requestId,
-    tradeId: typeof detail.paperTradeId === "string" ? detail.paperTradeId : typeof detail.tradeId === "string" ? detail.tradeId : null,
-    detail,
-  }).catch(() => undefined);
+  await new NotificationService(store)
+    .execution({
+      userId: runtime.user_id,
+      candidate,
+      state,
+      reason,
+      provider: "PAPER",
+      eventKey: requestId,
+      tradeId:
+        typeof detail.paperTradeId === "string"
+          ? detail.paperTradeId
+          : typeof detail.tradeId === "string"
+            ? detail.tradeId
+            : null,
+      detail,
+    })
+    .catch(() => undefined);
+}
+
+async function recordPaperBlock(
+  store: ScannerStore,
+  runtime: PaperRuntime,
+  candidate: CandidateRow,
+  requestId: string,
+  accountId: string,
+  reason: string,
+) {
+  const [previous] = await store.request<Array<{ reason: string }>>(
+    "scanner_execution_events",
+    {
+      user_id: `eq.${runtime.user_id}`,
+      request_id: `eq.${requestId}`,
+      state: "eq.BLOCKED",
+      order: "created_at.desc",
+      limit: "1",
+      select: "reason",
+    },
+  );
+  if (previous?.reason !== reason)
+    await store.request("scanner_execution_events", {}, "POST", {
+      user_id: runtime.user_id,
+      workspace_id: runtime.workspace_id,
+      candidate_id: candidate.id,
+      request_id: requestId,
+      state: "BLOCKED",
+      reason,
+      execution_provider: "PAPER",
+      market_data_provider: "TWELVE_DATA",
+      account_id: accountId,
+      detail: {},
+    });
+  return { blocked: true, reason };
 }
 
 export async function manageNextPaperTrade(store = ScannerStore.service()) {
@@ -328,19 +375,22 @@ export async function manageNextPaperTrade(store = ScannerStore.service()) {
     );
     const newestAction = actions.at(-1);
     if (newestAction) {
-      await new NotificationService(store).tradeManagement({
-        userId: trade.user_id,
-        tradeId: trade.id,
-        candidateId: trade.candidate_id,
-        symbol: trade.symbol,
-        state: newestAction.type,
-        message: newestAction.type === "BREAK_EVEN"
-          ? "Risk AI moved the protective stop to break-even according to the approved management rule."
-          : newestAction.type === "PARTIAL_CLOSE"
-            ? "Execution AI completed the approved partial close."
-            : "Risk AI modified the stop according to the approved structural rule.",
-        detail: newestAction as unknown as Record<string, unknown>,
-      }).catch(() => undefined);
+      await new NotificationService(store)
+        .tradeManagement({
+          userId: trade.user_id,
+          tradeId: trade.id,
+          candidateId: trade.candidate_id,
+          symbol: trade.symbol,
+          state: newestAction.type,
+          message:
+            newestAction.type === "BREAK_EVEN"
+              ? "Risk AI moved the protective stop to break-even according to the approved management rule."
+              : newestAction.type === "PARTIAL_CLOSE"
+                ? "Execution AI completed the approved partial close."
+                : "Risk AI modified the stop according to the approved structural rule.",
+          detail: newestAction as unknown as Record<string, unknown>,
+        })
+        .catch(() => undefined);
     }
     return {
       managed: true,
@@ -396,16 +446,24 @@ export async function manageNextPaperTrade(store = ScannerStore.service()) {
       { state: "COMPLETED", updated_at: now },
     );
     const closeReason = String(closed.detail.closeReason || "CLOSED");
-    await new NotificationService(store).tradeManagement({
-      userId: closed.user_id,
-      tradeId: closed.id,
-      candidateId: closed.candidate_id,
-      symbol: closed.symbol,
-      state: closeReason,
-      message: `${closed.symbol} Paper trade closed at ${closePrice}. Result ${result.rMultiple?.toFixed(2) ?? "—"}R; P/L ${result.pnl.toFixed(2)}.`,
-      detail: { at: now, closePrice, pnl: result.pnl, rMultiple: result.rMultiple, closeReason },
-      closed: true,
-    }).catch(() => undefined);
+    await new NotificationService(store)
+      .tradeManagement({
+        userId: closed.user_id,
+        tradeId: closed.id,
+        candidateId: closed.candidate_id,
+        symbol: closed.symbol,
+        state: closeReason,
+        message: `${closed.symbol} Paper trade closed at ${closePrice}. Result ${result.rMultiple?.toFixed(2) ?? "—"}R; P/L ${result.pnl.toFixed(2)}.`,
+        detail: {
+          at: now,
+          closePrice,
+          pnl: result.pnl,
+          rMultiple: result.rMultiple,
+          closeReason,
+        },
+        closed: true,
+      })
+      .catch(() => undefined);
   }
   return {
     managed: true,
@@ -456,15 +514,59 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
       reason:
         "Automatic risk calculation or order preparation is disabled in Permission Center.",
     };
-  const [candidate] = await store.request<CandidateRow[]>("setup_candidates", {
+  const earliestOpen = earliestEligibleCandleOpen(runtime.source_activated_at);
+  if (!earliestOpen)
+    return {
+      skipped: true,
+      reason: "Execution source activation time is invalid.",
+    };
+  const candidates = await store.request<CandidateRow[]>("setup_candidates", {
     config_id: `eq.${configRow.id}`,
     user_id: `eq.${runtime.user_id}`,
     state: "eq.READY",
-    last_candle_at: `gte.${runtime.source_activated_at}`,
+    last_candle_at: `gte.${earliestOpen}`,
+    expires_at: `gt.${new Date().toISOString()}`,
     "payload->>provider": "eq.twelvedata",
     order: "updated_at.asc",
-    limit: "1",
+    limit: "100",
   });
+  const candidateIds = candidates.map((item) => item.id).join(",");
+  const [previousTrades, recentBlocks] = candidateIds
+    ? await Promise.all([
+        store.request<Array<{ candidate_id: string }>>("paper_trades", {
+          user_id: `eq.${runtime.user_id}`,
+          candidate_id: `in.(${candidateIds})`,
+          select: "candidate_id",
+          limit: "100",
+        }),
+        store.request<
+          Array<{ candidate_id: string | null; created_at: string }>
+        >("scanner_execution_events", {
+          user_id: `eq.${runtime.user_id}`,
+          candidate_id: `in.(${candidateIds})`,
+          state: "eq.BLOCKED",
+          select: "candidate_id,created_at",
+          order: "created_at.desc",
+          limit: "100",
+        }),
+      ])
+    : [[], []];
+  const [candidate] = orderExecutionCandidates(
+    candidates.filter(
+      (item) =>
+        confirmationAfterSourceActivation(
+          item.last_candle_at,
+          item.timeframe,
+          runtime.source_activated_at,
+        ) &&
+        !item.payload.stale &&
+        item.payload.risk.allowed &&
+        item.payload.risk.warnings.length === 0 &&
+        (!config.requireNews || item.payload.news.status === "safe"),
+    ),
+    recentBlocks,
+    new Set(previousTrades.map((trade) => trade.candidate_id)),
+  );
   if (!candidate)
     return {
       skipped: true,
@@ -568,34 +670,82 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
     };
   }
   if (!account || !accountRecord || !config.accountId)
-    return { blocked: true, reason: "Select a funded Onkar Paper account." };
+    return recordPaperBlock(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      config.accountId ?? "",
+      "Select a funded Onkar Paper account.",
+    );
   if (
     candidate.payload.stale ||
     !candidate.payload.risk.allowed ||
     candidate.payload.risk.warnings.length ||
     (config.requireNews && candidate.payload.news.status !== "safe")
   )
-    return { blocked: true, reason: "Setup risk or news checks do not pass." };
+    return recordPaperBlock(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      config.accountId,
+      "Setup risk or news checks do not pass.",
+    );
   const plan = candidate.plan;
   if (!plan || !(plan.stop > 0 && plan.target > 0))
-    return { blocked: true, reason: "Paper execution plan is unavailable." };
-  const quote = await getMarketProvider("twelvedata").getQuote(
-    candidate.symbol,
-  );
+    return recordPaperBlock(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      config.accountId,
+      "Paper execution plan is unavailable.",
+    );
+  const quote = await getMarketProvider("twelvedata")
+    .getQuote(candidate.symbol)
+    .catch(() => null);
+  if (!quote)
+    return recordPaperBlock(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      config.accountId,
+      "Twelve Data quote is unavailable; no Paper order submitted.",
+    );
   if (!freshQuote(quote.timestamp))
-    return { blocked: true, reason: "Twelve Data quote is stale." };
+    return recordPaperBlock(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      config.accountId,
+      "Twelve Data quote is stale.",
+    );
   const entry = quote.price;
   const zone = candidate.payload.entryZone;
   if (entry < zone.low || entry > zone.high)
-    return { blocked: true, reason: "Price left the verified entry zone." };
+    return recordPaperBlock(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      config.accountId,
+      "Price left the verified entry zone.",
+    );
   const sign = candidate.payload.direction === "long" ? 1 : -1;
   const distance = (entry - plan.stop) * sign;
   const reward = (plan.target - entry) * sign;
   if (!(distance > 0 && reward / distance >= config.risk.minimumRR))
-    return {
-      blocked: true,
-      reason: "Live Paper entry no longer meets minimum R:R.",
-    };
+    return recordPaperBlock(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      config.accountId,
+      "Live Paper entry no longer meets minimum R:R.",
+    );
   const liveRisk = calculateRisk(
     entry,
     plan.stop,
@@ -605,11 +755,14 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
     config.risk,
   );
   if (!liveRisk.allowed || !liveRisk.positionSize)
-    return {
-      blocked: true,
-      reason:
-        liveRisk.warnings[0] || "Live Paper position sizing is unavailable.",
-    };
+    return recordPaperBlock(
+      store,
+      runtime,
+      candidate,
+      requestId,
+      config.accountId,
+      liveRisk.warnings[0] || "Live Paper position sizing is unavailable.",
+    );
   await executionEvent(
     store,
     runtime,
@@ -643,8 +796,19 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
     "Opening virtual position in the selected Onkar Paper account.",
     config.accountId,
   );
-  if (!await automaticEntryStillAllowed(store, runtime.user_id, configRow.id, "TWELVE_DATA"))
-    return { blocked: true, reason: "Automatic entry was paused during preparation. No Paper order submitted." };
+  if (
+    !(await automaticEntryStillAllowed(
+      store,
+      runtime.user_id,
+      configRow.id,
+      "TWELVE_DATA",
+    ))
+  )
+    return {
+      blocked: true,
+      reason:
+        "Automatic entry was paused during preparation. No Paper order submitted.",
+    };
   const [trade] = await store.request<PaperTrade[]>(
     "paper_trades",
     {},

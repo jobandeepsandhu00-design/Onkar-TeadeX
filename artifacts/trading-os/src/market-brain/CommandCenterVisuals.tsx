@@ -4,6 +4,8 @@ import {
   type ScannerPermissions,
   type ScannerSnapshot,
   type TradeManagement,
+  timeframeMs,
+  type Timeframe,
 } from "@workspace/api-zod";
 import { useEffect, useState, type CSSProperties } from "react";
 import {
@@ -47,7 +49,7 @@ const lifecycle = [
   ["SCANNING", "Scanning", ScanLine],
   ["DEVELOPING", "Approaching", Activity],
   ["WATCH", "Watching", CircleDot],
-  ["READY", "Confirmed", Check],
+  ["READY", "Signal confirmed", Check],
   ["TRIGGERED", "Active", Zap],
   ["COMPLETED", "Closed", History],
 ] as const;
@@ -57,7 +59,10 @@ const stageIndex = (state?: string) => {
   return found < 0 ? 0 : found;
 };
 
-function candidateBlocker(candidate: ScannerCandidate) {
+function candidateBlocker(
+  candidate: ScannerCandidate,
+  snapshot: ScannerSnapshot,
+) {
   if (candidate.staleNow || candidate.payload.stale)
     return "Market data is stale; wait for a fresh closed candle.";
   if (candidate.score === 100 && candidate.payload.risk.warnings.length)
@@ -73,9 +78,82 @@ function candidateBlocker(candidate: ScannerCandidate) {
     return `Risk blocked: ${candidate.payload.risk.warnings[0]}.`;
   if (candidate.payload.news.status === "blocked")
     return "News restriction blocks a new entry.";
-  return candidate.state === "READY"
-    ? "Confirmed; awaiting execution checks."
-    : "Watching for the next qualifying closed candle.";
+  if (candidate.state !== "READY")
+    return "Watching for the next qualifying closed candle.";
+
+  // READY is a confirmed signal, not proof that an order was submitted.
+  const { runtime, config, connection } = snapshot;
+  if (runtime.emergencyStop)
+    return "Emergency stop is active; no order can be submitted.";
+  if (runtime.scannerState !== "RUNNING")
+    return `Scanner is ${runtime.scannerState.toLowerCase()}; automatic entries are paused.`;
+  if (runtime.tradingMode !== "AUTO" || !runtime.autoExecutionEnabled)
+    return "Signal confirmed, but automatic execution is not armed in the Command Center.";
+  if (!config?.enabled)
+    return "Scanner configuration is disabled; no order is armed.";
+  if (
+    candidate.payload.provider !==
+    (runtime.tradingSource === "MT5" ? "mt5" : "twelvedata")
+  )
+    return "Signal belongs to a previous market-data source; wait for a fresh scan.";
+  if (runtime.sourceActivatedAt) {
+    const closeAt =
+      Date.parse(candidate.last_candle_at) +
+      timeframeMs[candidate.timeframe as Timeframe];
+    if (
+      !Number.isFinite(closeAt) ||
+      closeAt < Date.parse(runtime.sourceActivatedAt)
+    )
+      return "Signal predates this execution source; wait for a new confirmed candle.";
+  }
+  const selectedAccount = snapshot.accounts.find(
+    (account) => account.id === config.config.accountId,
+  );
+  if (!config.config.accountId || !selectedAccount)
+    return "Select a valid risk account in the Command Center before automatic execution.";
+  const version = snapshot.versions.find(
+    (item) => item.id === candidate.version_id,
+  );
+  if (
+    !version ||
+    version.definition.approval !== "approved" ||
+    !version.definition.autoExecutionAllowed
+  )
+    return "This setup version is not approved for automatic execution.";
+  const permissions = config.config.permissions;
+  if (
+    !permissions.automaticRiskCalculation ||
+    !permissions.automaticOrderPreparation
+  )
+    return "Automatic risk calculation or order preparation is switched off.";
+  if (runtime.tradingSource === "MT5" && !permissions.mt5LiveExecution)
+    return "MT5 execution permission is switched off.";
+  if (
+    runtime.tradingSource === "TWELVE_DATA" &&
+    !permissions.paperTradeExecution
+  )
+    return "Paper execution permission is switched off.";
+  if (connection.executionWorker !== "ready")
+    return connection.executionReason || "Execution provider is unavailable.";
+
+  const confirmedAt =
+    Date.parse(candidate.last_candle_at) +
+    timeframeMs[candidate.timeframe as Timeframe];
+  const latestExecution = snapshot.activity?.find(
+    (event) =>
+      event.source === "EXECUTION" &&
+      event.candidate_id === candidate.id &&
+      Number.isFinite(confirmedAt) &&
+      Date.parse(event.created_at) >= confirmedAt - 5_000,
+  );
+  if (latestExecution?.kind === "BLOCKED" || latestExecution?.kind === "ERROR")
+    return (
+      latestExecution.reason ||
+      "Execution check failed; open the AI timeline for details."
+    );
+  if (latestExecution?.kind === "EXECUTED")
+    return "Order accepted; trade status is updating.";
+  return `Signal confirmed for ${selectedAccount.name}. Checking live price, entry zone and final risk before an order.`;
 }
 
 function CandleCloseCountdown({
@@ -478,7 +556,8 @@ export function SetupActivationPanel({
                           {result.symbol} · {result.status} · {result.score}/100
                         </strong>
                         <small>
-                          {result.passed}/{result.total} rules · candle {localTime(result.lastCandleAt)}
+                          {result.passed}/{result.total} rules · candle{" "}
+                          {localTime(result.lastCandleAt)}
                         </small>
                         <small>
                           {result.requiredMissing.length
@@ -691,7 +770,8 @@ export function LiveCandidateCarousel({
         <div className="mb-chip-row">
           <span className="mb-badge">{candidates.length} TRACKED</span>
           <span className="mb-badge mb-positive">
-            {completedEligibleChecks}/{eligibleChecks.length} SETUP-MARKET CHECKS
+            {completedEligibleChecks}/{eligibleChecks.length} SETUP-MARKET
+            CHECKS
           </span>
         </div>
       </div>
@@ -707,9 +787,10 @@ export function LiveCandidateCarousel({
         <div className="mb-os-candidate-rail">
           {candidates.map((candidate) => {
             const risk = candidate.payload.risk;
-            const tradePlan = candidate.state === "READY" && candidate.plan
-              ? candidate.plan
-              : risk;
+            const tradePlan =
+              candidate.state === "READY" && candidate.plan
+                ? candidate.plan
+                : risk;
             const passed = candidate.payload.rules.filter(
               (rule) => rule.passed,
             ).length;
@@ -753,17 +834,21 @@ export function LiveCandidateCarousel({
                     </b>
                   </span>
                   <span>
-                    Next close{" "}
+                    {candidate.state === "READY" ? "Signal" : "Next close"}{" "}
                     <b>
-                      <CandleCloseCountdown
-                        lastCandleAt={candidate.last_candle_at}
-                        timeframe={candidate.timeframe}
-                      />
+                      {candidate.state === "READY" ? (
+                        "CONFIRMED"
+                      ) : (
+                        <CandleCloseCountdown
+                          lastCandleAt={candidate.last_candle_at}
+                          timeframe={candidate.timeframe}
+                        />
+                      )}
                     </b>
                   </span>
                 </div>
                 <p className="mb-candidate-blocker">
-                  {candidateBlocker(candidate)}
+                  {candidateBlocker(candidate, snapshot)}
                 </p>
                 <div className="mb-trade-plan">
                   <span>
@@ -974,7 +1059,9 @@ export function TradeCommandCenter({
                   {titleState(item.state)} · {item.timeframe.toUpperCase()} ·{" "}
                   {item.payload.passed}/{item.payload.total} signal checks
                 </small>
-                <small className="mb-trade-blocker">{candidateBlocker(item)}</small>
+                <small className="mb-trade-blocker">
+                  {candidateBlocker(item, snapshot)}
+                </small>
               </div>
               <span>{item.score}/100</span>
             </article>

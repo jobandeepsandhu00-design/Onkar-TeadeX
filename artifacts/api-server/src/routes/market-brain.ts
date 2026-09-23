@@ -43,7 +43,10 @@ import { openAIConfigured, openAIHealth } from "../lib/openai";
 import { runMasterAI } from "../onkar-ai/orchestrator";
 import { runNextLearningJob } from "../onkar-ai/learning-worker";
 import { runNextKnowledgeJob } from "../onkar-ai/knowledge-service";
-import { getCandleClosureSnapshot, getSharedMarketSnapshot } from "../market-brain/shared-market";
+import {
+  getCandleClosureSnapshot,
+  getSharedMarketSnapshot,
+} from "../market-brain/shared-market";
 import { compileLibrarySetup } from "../market-brain/strategy-compiler";
 import { latestApprovedVersions } from "../market-brain/strategy-selection";
 import { syncConfiguredMT5Journal } from "../mt5/journal-sync";
@@ -178,18 +181,39 @@ const cronHandler = route(async (req, res) => {
     Date.now(),
     scannerBusy,
   );
-  const learning = optionalStage === "learning"
-    ? await runNextLearningJob()
-    : { status: "deferred" as const };
-  const knowledge = optionalStage === "knowledge"
-    ? await runNextKnowledgeJob()
-    : { status: "deferred" as const };
-  logger.info({
-    event: "scanner_cron_stages",
-    scannerBusy,
-    optionalStage,
-    elapsedMs: Date.now() - startedAt,
-  }, "Scanner cron stages completed");
+  const learning =
+    optionalStage === "learning"
+      ? await runNextLearningJob()
+      : { status: "deferred" as const };
+  const knowledge =
+    optionalStage === "knowledge"
+      ? await runNextKnowledgeJob()
+      : { status: "deferred" as const };
+  const executionRoute = execution as Record<string, unknown>;
+  const executionOutcome = (
+    executionRoute.execution && typeof executionRoute.execution === "object"
+      ? executionRoute.execution
+      : executionRoute
+  ) as Record<string, unknown>;
+  logger.info(
+    {
+      event: "scanner_cron_stages",
+      scannerBusy,
+      optionalStage,
+      executionProvider: executionRoute.provider ?? null,
+      executionStatus: executionOutcome.executed
+        ? "executed"
+        : executionOutcome.blocked
+          ? "blocked"
+          : "skipped",
+      executionReason:
+        typeof executionOutcome.reason === "string"
+          ? executionOutcome.reason.slice(0, 200)
+          : null,
+      elapsedMs: Date.now() - startedAt,
+    },
+    "Scanner cron stages completed",
+  );
   res.json({
     ok: true,
     result,
@@ -643,7 +667,9 @@ router.get(
   route(async (req, res) => {
     const { config } = await context(req);
     const symbol = sharedChartSymbolSchema.safeParse(
-      String(req.query.symbol || "XAUUSD").toUpperCase().replace(/[/-]/g, ""),
+      String(req.query.symbol || "XAUUSD")
+        .toUpperCase()
+        .replace(/[/-]/g, ""),
     );
     if (!symbol.success)
       throw new ScannerError("Choose a supported watchlist symbol.", 400);
