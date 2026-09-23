@@ -49,6 +49,7 @@ import { AIButton, AIScoreBadge, AIStatusBadge, KeyValue, Panel } from "./ui";
 import { MarketChart } from "./charts";
 import { SharedMarketChart } from "./SharedMarketChart";
 import { CandleClosureCard } from "../market-brain/CandleClosureCard";
+import { MarketCandleCards } from "../market-brain/MarketCandleCards";
 import { OnkarTerminal } from "./OnkarTerminal";
 import { SetupAnalysis, SetupTable } from "./DashboardPanels";
 import { AssistantPage, JournalPage, RiskPage } from "./WorkspacePages";
@@ -656,6 +657,7 @@ export default function OnkarAIWorkspace({
           {segment !== "charts" && <AgentWorkspacePresence section={segment} />}
           {segment === "dashboard" ? (
             <>
+              <MarketCandleCards onOpenChart={() => navigate("/onkar-ai/charts")} />
               {scannerSnapshot ? (
                 <>
                   <div className="market-brain oai-account-command mb-stack">

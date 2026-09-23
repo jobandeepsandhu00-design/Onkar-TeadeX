@@ -26,6 +26,7 @@ import { DashboardVideoSection, VideoLearningHub, VideoLessonPage } from "./vide
 import { mergeDashboardSections, moveDashboardSection } from "./market-brain/dashboard-order";
 import { AccountCommandCarousel } from "./market-brain/AccountCommandCarousel";
 import { CandleClosureCard } from "./market-brain/CandleClosureCard";
+import { MarketCandleCards } from "./market-brain/MarketCandleCards";
 import { brainRequest } from "./market-brain/api";
 import type { ScannerSnapshot } from "@workspace/api-zod";
 import { connectedSetups, scannerIsLive } from "./onkar-ai/connected-setups";
@@ -871,6 +872,7 @@ const DEFAULT_SETTINGS = () => ({
     liveTicker:      true,
     marketOverview:  true,
     candleClosures: true,
+    marketCandles: true,
     marketSessions:  true,
     accountOverview: true,
     videoLearning: true,
@@ -892,7 +894,7 @@ const DEFAULT_SETTINGS = () => ({
     onkarAICommandCenter: true,
     knowledgeBrain: true,
   },
-  dashSectionOrder: ["moolMantar","marketOverview","candleClosures","liveTicker","activeTrades","accountOverview","onkarAICommandCenter","knowledgeBrain","marketBrain","videoLearning","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
+  dashSectionOrder: ["moolMantar","marketOverview","candleClosures","marketCandles","liveTicker","activeTrades","accountOverview","onkarAICommandCenter","knowledgeBrain","marketBrain","videoLearning","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -6247,6 +6249,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
       </div>
     ),
     candleClosures: <CandleClosureCard onOpenChart={() => goTo("onkar-ai", "/onkar-ai/charts")} />,
+    marketCandles: <MarketCandleCards onOpenChart={() => goTo("onkar-ai", "/onkar-ai/charts")} />,
     marketSessions: <ForexMarketClock />,
     accountOverview: (
       <div className="market-brain dashboard-account-command">
@@ -13098,6 +13101,7 @@ const DASH_SECTION_META = [
   { key: "moolMantar",      label: "Mool Mantar",           icon: "🙏" },
   { key: "marketOverview",  label: "Market Overview Chart",  icon: "📈" },
   { key: "candleClosures", label: "Candle Close Times", icon: "🕒" },
+  { key: "marketCandles", label: "Market Candles & Key Levels", icon: "🕯️" },
   { key: "liveTicker",      label: "Live Market Ticker",    icon: "📊" },
   { key: "activeTrades",    label: "Active Trades Monitor",  icon: "📡" },
   { key: "accountOverview", label: "Account Overview",       icon: "💰" },
