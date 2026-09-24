@@ -19,6 +19,7 @@ import {
 } from "../market-brain/store";
 import { normalizeTrades, similarTrades, summarizeTrades } from "./learning";
 import { persistLearningEvidence } from "./learning-worker";
+import { selectLiveCandidate } from "./candidate-selection";
 import { planMasterRequest } from "./planner";
 import { agentRegistry } from "./registry";
 import { synthesizeMasterAnswer } from "./synthesis";
@@ -174,9 +175,12 @@ export async function runMasterAI(args: {
     byTimeframe: journal.byTimeframe.slice(0, 12),
     mistakes: journal.mistakes.slice(0, 20),
   };
-  const candidate = args.input.candidateId
-    ? candidates.find((row) => row.id === args.input.candidateId)
-    : candidates.find((row) => !plan.symbol || row.symbol === plan.symbol);
+  const candidate = selectLiveCandidate(candidates, {
+    candidateId: args.input.candidateId,
+    configId: args.config?.id,
+    symbol: plan.symbol,
+    timeframe: plan.timeframe,
+  });
   const sortedClosed = trades
     .filter((trade) => trade.closed)
     .sort((a, b) => b.date.localeCompare(a.date));
@@ -204,12 +208,14 @@ export async function runMasterAI(args: {
     intent: plan.intent,
     question: args.input.question,
     requestedSymbol: plan.symbol ?? null,
+    requestedTimeframe: plan.timeframe ?? null,
     journal: compactJournal,
     lastTrade: lastTrade ? compactTrade(lastTrade) : null,
     similarTrades: compactSimilar,
     candidate: candidate
       ? {
           id: candidate.id,
+          versionId: candidate.version_id,
           symbol: candidate.symbol,
           timeframe: candidate.timeframe,
           state: candidate.state,
@@ -467,22 +473,65 @@ export async function runMasterAI(args: {
         durationMs: 0,
         summary: "No private reasoning is logged.",
       });
+      const modelEvidence = plan.intent === "live_market"
+        ? {
+            intent: data.intent,
+            question: data.question,
+            requestedSymbol: data.requestedSymbol,
+            requestedTimeframe: data.requestedTimeframe,
+            candidate: data.candidate,
+            approvedStrategy: (data.approvedStrategies as Array<{ id: string }>).find(
+              (version) => version.id === candidate?.version_id,
+            ) ?? null,
+            similarTrades: data.similarTrades,
+            sharedLibraryKnowledge: (data.sharedLibraryKnowledge as unknown[]).slice(0, 8),
+            knowledgeSafety: data.knowledgeSafety,
+            specialistResults: results,
+          }
+        : { ...data, specialistResults: results };
       const response = await synthesizeMasterAnswer(
-        { ...data, specialistResults: results },
+        modelEvidence,
         args.input.deepAnalysis,
+        results.map((result) => result.agent),
       );
       answer = response.output.answer;
       model = response.model;
       inputTokens = response.inputTokens;
       outputTokens = response.outputTokens;
+      for (const review of response.output.agentReviews) {
+        const specialist = results.find((item) => item.agent === review.agent);
+        if (specialist) specialist.result = {
+          ...specialist.result,
+          aiInterpretation: review.review,
+          aiModel: response.model,
+        };
+      }
       results.push(
-        envelope("insight", { explanationGenerated: true }, [
+        envelope("insight", { explanationGenerated: true, model: response.model }, [
           "verified specialist results",
         ]),
       );
+      logs.push({
+        timestamp: now(),
+        source: "INSIGHT AI",
+        target: "MASTER AI",
+        action: "One shared OpenAI Responses API synthesis",
+        status: "complete",
+        durationMs: Date.now() - started,
+        summary: `${response.output.agentReviews.length} specialist interpretations returned; no execution permission changed.`,
+      });
       progress("insight", "success");
     } catch {
       answer = deterministicAnswer(plan.intent, data);
+      logs.push({
+        timestamp: now(),
+        source: "INSIGHT AI",
+        target: "MASTER AI",
+        action: "OpenAI synthesis",
+        status: "unavailable",
+        durationMs: Date.now() - started,
+        summary: "The model call failed; deterministic evidence remains available. No execution permission changed.",
+      });
       results.push(
         envelope(
           "insight",

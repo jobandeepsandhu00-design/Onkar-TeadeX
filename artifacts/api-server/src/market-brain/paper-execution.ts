@@ -25,6 +25,7 @@ import {
   earliestEligibleCandleOpen,
 } from "./execution-candle";
 import { orderExecutionCandidates } from "./execution-queue";
+import { paperCandidateBlockers } from "./paper-readiness";
 import { NotificationService } from "../notifications/service";
 import { canonicalSetupWorkflow } from "./setup-workflows";
 
@@ -557,28 +558,38 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
         }),
       ])
     : [[], []];
-  const [candidate] = orderExecutionCandidates(
-    candidates.filter(
-      (item) =>
-        confirmationAfterSourceActivation(
-          item.last_candle_at,
-          item.timeframe,
-          runtime.source_activated_at,
-        ) &&
-        !item.payload.stale &&
-        item.payload.risk.allowed &&
-        item.payload.risk.warnings.length === 0 &&
-        (!item.payload.paperFastEntryApplied || config.paperFastEntry) &&
-        (!config.requireNews || item.payload.news.status === "safe"),
+  const rejected = candidates.map((item) => ({
+    item,
+    blockers: paperCandidateBlockers(
+      item,
+      runtime.source_activated_at,
+      config.paperFastEntry,
+      config.requireNews,
     ),
+  }));
+  const [candidate] = orderExecutionCandidates(
+    rejected
+      .filter(({ blockers }) => blockers.length === 0)
+      .map(({ item }) => item),
     recentBlocks,
     new Set(previousTrades.map((trade) => trade.candidate_id)),
   );
-  if (!candidate)
+  if (!candidate) {
+    const reasons = [
+      ...new Set([
+        ...rejected.flatMap(({ blockers }) => blockers),
+        ...(previousTrades.length
+          ? ["READY signal already has a Paper trade"]
+          : []),
+      ]),
+    ];
     return {
       skipped: true,
-      reason: "No new Twelve Data Paper setup is ready.",
+      reason: candidates.length
+        ? `No new Twelve Data Paper setup is eligible: ${reasons.join("; ") || "all READY signals were already handled"}.`
+        : "No unexpired READY Paper signal exists after source activation; inspect scanner candidate readiness blockers.",
     };
+  }
   const [version] = await store.request<VersionRow[]>(
     "scanner_strategy_versions",
     {
@@ -831,30 +842,31 @@ export async function runNextPaperExecution(store = ScannerStore.service()) {
       reason:
         "Automatic entry was paused during preparation. No Paper order submitted.",
     };
-  const [[latestConfig], [latestCandidate], [latestRuntime]] = await Promise.all([
-    store.request<ConfigRow[]>("scanner_configs", {
-      id: `eq.${configRow.id}`,
-      user_id: `eq.${runtime.user_id}`,
-      enabled: "eq.true",
-      limit: "1",
-    }),
-    store.request<CandidateRow[]>("setup_candidates", {
-      id: `eq.${candidate.id}`,
-      user_id: `eq.${runtime.user_id}`,
-      state: "eq.READY",
-      limit: "1",
-    }),
-    store.request<PaperRuntime[]>("scanner_runtime_controls", {
-      user_id: `eq.${runtime.user_id}`,
-      scanner_config_id: `eq.${configRow.id}`,
-      trading_source: "eq.TWELVE_DATA",
-      scanner_state: "eq.RUNNING",
-      trading_mode: "eq.AUTO",
-      auto_execution_enabled: "eq.true",
-      emergency_stop: "eq.false",
-      limit: "1",
-    }),
-  ]);
+  const [[latestConfig], [latestCandidate], [latestRuntime]] =
+    await Promise.all([
+      store.request<ConfigRow[]>("scanner_configs", {
+        id: `eq.${configRow.id}`,
+        user_id: `eq.${runtime.user_id}`,
+        enabled: "eq.true",
+        limit: "1",
+      }),
+      store.request<CandidateRow[]>("setup_candidates", {
+        id: `eq.${candidate.id}`,
+        user_id: `eq.${runtime.user_id}`,
+        state: "eq.READY",
+        limit: "1",
+      }),
+      store.request<PaperRuntime[]>("scanner_runtime_controls", {
+        user_id: `eq.${runtime.user_id}`,
+        scanner_config_id: `eq.${configRow.id}`,
+        trading_source: "eq.TWELVE_DATA",
+        scanner_state: "eq.RUNNING",
+        trading_mode: "eq.AUTO",
+        auto_execution_enabled: "eq.true",
+        emergency_stop: "eq.false",
+        limit: "1",
+      }),
+    ]);
   if (
     !latestConfig ||
     !latestCandidate ||

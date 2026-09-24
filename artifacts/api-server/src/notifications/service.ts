@@ -89,15 +89,18 @@ export class NotificationService {
     const news = candidate.payload.news;
     const terminal = candidate.state === "INVALIDATED" || candidate.state === "EXPIRED";
     const riskBlocked = risk.allowed === false;
+    const actionableRisk = riskBlocked && candidate.state === "WATCH" && candidate.score > 0;
     const newsBlocked = news.status === "blocked";
-    const lifecycle = candidate.state === "DEVELOPING" ? "APPROACHING"
+    const lifecycle = candidate.state === "DEVELOPING" &&
+        candidate.payload.globalWorkflow?.masterStatus === "APPROACHING_ZONE" ? "APPROACHING"
       : candidate.state === "WATCH" ? "WAITING_CLOSE"
         : candidate.state === "TRIGGERED" ? "ACTIVE"
           : candidate.state === "COMPLETED" ? "CLOSED"
             : candidate.state;
     const priority: Priority = terminal || candidate.state === "READY" || candidate.state === "TRIGGERED"
       ? "HIGH"
-      : lifecycle === "WAITING_CLOSE" || lifecycle === "APPROACHING"
+      : lifecycle === "WAITING_CLOSE" ||
+          (lifecycle === "APPROACHING" && candidate.score > 0)
         ? "IMPORTANT"
         : "INFO";
     const direction = candidate.payload.direction === "short" ? "SELL" : "BUY";
@@ -105,7 +108,7 @@ export class NotificationService {
     const missing = candidate.payload.rules.filter((rule) => rule.required && !rule.passed).map((rule) => rule.id);
     const blocker = newsBlocked
       ? "High-impact news restriction is active."
-      : riskBlocked
+      : actionableRisk
         ? risk.warnings[0] || "Risk approval is blocked."
         : missing.length
           ? `Still required: ${missing.slice(0, 3).join(", ")}.`
@@ -116,7 +119,7 @@ export class NotificationService {
       userId: candidate.user_id,
       eventKey: `setup:${candidate.id}`,
       eventVersion: `${candidate.last_candle_at}:${event}:${candidate.state}:${candidate.score}`,
-      category: newsBlocked ? "NEWS" : riskBlocked ? "RISK" : "SETUPS",
+      category: newsBlocked ? "NEWS" : actionableRisk ? "RISK" : "SETUPS",
       priority,
       symbol: candidate.symbol,
       timeframe: candidate.timeframe,

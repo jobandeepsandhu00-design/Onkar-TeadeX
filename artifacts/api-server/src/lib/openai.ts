@@ -33,18 +33,18 @@ export async function openAIHealth(force = false) {
   if (!openAIConfigured())
     return {
       status: "unconfigured",
-      model: openAIModel(),
+      model: onkarAIModel("master"),
       message: "OPENAI_API_KEY is not configured",
     };
   if (!force && healthCache && Date.now() - healthCache.checkedAt < 300_000)
     return healthCache.value;
-  const model = openAIModel();
+  const model = onkarAIModel("master");
   try {
     await getOpenAI().models.retrieve(model);
     const value = {
       status: "connected",
       model,
-      message: "OpenAI key and model access verified",
+      message: "Master AI model lookup succeeded; a full analysis verifies generation",
     };
     healthCache = { checkedAt: Date.now(), value };
     return value;

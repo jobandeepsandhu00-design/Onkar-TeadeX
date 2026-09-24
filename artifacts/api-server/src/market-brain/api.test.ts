@@ -22,11 +22,24 @@ test("all private scanner APIs reject anonymous requests", async () => {
       ["GET", "/onkar-ai/jarvis/history"],
       ["GET", "/onkar-ai/jarvis/commands/00000000-0000-4000-8000-000000000001"],
       ["POST", "/onkar-ai/jarvis/commands"],
-      ["POST", "/onkar-ai/jarvis/commands/00000000-0000-4000-8000-000000000001"],
+      [
+        "POST",
+        "/onkar-ai/jarvis/commands/00000000-0000-4000-8000-000000000001",
+      ],
       ["GET", "/market-brain"],
+      [
+        "GET",
+        "/market-brain/candidates/00000000-0000-4000-8000-000000000001/paper-dry-run",
+      ],
       ["GET", "/market-brain/notifications"],
-      ["GET", "/market-brain/notifications/00000000-0000-4000-8000-000000000001/events"],
-      ["POST", "/market-brain/notifications/00000000-0000-4000-8000-000000000001/state"],
+      [
+        "GET",
+        "/market-brain/notifications/00000000-0000-4000-8000-000000000001/events",
+      ],
+      [
+        "POST",
+        "/market-brain/notifications/00000000-0000-4000-8000-000000000001/state",
+      ],
       ["POST", "/market-brain/notifications/actions/read-all"],
       ["DELETE", "/market-brain/notifications"],
       ["DELETE", "/market-brain/notifications/read"],

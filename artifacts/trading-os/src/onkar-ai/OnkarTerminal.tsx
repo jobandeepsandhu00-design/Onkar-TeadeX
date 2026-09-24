@@ -13,6 +13,7 @@ import type {
   SharedChartTimeframe,
   SharedMarketSnapshot,
 } from "@workspace/api-zod";
+import { timeframeMs, type Timeframe } from "@workspace/api-zod";
 import {
   Activity,
   AlertTriangle,
@@ -344,9 +345,9 @@ export function OnkarTerminal({
     const reasons: string[] = [];
     const paperFast = Boolean(
       candidate?.payload.paperFastEntryApplied &&
-        scannerSnapshot?.config?.config.paperFastEntry &&
-        scannerSnapshot.runtime.tradingSource === "TWELVE_DATA" &&
-        market?.provider === "twelvedata",
+      scannerSnapshot?.config?.config.paperFastEntry &&
+      scannerSnapshot.runtime.tradingSource === "TWELVE_DATA" &&
+      market?.provider === "twelvedata",
     );
     if (scannerError) reasons.push(`Scanner unavailable: ${scannerError}`);
     if (!market) reasons.push("Waiting for shared market data");
@@ -356,6 +357,7 @@ export function OnkarTerminal({
       reasons.push(`MT5 quote is ${market.quote?.state ?? "unavailable"}`);
     if (!candidate) reasons.push("No valid setup candidate");
     else {
+      reasons.push(...(candidate.payload.readinessBlockers ?? []));
       if (candidate.staleNow || candidate.payload.stale)
         reasons.push("Candidate evidence is stale");
       if (candidate.state !== "READY")
@@ -393,10 +395,10 @@ export function OnkarTerminal({
 
   const paperFastPlan = Boolean(
     candidate?.payload.paperFastEntryApplied &&
-      scannerSnapshot?.config?.config.paperFastEntry &&
-      scannerSnapshot.runtime.tradingSource === "TWELVE_DATA" &&
-      market?.provider === "twelvedata" &&
-      market.workflow?.thirtyMinute.candle.closed,
+    scannerSnapshot?.config?.config.paperFastEntry &&
+    scannerSnapshot.runtime.tradingSource === "TWELVE_DATA" &&
+    market?.provider === "twelvedata" &&
+    market.workflow?.thirtyMinute.candle.closed,
   );
   const plan =
     !scannerError &&
@@ -471,10 +473,14 @@ export function OnkarTerminal({
       scannerSnapshot?.runtime.sourceActivatedAt ?? "",
     );
     const candidateCandleAt = Date.parse(candidate?.last_candle_at ?? "");
+    const candleDuration = candidate
+      ? timeframeMs[candidate.timeframe as Timeframe]
+      : undefined;
     if (
       !Number.isFinite(sourceActivatedAt) ||
       !Number.isFinite(candidateCandleAt) ||
-      candidateCandleAt < sourceActivatedAt
+      !candleDuration ||
+      candidateCandleAt + candleDuration < sourceActivatedAt
     )
       reasons.push("Candidate predates the active execution source");
     if (!plan?.executionEnabled)
@@ -487,6 +493,12 @@ export function OnkarTerminal({
     setupBlockingReasons,
   ]);
   const executionReady = executionBlockingReasons.length === 0;
+  const selectedAccount = scannerSnapshot?.accounts.find(
+    (account) => account.id === scannerSnapshot.config?.config.accountId,
+  );
+  const selectedVersion = scannerSnapshot?.versions.find(
+    (version) => version.id === candidate?.version_id,
+  );
   const currentPrice = market?.quote?.last ?? market?.candles.at(-1)?.c ?? null;
   const executionMode = scannerSnapshot
     ? `${scannerSnapshot.runtime.tradingSource.replaceAll("_", " ")} · ${scannerSnapshot.runtime.tradingMode}`
@@ -854,7 +866,7 @@ export function OnkarTerminal({
               <div className="oxt-ticket">
                 <div className="oxt-ticket-head">
                   <div>
-                    <span>SERVER-VALIDATED TRADE TICKET</span>
+                    <span>ACCOUNT-LINKED TRADE PREVIEW · NO ORDER SENT</span>
                     <h3>
                       {candidate
                         ? `${candidate.symbol} · ${candidate.payload.strategyName ?? "Approved setup"}`
@@ -870,6 +882,50 @@ export function OnkarTerminal({
                   >
                     {candidate?.payload.direction?.toUpperCase() ?? "WAIT"}
                   </b>
+                </div>
+                <div className="oxt-ticket-context">
+                  <div>
+                    <span>ACCOUNT</span>
+                    <strong>
+                      {selectedAccount?.name ?? "No risk account selected"}
+                    </strong>
+                    <small>
+                      {selectedAccount
+                        ? `${selectedAccount.type} · ${selectedAccount.currency} · stored balance ${number(selectedAccount.balance)}`
+                        : "Select an account in Scanner Settings"}
+                    </small>
+                  </div>
+                  <div>
+                    <span>APPROVED SETUP VERSION</span>
+                    <strong>
+                      {selectedVersion?.name ?? "No matching version"}
+                    </strong>
+                    <small>
+                      {selectedVersion
+                        ? `${selectedVersion.definition.approval.toUpperCase()} · AUTO ${selectedVersion.definition.autoExecutionAllowed ? "permitted" : "not permitted"} · ${selectedVersion.id.slice(0, 8)}`
+                        : "A version must be approved before execution"}
+                    </small>
+                  </div>
+                  <div>
+                    <span>EXECUTION ROUTE</span>
+                    <strong>{executionMode}</strong>
+                    <small>
+                      {scannerSnapshot?.runtime.tradingSource === "TWELVE_DATA"
+                        ? "Paper orders only · never MT5"
+                        : "MT5 requires separate broker permission"}
+                    </small>
+                  </div>
+                  <div>
+                    <span>RISK POLICY</span>
+                    <strong>
+                      {scannerSnapshot?.config?.config.risk.riskPercent ?? "—"}% per trade
+                    </strong>
+                    <small>
+                      Daily loss {scannerSnapshot?.config?.config.risk.maxDailyLossPercent ?? "—"}% ·
+                      open risk {scannerSnapshot?.config?.config.risk.maxOpenRiskPercent ?? "—"}% ·
+                      min R:R 1:{scannerSnapshot?.config?.config.risk.minimumRR ?? "—"}
+                    </small>
+                  </div>
                 </div>
                 <div className="oxt-side-selector" aria-label="Setup direction">
                   <button
@@ -889,8 +945,8 @@ export function OnkarTerminal({
                     SELL
                   </button>
                   <span>
-                    Direction is locked to the approved setup; it cannot be
-                    changed from the chart.
+                    Setup-approved direction only. BUY/SELL is a preview here;
+                    no order is sent from this panel.
                   </span>
                 </div>
                 <div className="oxt-ticket-grid">
@@ -941,7 +997,9 @@ export function OnkarTerminal({
                     />
                   </label>
                   <label>
-                    Position size
+                    {scannerSnapshot?.runtime.tradingSource === "TWELVE_DATA"
+                      ? "Paper lots"
+                      : "MT5 broker lots"}
                     <input value={number(plan?.positionSize, 3)} readOnly />
                   </label>
                   <label>
@@ -997,7 +1055,7 @@ export function OnkarTerminal({
                 </h3>
                 {executionBlockingReasons.length ? (
                   <ul>
-                    {executionBlockingReasons.slice(0, 7).map((reason) => (
+                    {executionBlockingReasons.map((reason) => (
                       <li key={reason}>
                         <CircleDot size={11} /> {reason}
                       </li>

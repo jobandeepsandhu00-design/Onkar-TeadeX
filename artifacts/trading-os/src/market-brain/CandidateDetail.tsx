@@ -30,6 +30,23 @@ type Detail = {
   }>;
   links: Array<{ source_trade_id: string; note: string }>;
 };
+type PaperDryRun = {
+  simulationOnly: true;
+  orderPlaced: false;
+  candleClosedAt: string;
+  accountId: string | null;
+  provider: string;
+  storedCounts: Record<string, number>;
+  setup: {
+    status: string;
+    score: number;
+    passed: number;
+    total: number;
+    readinessBlockers: string[];
+  };
+  paper: { preflightPass: boolean; blockers: string[] };
+  limitation: string;
+};
 const price = (n: number | null | undefined) =>
   n === null || n === undefined
     ? "Unavailable"
@@ -109,7 +126,7 @@ function CandidateChart({
         </text>
       </svg>
       <figcaption className="mb-muted">
-        Stored OHLC data, not a screenshot interpretation. Dashed levels are {" "}
+        Stored OHLC data, not a screenshot interpretation. Dashed levels are{" "}
         {frozen
           ? "the frozen, risk-approved plan—not proof of broker execution."
           : "provisional calculations only; they cannot execute until every gate passes."}
@@ -136,9 +153,14 @@ export function CandidateDetail({
     [busy, setBusy] = useState(false);
   const [question, setQuestion] = useState(""),
     [answer, setAnswer] = useState<AIExplanation | null>(null);
+  const [dryRun, setDryRun] = useState<PaperDryRun | null>(null);
+  const [dryRunError, setDryRunError] = useState("");
+  const [dryRunBusy, setDryRunBusy] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     setError("");
+    setDryRun(null);
+    setDryRunError("");
     void brainRequest<Detail>(
       `/candidates/${candidate.id}`,
       "GET",
@@ -359,6 +381,76 @@ export function CandidateDetail({
                   <li key={reason}>{reason}</li>
                 ))}
               </ul>
+            )}
+            <button
+              type="button"
+              disabled={dryRunBusy}
+              onClick={async () => {
+                setDryRunBusy(true);
+                setDryRunError("");
+                try {
+                  setDryRun(
+                    await brainRequest<PaperDryRun>(
+                      `/candidates/${c.id}/paper-dry-run`,
+                      "GET",
+                    ),
+                  );
+                } catch (cause) {
+                  setDryRunError(
+                    cause instanceof Error
+                      ? cause.message
+                      : "Stored-candle replay failed",
+                  );
+                } finally {
+                  setDryRunBusy(false);
+                }
+              }}
+            >
+              {dryRunBusy
+                ? "Replaying stored candles…"
+                : "Replay stored candle + Paper checks (no order)"}
+            </button>
+            {dryRunError && (
+              <p role="alert" className="mb-notice">
+                {dryRunError}
+              </p>
+            )}
+            {dryRun && (
+              <div className="mb-panel" aria-live="polite">
+                <h4>Paper dry run · no order placed</h4>
+                <p>
+                  Closed {new Date(dryRun.candleClosedAt).toLocaleString()} ·{" "}
+                  {dryRun.provider} · account{" "}
+                  {dryRun.accountId ?? "not selected"} · stored candles{" "}
+                  {Object.entries(dryRun.storedCounts)
+                    .map(([tf, count]) => `${tf}: ${count}`)
+                    .join(", ")}
+                </p>
+                <p>
+                  Setup: {dryRun.setup.status} · {dryRun.setup.score}/100 ·{" "}
+                  {dryRun.setup.passed}/{dryRun.setup.total} rules
+                </p>
+                <p>
+                  Paper preflight:{" "}
+                  {dryRun.paper.preflightPass
+                    ? "PASS (simulation only)"
+                    : "BLOCKED"}
+                </p>
+                {[...dryRun.setup.readinessBlockers, ...dryRun.paper.blockers]
+                  .length > 0 && (
+                  <ul className="mb-warning">
+                    {[
+                      ...new Set([
+                        ...dryRun.setup.readinessBlockers,
+                        ...dryRun.paper.blockers,
+                      ]),
+                    ].map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                )}
+                <p className="mb-muted">{dryRun.limitation}</p>
+              </div>
             )}
             <div className="mb-stack">
               {p.rules.map((r) => (

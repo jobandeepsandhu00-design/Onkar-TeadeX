@@ -37,6 +37,8 @@ import { secretHash, verifyWebhook } from "../market-brain/webhook";
 import { journalSummary } from "../market-brain/journal";
 import { accountContext } from "../market-brain/journal";
 import { backtest } from "../market-brain/backtest";
+import { analyzeCandidate } from "../market-brain/evaluation";
+import { paperCandidateBlockers } from "../market-brain/paper-readiness";
 import { ScannerTools } from "../market-brain/tools";
 import { OpenAIExplanationProvider } from "../market-brain/ai";
 import { openAIConfigured, openAIHealth } from "../lib/openai";
@@ -865,6 +867,180 @@ router.get(
       }),
     ]);
     res.json({ candidate, events, analysis, links, bars });
+  }),
+);
+router.get(
+  "/market-brain/candidates/:id/paper-dry-run",
+  route(async (req, res) => {
+    const { identity, user, config } = await context(req);
+    const id = uuid(req.params.id);
+    if (!config) throw new ScannerError("Scanner configuration not found", 404);
+    const [candidate] = await user.request<CandidateRow[]>("setup_candidates", {
+      id: `eq.${id}`,
+      config_id: `eq.${config.id}`,
+      limit: "1",
+    });
+    if (!candidate) throw new ScannerError("Setup not found", 404);
+    const [version] = await user.request<VersionRow[]>(
+      "scanner_strategy_versions",
+      {
+        id: `eq.${candidate.version_id}`,
+        limit: "1",
+      },
+    );
+    if (!version) throw new ScannerError("Setup version not found", 404);
+    const decisionAt =
+      Date.parse(candidate.last_candle_at) +
+      timeframeMs[candidate.timeframe as Timeframe];
+    if (!Number.isFinite(decisionAt))
+      throw new ScannerError("Candidate candle timestamp is invalid", 422);
+    const needed = new Set<Timeframe>([
+      version.definition.timeframe,
+      version.definition.higherTimeframe,
+      "30m",
+      "1h",
+      "4h",
+      ...version.definition.rules.map((rule) => rule.timeframe),
+    ]);
+    const history: Partial<Record<Timeframe, Candle[]>> = {};
+    const storedCounts: Record<string, number> = {};
+    for (const tf of needed) {
+      const rows = await ScannerStore.service().request<
+        Array<{
+          open_time: number;
+          o: number;
+          h: number;
+          l: number;
+          c: number;
+          v: number | null;
+        }>
+      >("market_candles", {
+        provider: `eq.${candidate.payload.provider}`,
+        symbol: `eq.${candidate.symbol}`,
+        timeframe: `eq.${tf}`,
+        open_time: `lte.${decisionAt - timeframeMs[tf]}`,
+        order: "open_time.desc",
+        limit: "300",
+      });
+      history[tf] = rows.reverse().map((row) => ({
+        t: Number(row.open_time),
+        o: row.o,
+        h: row.h,
+        l: row.l,
+        c: row.c,
+        v: row.v,
+      }));
+      storedCounts[tf] = rows.length;
+    }
+    if (
+      !history[version.definition.timeframe]?.some(
+        (bar) => bar.t === Date.parse(candidate.last_candle_at),
+      )
+    )
+      throw new ScannerError(
+        "The candidate's exact closed candle is not in stored market history",
+        422,
+      );
+    if (
+      (history[version.definition.timeframe]?.length ?? 0) < 30 ||
+      (history[version.definition.higherTimeframe]?.length ?? 0) < 30
+    )
+      throw new ScannerError(
+        "Stored history is insufficient to replay the setup's primary and higher timeframes",
+        422,
+      );
+    const source = await user.source(identity.userId);
+    const account = accountContext(
+      source,
+      config.config,
+      candidate.symbol,
+      Date.now(),
+    );
+    const analysis = analyzeCandidate(
+      candidate.plan
+        ? { ...version.definition, direction: candidate.payload.direction }
+        : version.definition,
+      history,
+      config.config,
+      account,
+      candidate.payload.news,
+      decisionAt,
+      candidate.symbol,
+      candidate.payload.provider === "twelvedata",
+    );
+    const [runtime] = await user.request<RuntimeRow[]>(
+      "scanner_runtime_controls",
+      { scanner_config_id: `eq.${config.id}`, limit: "1" },
+    );
+    const paperBlockers = paperCandidateBlockers(
+      {
+        last_candle_at: candidate.last_candle_at,
+        timeframe: candidate.timeframe,
+        payload: analysis,
+      },
+      runtime?.source_activated_at ?? "",
+      config.config.paperFastEntry,
+      config.config.requireNews,
+    );
+    if (!config.enabled)
+      paperBlockers.push("Scanner configuration is disabled");
+    if (candidate.state !== "READY")
+      paperBlockers.push(`Candidate is ${candidate.state}, not READY`);
+    if (candidate.payload.provider !== "twelvedata")
+      paperBlockers.push("Candidate was not confirmed on Twelve Data");
+    if (!candidate.plan || candidate.plan.accountId !== config.config.accountId)
+      paperBlockers.push("Frozen risk plan does not match the selected account");
+    if (!candidate.plan?.allowed)
+      paperBlockers.push("Frozen risk plan is not approved");
+    if (Date.parse(candidate.expires_at) <= Date.now())
+      paperBlockers.push("Candidate has expired");
+    if (!account) paperBlockers.push("Selected risk account is unavailable");
+    if (
+      version.definition.approval !== "approved" ||
+      !version.definition.autoExecutionAllowed
+    )
+      paperBlockers.push("Setup version is not approved for AUTO execution");
+    if (runtime?.trading_source !== "TWELVE_DATA")
+      paperBlockers.push("The active route is not Twelve Data Paper");
+    if (
+      runtime?.scanner_state !== "RUNNING" ||
+      runtime.trading_mode !== "AUTO" ||
+      !runtime.auto_execution_enabled ||
+      runtime.emergency_stop
+    )
+      paperBlockers.push("Paper AUTO runtime is not armed");
+    if (
+      !config.config.permissions.paperTradeExecution ||
+      !config.config.permissions.automaticRiskCalculation ||
+      !config.config.permissions.automaticOrderPreparation
+    )
+      paperBlockers.push(
+        "Required Paper, risk, or order-preparation permission is off",
+      );
+    res.json({
+      simulationOnly: true,
+      orderPlaced: false,
+      candidateId: candidate.id,
+      accountId: config.config.accountId,
+      versionId: version.id,
+      provider: candidate.payload.provider,
+      candleClosedAt: new Date(decisionAt).toISOString(),
+      storedCounts,
+      setup: {
+        status: analysis.status,
+        score: analysis.score,
+        passed: analysis.passed,
+        total: analysis.total,
+        readinessBlockers: analysis.readinessBlockers,
+      },
+      paper: {
+        preflightPass:
+          analysis.status === "READY" && paperBlockers.length === 0,
+        blockers: [...new Set(paperBlockers)],
+      },
+      limitation:
+        "Historical news evidence and the currently selected account are reused. This does not simulate a fresh quote, live spread, order fill, or final risk race check.",
+    });
   }),
 );
 router.post(

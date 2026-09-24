@@ -398,6 +398,42 @@
   color: #ff788f;
 }
 
+.oxt-ticket-context {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.oxt-ticket-context > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(75, 126, 182, 0.2);
+  border-radius: 9px;
+  background: rgba(15, 36, 58, 0.65);
+}
+
+.oxt-ticket-context span {
+  color: #73cae0;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+}
+
+.oxt-ticket-context strong {
+  overflow-wrap: anywhere;
+  color: #e9f5ff;
+  font-size: 10px;
+}
+
+.oxt-ticket-context small {
+  color: #8da7bd;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
 .oxt-side-selector {
   display: flex;
   align-items: center;
@@ -910,6 +946,16 @@
   .oxt-ticket,
   .oxt-gate {
     padding: 10px;
+  }
+  .oxt-ticket-context {
+    grid-template-columns: 1fr;
+  }
+  .oxt-ticket-context span,
+  .oxt-ticket-context small {
+    font-size: 10px;
+  }
+  .oxt-ticket-context strong {
+    font-size: 12px;
   }
   .oxt-ticket-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

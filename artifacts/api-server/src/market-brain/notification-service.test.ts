@@ -65,3 +65,16 @@ test("notification service deduplicates a setup thread and retains lifecycle his
   assert.equal(store.notifications[0].lifecycle_state, "READY");
   assert.equal(store.notifications[0].priority, "HIGH");
 });
+
+test("an unformed zero-score setup is not presented as an approaching risk alert", async () => {
+  const store = new MemoryStore();
+  const service = new NotificationService(store as unknown as ScannerStore);
+  const unformed = candidate("DEVELOPING", 0);
+  unformed.payload.risk.allowed = false;
+  unformed.payload.risk.warnings = ["Reward/risk below minimum"];
+  await service.candidate(unformed, "analysis_updated");
+  assert.equal(store.notifications[0].lifecycle_state, "DEVELOPING");
+  assert.equal(store.notifications[0].category, "SETUPS");
+  assert.equal(store.notifications[0].priority, "INFO");
+  assert.match(String(store.notifications[0].message), /Still required/);
+});

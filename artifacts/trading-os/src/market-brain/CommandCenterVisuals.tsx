@@ -858,6 +858,94 @@ export function LiveCandidateCarousel({
                 <p className="mb-candidate-blocker">
                   {candidateBlocker(candidate, snapshot)}
                 </p>
+                <details className="mb-candidate-checks">
+                  <summary>Readiness checks and exact blockers</summary>
+                  <ul>
+                    <li>
+                      Account:{" "}
+                      {snapshot.accounts.find(
+                        (account) =>
+                          account.id === snapshot.config?.config.accountId,
+                      )?.name ?? "not selected"}
+                    </li>
+                    <li>
+                      Setup:{" "}
+                      {snapshot.versions.find(
+                        (version) => version.id === candidate.version_id,
+                      )?.definition.approval ?? "missing"}{" "}
+                      · AUTO{" "}
+                      {snapshot.versions.find(
+                        (version) => version.id === candidate.version_id,
+                      )?.definition.autoExecutionAllowed
+                        ? "allowed"
+                        : "not allowed"}
+                    </li>
+                    <li>
+                      Source:{" "}
+                      {snapshot.runtime.tradingSource.replaceAll("_", " ")} ·{" "}
+                      {snapshot.runtime.tradingMode} · scanner{" "}
+                      {snapshot.runtime.scannerState}
+                    </li>
+                    <li>
+                      Permissions: risk{" "}
+                      {snapshot.config?.config.permissions
+                        .automaticRiskCalculation
+                        ? "on"
+                        : "off"}{" "}
+                      · order prep{" "}
+                      {snapshot.config?.config.permissions
+                        .automaticOrderPreparation
+                        ? "on"
+                        : "off"}{" "}
+                      ·{" "}
+                      {snapshot.runtime.tradingSource === "TWELVE_DATA"
+                        ? "Paper"
+                        : "MT5"}{" "}
+                      {snapshot.runtime.tradingSource === "TWELVE_DATA"
+                        ? snapshot.config?.config.permissions
+                            .paperTradeExecution
+                          ? "on"
+                          : "off"
+                        : snapshot.config?.config.permissions.mt5LiveExecution
+                          ? "on"
+                          : "off"}
+                    </li>
+                    <li>
+                      Limits: {snapshot.config?.config.risk.riskPercent ?? "—"}%
+                      per trade ·{" "}
+                      {snapshot.config?.config.risk.maxDailyLossPercent ?? "—"}%
+                      daily loss ·{" "}
+                      {snapshot.config?.config.risk.maxOpenRiskPercent ?? "—"}%
+                      open risk · minimum 1:
+                      {snapshot.config?.config.risk.minimumRR ?? "—"} R:R
+                    </li>
+                    <li>
+                      Risk: {risk.allowed ? "approved" : "blocked"}
+                      {risk.warnings.length
+                        ? ` · ${risk.warnings.join("; ")}`
+                        : ""}
+                    </li>
+                    <li>News: {candidate.payload.news.status}</li>
+                    <li>
+                      Last closed candle: {localTime(candidate.last_candle_at)}{" "}
+                      · {candidate.timeframe.toUpperCase()}
+                    </li>
+                    {(candidate.payload.readinessBlockers ?? []).map(
+                      (reason) => (
+                        <li className="is-blocked" key={reason}>
+                          {reason}
+                        </li>
+                      ),
+                    )}
+                    {!candidate.payload.readinessBlockers?.length &&
+                      candidate.state === "READY" && (
+                        <li>
+                          Signal checks passed; final execution checks still run
+                          on the server.
+                        </li>
+                      )}
+                  </ul>
+                </details>
                 <div className="mb-trade-plan">
                   <span>
                     <small>ENTRY</small>
@@ -1069,7 +1157,7 @@ export function TradeCommandCenter({
                   ? `Blocked: ${result.readinessBlockers[0]}.`
                   : result.requiredMissing.length
                     ? `Missing: ${result.requiredMissing[0]}.`
-                  : "No current READY signal; open Rules for the full scanner evidence.";
+                    : "No current READY signal; open Rules for the full scanner evidence.";
       return { version, symbol, result, reason, enabled };
     });
   });
@@ -1137,8 +1225,15 @@ export function TradeCommandCenter({
                           : "REVIEW / MANUAL"}
                       </small>
                       <small className="mb-trade-blocker">{reason}</small>
+                      {result?.readinessBlockers?.map((blocker) => (
+                        <small className="mb-trade-blocker" key={blocker}>
+                          {blocker}
+                        </small>
+                      ))}
                       {result?.paperFastEntryApplied && (
-                        <small>Paper Fast Entry · closed-candle setup trigger</small>
+                        <small>
+                          Paper Fast Entry · closed-candle setup trigger
+                        </small>
                       )}
                     </div>
                     <span>{result ? `${result.score}/100` : "—"}</span>

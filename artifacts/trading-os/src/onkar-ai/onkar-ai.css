@@ -2065,6 +2065,51 @@
   background: rgba(3, 12, 27, 0.72);
   overflow: hidden;
 }
+.oai-model-usage,
+.oai-specialist-reviews {
+  margin: 12px 16px 16px;
+  border: 1px solid rgba(76, 132, 196, 0.3);
+  border-radius: 14px;
+  background: rgba(3, 12, 27, 0.72);
+  color: #a9c9ed;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.oai-model-usage {
+  padding: 12px 14px;
+}
+.oai-specialist-reviews summary {
+  cursor: pointer;
+  padding: 12px 14px;
+}
+.oai-specialist-review-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+.oai-specialist-review-list article {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(76, 132, 196, 0.2);
+  border-radius: 10px;
+  background: rgba(12, 28, 48, 0.7);
+  overflow-wrap: anywhere;
+}
+.oai-specialist-review-list article > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #76cdf4;
+}
+.oai-specialist-review-list article span,
+.oai-specialist-review-list article small {
+  color: #8fa9c2;
+}
+.oai-specialist-review-list article p {
+  margin: 10px 0;
+  color: #c7d8e8;
+}
 .oai-command-log summary {
   cursor: pointer;
   padding: 12px 14px;

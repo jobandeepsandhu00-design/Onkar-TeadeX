@@ -691,7 +691,19 @@ export async function runScannerJob(
       )
         await explain(store, candidate, { ...job, config });
       logger.info(
-        { event, candidateId: candidate.id, symbol, score: candidate.score },
+        {
+          event,
+          candidateId: candidate.id,
+          versionId: candidate.version_id,
+          symbol,
+          timeframe: candidate.timeframe,
+          state: candidate.state,
+          score: candidate.score,
+          readinessBlockers: candidate.payload.readinessBlockers ?? [],
+          riskAllowed: candidate.payload.risk.allowed,
+          newsStatus: candidate.payload.news.status,
+          lastCandleAt: candidate.last_candle_at,
+        },
         "Scanner candidate saved",
       );
     }

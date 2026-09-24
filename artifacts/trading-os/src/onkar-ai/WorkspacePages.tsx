@@ -433,6 +433,12 @@ export function AnalyticsPage() {
   );
 }
 export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
+  const [openAIHealth, setOpenAIHealth] = useState<{
+    status: string;
+    model: string;
+    message: string;
+  } | null>(null);
+  const [checkingOpenAI, setCheckingOpenAI] = useState(false);
   const notificationInbox = useNotificationInbox();
   const alertContextSent = useRef(false);
   const speaker = "master" as const;
@@ -462,11 +468,31 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
     { role: "user" | "assistant"; text: string }[]
   >([]);
   const prompts = [
+    "Analyze XAUUSD right now and explain the exact setup and execution blockers",
+    "Analyze GBPJPY right now and explain the exact setup and execution blockers",
     "Analyze my trading performance",
     "What is my biggest recorded mistake?",
     "Which setup works best for me?",
     "Why did my last trade lose?",
   ];
+  const checkOpenAI = async () => {
+    setCheckingOpenAI(true);
+    try {
+      setOpenAIHealth(await brainRequest<{
+        status: string;
+        model: string;
+        message: string;
+      }>("/openai-health"));
+    } catch (cause) {
+      setOpenAIHealth({
+        status: "unavailable",
+        model: "—",
+        message: cause instanceof Error ? cause.message : "Connection check failed.",
+      });
+    } finally {
+      setCheckingOpenAI(false);
+    }
+  };
   const send = async (input: string) => {
     if (input.trim().length < 3 || request.current) return;
     const token = crypto.randomUUID(),
@@ -569,6 +595,19 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
         >
           Open connected analysis
         </button>
+        <button
+          className="oai-text-button oai-panel-link"
+          disabled={checkingOpenAI}
+          onClick={() => void checkOpenAI()}
+        >
+          {checkingOpenAI ? "Checking OpenAI…" : "Check OpenAI API connection"}
+        </button>
+        {openAIHealth && (
+          <div className="oai-note" role="status">
+            OpenAI: {openAIHealth.status} · {openAIHealth.model}.{" "}
+            {openAIHealth.message}
+          </div>
+        )}
       </Panel>
       <Panel
         title="Your market thinking partner"
@@ -661,6 +700,43 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
               </div>
             ))}
           </div>
+        )}
+        {lastRun && (
+          <div className="oai-model-usage" role="status">
+            {lastRun.usage.model
+              ? `OpenAI response received · ${lastRun.usage.model} · ${lastRun.usage.inputTokens} input / ${lastRun.usage.outputTokens} output tokens. Specialist reviews are advisory; scanner and Risk AI retain execution authority.`
+              : "OpenAI did not return a response. The report uses stored deterministic evidence only; no trade was authorized by AI."}
+          </div>
+        )}
+        {lastRun && (
+          <details className="oai-specialist-reviews">
+            <summary>Agent evidence and OpenAI interpretation · {lastRun.agents.length} agents</summary>
+            <div className="oai-specialist-review-list">
+              {lastRun.agents.map((agent) => {
+                const interpretation = agent.result.aiInterpretation;
+                return (
+                  <article key={agent.agent}>
+                    <div>
+                      <strong>{agent.agent.toUpperCase()} AI</strong>
+                      <span>{agent.dataStatus}</span>
+                    </div>
+                    {typeof interpretation === "string" ? (
+                      <p>{interpretation}</p>
+                    ) : agent.agent === "insight" && lastRun.usage.model ? (
+                      <p>Synthesized the Master AI answer above using one shared model call.</p>
+                    ) : (
+                      <p>No model interpretation returned for this agent.</p>
+                    )}
+                    <small>
+                      {agent.missingData.length
+                        ? `Missing: ${agent.missingData.join(", ")}`
+                        : `Evidence: ${agent.source.join(", ") || "none"}`}
+                    </small>
+                  </article>
+                );
+              })}
+            </div>
+          </details>
         )}
         {lastRun && (
           <details className="oai-command-log">
