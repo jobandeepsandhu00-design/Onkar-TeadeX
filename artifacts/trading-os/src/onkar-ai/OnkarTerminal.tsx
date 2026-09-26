@@ -6,14 +6,22 @@ import {
   type ComponentType,
 } from "react";
 import type {
-  MT5Position,
+  MT5PortfolioSnapshot,
   ScannerCandidate,
   ScannerSnapshot,
+  SharedChartProvider,
   SharedChartSymbol,
   SharedChartTimeframe,
   SharedMarketSnapshot,
 } from "@workspace/api-zod";
-import { timeframeMs, type Timeframe } from "@workspace/api-zod";
+import {
+  candidateMatchesProviderAccount,
+  mt5PortfolioMatchesSelectedAccount,
+  mt5PortfolioSnapshotSchema,
+  mt5SnapshotMatchesSelectedAccount,
+  timeframeMs,
+  type Timeframe,
+} from "@workspace/api-zod";
 import {
   Activity,
   AlertTriangle,
@@ -53,6 +61,8 @@ type Props = {
   journalTrades?: Array<{ id: string; symbol?: string; date?: string }>;
   onNavigate: (path: string) => void;
   onOpenJournal?: () => void;
+  chartProvider?: SharedChartProvider;
+  onChartProviderChange?: (provider: SharedChartProvider) => void;
 };
 
 type TerminalTab =
@@ -71,17 +81,6 @@ type CandidateDetail = {
     detail?: Record<string, unknown>;
     created_at: string;
   }>;
-};
-
-type PendingOrder = {
-  ticket: number;
-  symbol: string;
-  type: number;
-  volume_current: number;
-  price_open: number;
-  sl?: number;
-  tp?: number;
-  time_setup?: number;
 };
 
 type AgentCard = {
@@ -112,7 +111,13 @@ const normalizedSymbol = (value: string) =>
 
 const eventTime = (value?: string | number | null) => {
   if (!value) return "—";
-  const date = new Date(typeof value === "number" ? value * 1000 : value);
+  const date = new Date(
+    typeof value === "number"
+      ? value < 10_000_000_000
+        ? value * 1000
+        : value
+      : value,
+  );
   return Number.isNaN(date.getTime())
     ? "—"
     : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -131,6 +136,8 @@ function newestCandidate(
   snapshot: ScannerSnapshot | null,
   symbol: SharedChartSymbol,
   timeframe: SharedChartTimeframe,
+  provider: SharedChartProvider,
+  selectedAccountId: string | null | undefined,
 ) {
   if (!snapshot) return null;
   const statePriority: Record<string, number> = {
@@ -144,6 +151,7 @@ function newestCandidate(
       .filter(
         (item) =>
           normalizedSymbol(item.symbol) === symbol &&
+          candidateMatchesProviderAccount(item, provider, selectedAccountId) &&
           !["TRIGGERED", "INVALIDATED", "EXPIRED", "COMPLETED"].includes(
             item.state,
           ),
@@ -176,7 +184,10 @@ export function OnkarTerminal({
   journalTrades = [],
   onNavigate,
   onOpenJournal,
+  chartProvider = "twelvedata",
+  onChartProviderChange,
 }: Props) {
+  const viewingMt5 = chartProvider === "mt5";
   const [symbol, setSymbol] = useState<SharedChartSymbol>("XAUUSD");
   const [timeframe, setTimeframe] = useState<SharedChartTimeframe>("30m");
   const [market, setMarket] = useState<SharedMarketSnapshot | null>(null);
@@ -185,16 +196,45 @@ export function OnkarTerminal({
   const [refreshing, setRefreshing] = useState(false);
   const [candidateDetail, setCandidateDetail] =
     useState<CandidateDetail | null>(null);
-  const [mt5Positions, setMt5Positions] = useState<MT5Position[]>([]);
-  const [mt5Orders, setMt5Orders] = useState<PendingOrder[]>([]);
+  const [mt5Portfolio, setMt5Portfolio] = useState<MT5PortfolioSnapshot | null>(
+    null,
+  );
   const [mt5Error, setMt5Error] = useState("");
   const aiToggle = useRef<HTMLButtonElement>(null);
   const mobileAiSheet = useRef<HTMLDivElement>(null);
+  const selectedAccountId = scannerSnapshot?.config?.config.accountId ?? null;
 
-  const candidate = useMemo(
-    () => newestCandidate(scannerSnapshot, symbol, timeframe),
-    [scannerSnapshot, symbol, timeframe],
+  const accountScopedCandidate = useMemo(
+    () =>
+      newestCandidate(
+        scannerSnapshot,
+        symbol,
+        timeframe,
+        chartProvider,
+        selectedAccountId,
+      ),
+    [chartProvider, scannerSnapshot, selectedAccountId, symbol, timeframe],
   );
+  const mt5ChartAccountVerified =
+    !viewingMt5 || mt5SnapshotMatchesSelectedAccount(market, selectedAccountId);
+  const mt5PortfolioVerified = Boolean(
+    viewingMt5 &&
+    mt5ChartAccountVerified &&
+    mt5PortfolioMatchesSelectedAccount(
+      mt5Portfolio,
+      selectedAccountId,
+      market?.scopeAccountId,
+    ),
+  );
+  const mt5Positions = mt5PortfolioVerified
+    ? (mt5Portfolio?.positions ?? [])
+    : [];
+  const mt5Orders = mt5PortfolioVerified ? (mt5Portfolio?.orders ?? []) : [];
+  // An account id match alone is not sufficient for MT5. Wait for the
+  // server's before/after terminal fingerprint verification before exposing
+  // any scanner-derived setup details or chart overlays.
+  const candidate =
+    viewingMt5 && !mt5ChartAccountVerified ? null : accountScopedCandidate;
   const workflow =
     market?.workflow ?? candidate?.payload.globalWorkflow ?? null;
   const paperPositions = useMemo(
@@ -214,20 +254,44 @@ export function OnkarTerminal({
     [scannerSnapshot, symbol],
   );
   const tradeOverlays = useMemo(() => {
-    if (scannerSnapshot?.runtime.tradingSource === "MT5")
-      return mt5Positions
-        .filter((position) => normalizedSymbol(position.symbol) === symbol)
-        .map((position) => ({
-          id: String(position.ticket),
-          direction: position.direction,
-          entry: position.entryPrice,
-          stopLoss: position.stopLoss,
-          takeProfit: position.takeProfit,
-          status: "OPEN" as const,
-          openedAt: new Date(position.openTime).toISOString(),
-          closedAt: null,
-          source: "MT5" as const,
-        }));
+    if (viewingMt5) {
+      // Positions/orders are fetched on a separate polling cadence. Never
+      // place them over candles until the chart server has proven that this
+      // exact selected app account owns the current MT5 snapshot.
+      if (!mt5PortfolioVerified) return [];
+      return [
+        ...mt5Positions
+          .filter((position) => normalizedSymbol(position.symbol) === symbol)
+          .map((position) => ({
+            id: String(position.ticket),
+            label: `Position #${position.ticket} · ${number(position.volume, 2)} lot`,
+            direction: position.direction,
+            entry: position.entryPrice,
+            stopLoss: position.stopLoss,
+            takeProfit: position.takeProfit,
+            status: "OPEN" as const,
+            openedAt: new Date(position.openTime).toISOString(),
+            closedAt: null,
+            source: "MT5" as const,
+          })),
+        ...mt5Orders
+          .filter((order) => normalizedSymbol(order.symbol) === symbol)
+          .map((order) => ({
+            id: `order-${order.ticket}`,
+            label: `Order #${order.ticket} · ${number(order.volume, 2)} lot`,
+            direction: [2, 4, 6].includes(order.type)
+              ? ("BUY" as const)
+              : ("SELL" as const),
+            entry: order.price,
+            stopLoss: order.stopLoss,
+            takeProfit: order.takeProfit,
+            status: "PENDING" as const,
+            openedAt: new Date(order.createdAt).toISOString(),
+            closedAt: null,
+            source: "MT5" as const,
+          })),
+      ];
+    }
     return (scannerSnapshot?.paperTrades ?? [])
       .filter((trade) => normalizedSymbol(trade.symbol) === symbol)
       .slice(0, 12)
@@ -242,7 +306,18 @@ export function OnkarTerminal({
         closedAt: trade.closed_at,
         source: "PAPER" as const,
       }));
-  }, [mt5Positions, scannerSnapshot, symbol]);
+  }, [
+    mt5PortfolioVerified,
+    mt5Orders,
+    mt5Positions,
+    scannerSnapshot,
+    symbol,
+    viewingMt5,
+  ]);
+
+  useEffect(() => {
+    setMarket(null);
+  }, [chartProvider]);
 
   useEffect(() => {
     if (!candidate) {
@@ -264,42 +339,70 @@ export function OnkarTerminal({
   }, [candidate?.id, candidate?.updated_at]);
 
   useEffect(() => {
-    if (scannerSnapshot?.runtime.tradingSource !== "MT5") {
-      setMt5Positions([]);
-      setMt5Orders([]);
+    if (
+      !viewingMt5 ||
+      !mt5ChartAccountVerified ||
+      !selectedAccountId ||
+      market?.scopeAccountId !== selectedAccountId
+    ) {
+      setMt5Portfolio(null);
       setMt5Error("");
       return;
     }
     const controller = new AbortController();
+    let active = true;
+    let inFlight = false;
+    let timer: number | undefined;
     const load = async () => {
+      if (!active || inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
       try {
-        const [positions, orders] = await Promise.all([
-          mt5Request<{ positions: MT5Position[] }>(
-            "/positions",
-            controller.signal,
-          ),
-          mt5Request<{ orders: PendingOrder[] }>("/orders", controller.signal),
-        ]);
-        setMt5Positions(positions.positions);
-        setMt5Orders(orders.orders);
+        const raw = await mt5Request<unknown>("/portfolio", controller.signal);
+        if (!active) return;
+        const portfolio = mt5PortfolioSnapshotSchema.parse(raw);
+        if (
+          !mt5PortfolioMatchesSelectedAccount(
+            portfolio,
+            selectedAccountId,
+            market.scopeAccountId,
+          )
+        )
+          throw new Error(
+            "MT5 portfolio account does not match the verified chart account.",
+          );
+        setMt5Portfolio(portfolio);
         setMt5Error("");
       } catch (error) {
-        if (!controller.signal.aborted) {
-          setMt5Positions([]);
-          setMt5Orders([]);
-          setMt5Error(
-            error instanceof Error ? error.message : "MT5 unavailable",
-          );
-        }
+        if (!active || controller.signal.aborted) return;
+        setMt5Portfolio(null);
+        setMt5Error(
+          error instanceof Error ? error.message : "MT5 portfolio unavailable",
+        );
+      } finally {
+        inFlight = false;
+        if (active) timer = window.setTimeout(() => void load(), 15_000);
       }
     };
     void load();
-    const timer = window.setInterval(load, 15_000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        if (timer) window.clearTimeout(timer);
+        void load();
+      }
     };
-  }, [scannerSnapshot?.runtime.tradingSource]);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      active = false;
+      controller.abort();
+      if (timer) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [
+    market?.scopeAccountId,
+    mt5ChartAccountVerified,
+    selectedAccountId,
+    viewingMt5,
+  ]);
 
   useEffect(() => {
     if (!aiOpen) return;
@@ -353,6 +456,14 @@ export function OnkarTerminal({
     if (!market) reasons.push("Waiting for shared market data");
     else if (market.dataStatus !== "live")
       reasons.push(`Market data is ${market.dataStatus}`);
+    if (market && market.provider !== chartProvider)
+      reasons.push("Chart provider isolation check failed");
+    if (viewingMt5 && !selectedAccountId)
+      reasons.push("Select and sync an MT5 account for this chart");
+    if (viewingMt5 && market && !mt5ChartAccountVerified)
+      reasons.push(
+        "MT5 chart identity does not match the selected account; setup and trade overlays are blocked",
+      );
     if (market?.provider === "mt5" && market.quote?.state !== "CONNECTED")
       reasons.push(`MT5 quote is ${market.quote?.state ?? "unavailable"}`);
     if (!candidate) reasons.push("No valid setup candidate");
@@ -391,7 +502,16 @@ export function OnkarTerminal({
         reasons.push(`News clearance is ${candidate.payload.news.status}`);
     }
     return [...new Set(reasons.filter(Boolean))];
-  }, [candidate, market, scannerError, scannerSnapshot]);
+  }, [
+    candidate,
+    chartProvider,
+    market,
+    mt5ChartAccountVerified,
+    scannerError,
+    scannerSnapshot,
+    selectedAccountId,
+    viewingMt5,
+  ]);
 
   const paperFastPlan = Boolean(
     candidate?.payload.paperFastEntryApplied &&
@@ -403,6 +523,7 @@ export function OnkarTerminal({
   const plan =
     !scannerError &&
     market?.dataStatus === "live" &&
+    mt5ChartAccountVerified &&
     (market.workflow?.gate.status === "UNLOCKED" || paperFastPlan) &&
     candidate?.payload.provider === market.provider &&
     candidate?.state === "READY" &&
@@ -721,16 +842,41 @@ export function OnkarTerminal({
       <header className="oxt-head">
         <div>
           <span className="oxt-kicker">ONKAR AI · PROFESSIONAL TERMINAL</span>
-          <h2>Chart, intelligence and execution context</h2>
+          <h2>
+            {chartProvider === "mt5"
+              ? "Dedicated MT5 broker chart"
+              : "Twelve Data paper chart"}
+          </h2>
           <p>
-            One shared market snapshot powers the chart, scanner and every AI
-            decision shown here.{" "}
+            {chartProvider === "mt5"
+              ? "Only direct MT5 broker candles are allowed on this screen. Twelve Data fallback is disabled. "
+              : "Only Twelve Data candles are allowed on this screen; MT5 prices are never merged. "}
             {scannerSnapshot
               ? `${scannerSnapshot.setups.length} Setup Library entries are visible; only approved strategy versions can unlock execution.`
               : "Setup Library state is loading."}
           </p>
         </div>
         <div className="oxt-head-actions">
+          <div
+            className="oxt-provider-switch"
+            role="group"
+            aria-label="Chart data provider"
+          >
+            <button
+              className={chartProvider === "twelvedata" ? "active" : ""}
+              aria-pressed={chartProvider === "twelvedata"}
+              onClick={() => onChartProviderChange?.("twelvedata")}
+            >
+              Twelve Data
+            </button>
+            <button
+              className={chartProvider === "mt5" ? "active is-mt5" : ""}
+              aria-pressed={chartProvider === "mt5"}
+              onClick={() => onChartProviderChange?.("mt5")}
+            >
+              MT5 Broker
+            </button>
+          </div>
           <div
             className={`oxt-readiness ${executionReady ? "is-ready" : setupReady ? "is-review" : "is-blocked"}`}
           >
@@ -780,6 +926,7 @@ export function OnkarTerminal({
       <div className="oxt-workspace">
         <div className="oxt-chart-stage">
           <SharedMarketChart
+            providerMode={chartProvider}
             initialSymbol="XAUUSD"
             initialTimeframe="30m"
             tradeOverlays={tradeOverlays}
@@ -826,11 +973,11 @@ export function OnkarTerminal({
             const Icon = item.icon;
             const count =
               item.id === "positions"
-                ? scannerSnapshot?.runtime.tradingSource === "MT5"
+                ? viewingMt5
                   ? mt5Positions.length
                   : paperPositions.length
                 : item.id === "orders"
-                  ? scannerSnapshot?.runtime.tradingSource === "MT5"
+                  ? viewingMt5
                     ? mt5Orders.length
                     : 0
                   : item.id === "logs"
@@ -918,12 +1065,18 @@ export function OnkarTerminal({
                   <div>
                     <span>RISK POLICY</span>
                     <strong>
-                      {scannerSnapshot?.config?.config.risk.riskPercent ?? "—"}% per trade
+                      {scannerSnapshot?.config?.config.risk.riskPercent ?? "—"}%
+                      per trade
                     </strong>
                     <small>
-                      Daily loss {scannerSnapshot?.config?.config.risk.maxDailyLossPercent ?? "—"}% ·
-                      open risk {scannerSnapshot?.config?.config.risk.maxOpenRiskPercent ?? "—"}% ·
-                      min R:R 1:{scannerSnapshot?.config?.config.risk.minimumRR ?? "—"}
+                      Daily loss{" "}
+                      {scannerSnapshot?.config?.config.risk
+                        .maxDailyLossPercent ?? "—"}
+                      % · open risk{" "}
+                      {scannerSnapshot?.config?.config.risk
+                        .maxOpenRiskPercent ?? "—"}
+                      % · min R:R 1:
+                      {scannerSnapshot?.config?.config.risk.minimumRR ?? "—"}
                     </small>
                   </div>
                 </div>
@@ -1084,22 +1237,18 @@ export function OnkarTerminal({
               <header className="oxt-panel-title">
                 <div>
                   <span>LIVE POSITION MONITOR</span>
-                  <h3>
-                    {scannerSnapshot?.runtime.tradingSource === "MT5"
-                      ? "MT5 positions"
-                      : "Paper positions"}
-                  </h3>
+                  <h3>{viewingMt5 ? "MT5 positions" : "Paper positions"}</h3>
                 </div>
                 <button onClick={() => onNavigate("/onkar-ai/integrations")}>
                   Management controls
                 </button>
               </header>
-              {mt5Error && scannerSnapshot?.runtime.tradingSource === "MT5" ? (
+              {mt5Error && viewingMt5 ? (
                 <div className="oxt-empty">
                   <AlertTriangle size={20} />
                   <p>{mt5Error}</p>
                 </div>
-              ) : scannerSnapshot?.runtime.tradingSource === "MT5" ? (
+              ) : viewingMt5 ? (
                 mt5Positions.length ? (
                   <table>
                     <thead>
@@ -1214,7 +1363,7 @@ export function OnkarTerminal({
               >
                 <button
                   disabled={
-                    scannerSnapshot?.runtime.tradingSource === "MT5"
+                    viewingMt5
                       ? mt5Positions.length === 0
                       : paperPositions.length === 0
                   }
@@ -1224,7 +1373,7 @@ export function OnkarTerminal({
                 </button>
                 <button
                   disabled={
-                    scannerSnapshot?.runtime.tradingSource === "MT5"
+                    viewingMt5
                       ? mt5Positions.length === 0
                       : paperPositions.length === 0
                   }
@@ -1235,7 +1384,7 @@ export function OnkarTerminal({
                 <button
                   className="is-danger"
                   disabled={
-                    scannerSnapshot?.runtime.tradingSource === "MT5"
+                    viewingMt5
                       ? mt5Positions.length === 0
                       : paperPositions.length === 0
                   }
@@ -1262,7 +1411,7 @@ export function OnkarTerminal({
                   Open execution controls
                 </button>
               </header>
-              {scannerSnapshot?.runtime.tradingSource !== "MT5" ? (
+              {!viewingMt5 ? (
                 <Empty label="Twelve Data Paper uses validated market entry; it has no pending-order model." />
               ) : mt5Orders.length ? (
                 <table>
@@ -1284,11 +1433,11 @@ export function OnkarTerminal({
                         <td>#{order.ticket}</td>
                         <td>{order.symbol}</td>
                         <td>{order.type}</td>
-                        <td>{order.price_open}</td>
-                        <td>{order.sl ?? "—"}</td>
-                        <td>{order.tp ?? "—"}</td>
-                        <td>{order.volume_current}</td>
-                        <td>{eventTime(order.time_setup)}</td>
+                        <td>{order.price}</td>
+                        <td>{order.stopLoss ?? "—"}</td>
+                        <td>{order.takeProfit ?? "—"}</td>
+                        <td>{order.volume}</td>
+                        <td>{eventTime(order.createdAt)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1302,10 +1451,7 @@ export function OnkarTerminal({
               >
                 <button
                   className="is-danger"
-                  disabled={
-                    scannerSnapshot?.runtime.tradingSource !== "MT5" ||
-                    mt5Orders.length === 0
-                  }
+                  disabled={!viewingMt5 || mt5Orders.length === 0}
                   onClick={() => onNavigate("/onkar-ai/integrations")}
                 >
                   Open cancel-order controls
@@ -1324,12 +1470,12 @@ export function OnkarTerminal({
                 <div>
                   <span>EXECUTION HISTORY</span>
                   <h3>
-                    {scannerSnapshot?.runtime.tradingSource === "MT5"
+                    {viewingMt5
                       ? "MT5 history via synchronized journal"
                       : "Closed Paper trades"}
                   </h3>
                 </div>
-                {scannerSnapshot?.runtime.tradingSource === "MT5" && (
+                {viewingMt5 && (
                   <button
                     onClick={() =>
                       onOpenJournal
@@ -1341,7 +1487,7 @@ export function OnkarTerminal({
                   </button>
                 )}
               </header>
-              {scannerSnapshot?.runtime.tradingSource === "MT5" ? (
+              {viewingMt5 ? (
                 <Empty label="Closed MT5 deals are synchronized into the existing Journal; broker history is not duplicated in this chart terminal." />
               ) : paperHistory.length ? (
                 <table>

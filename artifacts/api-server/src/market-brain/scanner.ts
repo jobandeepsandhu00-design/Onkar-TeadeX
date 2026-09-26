@@ -5,6 +5,8 @@ import {
   timeframeMs,
   TWELVE_DATA_MIN_CYCLE_SECONDS,
   type Candle,
+  type MT5CandleBundle,
+  type MT5CandleBundleTimeframe,
   type Timeframe,
   type CandidateState,
 } from "@workspace/api-zod";
@@ -34,10 +36,25 @@ import {
 import { selectScannerMarketProvider } from "./provider-selection";
 import { sharedProviderCandles } from "./shared-market";
 import {
+  mt5InstrumentSizingFromSpec,
   paperInstrumentSizingFromRate,
   resolveInstrumentSizing,
 } from "./risk-sizing";
 import { NotificationService } from "../notifications/service";
+import { requireMT5BridgeOwner } from "../mt5/journal-sync";
+import { getMT5CandleBundle } from "../mt5/client";
+import {
+  mt5AccountBindingMatches,
+  type MT5AccountBinding,
+} from "../mt5/account-identity";
+
+type MT5ScanProvenance = {
+  selectedAccountId: string;
+  accountFingerprint: string;
+  brokerSymbol: string;
+  verifiedBeforeAt: string;
+  verifiedAfterAt: string;
+};
 
 export function effectiveScannerFrequencySeconds(
   config: Pick<ConfigRow["config"], "provider" | "frequencySeconds">,
@@ -49,6 +66,29 @@ export function effectiveScannerFrequencySeconds(
 
 export const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
+export const scannerCandidateFingerprint = (args: {
+  configId: string;
+  versionId: string;
+  symbol: string;
+  lastCandleAt: string;
+  provider: string;
+  accountId: string | null | undefined;
+}) =>
+  fingerprint([
+    args.configId,
+    args.versionId,
+    args.symbol,
+    args.lastCandleAt,
+    args.provider,
+    args.accountId,
+  ]);
+export const candidateDataScopeMatches = (
+  candidate: CandidateRow | null | undefined,
+  provider: string,
+  accountId: string | null | undefined,
+) =>
+  candidate?.payload.provider === provider &&
+  candidate.payload.scopeAccountId === accountId;
 export const analysisFingerprint = (candidate: CandidateRow) =>
   fingerprint([
     candidate.id,
@@ -324,24 +364,80 @@ export async function runScannerJob(
       config.provider,
     );
     const activeProvider = providerSelection.active;
-    // Resolve account-currency economics before candle warmup. On constrained
-    // Twelve Data plans this reserves the conversion credit once, then the
-    // closed-candle cache can satisfy most timeframe reads.
     const now = Date.now();
     const accountRecord = records(source.tradingAccounts).find(
       (item) => item.id === config.accountId,
     );
+    let mt5ScanProvenance: MT5ScanProvenance | null = null;
+    let mt5Binding: MT5AccountBinding | null = null;
+    let mt5CandleBundle: MT5CandleBundle | null = null;
+    if (activeProvider === "mt5") {
+      requireMT5BridgeOwner(job.user_id);
+      if (!config.accountId || !accountRecord)
+        throw new Error(
+          "Select and sync the exact imported MT5 account before scanning MT5 candles.",
+        );
+      const bindings = await store.request<MT5AccountBinding[]>(
+        "mt5_account_bindings",
+        {
+          user_id: `eq.${job.user_id}`,
+          selected_account_id: `eq.${config.accountId}`,
+          select: "selected_account_id,account_fingerprint",
+          limit: "1",
+        },
+      );
+      mt5Binding = bindings[0] ?? null;
+      if (!mt5Binding)
+        throw new Error(
+          "The selected account has no verified MT5 identity binding. Sync MT5 again before scanning.",
+        );
+      mt5CandleBundle = await getMT5CandleBundle(
+        mt5Binding.account_fingerprint,
+        symbol,
+        ["15m", "30m", "1h", "4h"],
+        300,
+      );
+      if (
+        !mt5AccountBindingMatches(
+          mt5Binding,
+          config.accountId,
+          mt5CandleBundle.account.accountFingerprint,
+        )
+      )
+        throw new Error(
+          "Selected account identity does not exactly match the connected MT5 terminal. Sync MT5 again before scanning.",
+        );
+      const verifiedBeforeAt = new Date(
+        mt5CandleBundle.capturedAt,
+      ).toISOString();
+      mt5ScanProvenance = {
+        selectedAccountId: config.accountId,
+        accountFingerprint: mt5CandleBundle.account.accountFingerprint,
+        brokerSymbol: mt5CandleBundle.symbol.brokerSymbol,
+        verifiedBeforeAt,
+        verifiedAfterAt: verifiedBeforeAt,
+      };
+    }
+    // Resolve account-currency economics before candle warmup. On constrained
+    // Twelve Data plans this reserves the conversion credit once, then the
+    // closed-candle cache can satisfy most timeframe reads.
     let sizing = null;
     let sizingError: string | null = null;
     let sizingCached = false;
     if (accountRecord) {
       try {
-        sizing = await resolveInstrumentSizing({
-          provider: activeProvider,
-          symbol,
-          accountCurrency: String(accountRecord.currency || "USD"),
-          manualValue: config.risk.valuePerPriceUnit[symbol],
-        });
+        sizing = mt5CandleBundle
+          ? mt5InstrumentSizingFromSpec(
+              symbol,
+              String(accountRecord.currency || "USD"),
+              mt5CandleBundle.symbol.spec,
+            )
+          : await resolveInstrumentSizing({
+              provider: activeProvider,
+              symbol,
+              accountCurrency: String(accountRecord.currency || "USD"),
+              manualValue: config.risk.valuePerPriceUnit[symbol],
+            });
         if (!sizing)
           sizingError = `${symbol} has no automatic contract specification; configure an explicit fallback value.`;
       } catch (sizingFailure) {
@@ -408,18 +504,40 @@ export async function runScannerJob(
     for (const tf of required) {
       if (Date.now() - started > warmupBudget)
         throw new Error("History warmup continues in the next worker cycle.");
-      if (activeProvider === "mt5" || activeProvider === "twelvedata") {
+      if (activeProvider === "mt5") {
+        if (!["15m", "30m", "1h", "4h"].includes(tf))
+          throw new Error(`MT5 does not support scanner timeframe ${tf}.`);
+        const candles =
+          mt5CandleBundle?.timeframes[tf as MT5CandleBundleTimeframe];
+        if (!candles?.length)
+          throw new Error(
+            `MT5 atomic candle bundle has no verified ${tf} candles for ${symbol}.`,
+          );
+        histories[tf] = candles
+          .filter((candle) => candle.isClosed)
+          .map((candle) => ({
+            t: candle.time * 1000,
+            o: candle.open,
+            h: candle.high,
+            l: candle.low,
+            c: candle.close,
+            v: candle.tick_volume,
+          }));
+      } else if (activeProvider === "twelvedata") {
         const market = await sharedProviderCandles(
           store,
           activeProvider,
           symbol,
           tf,
           Date.now(),
-          { cacheMode: "closed-candle" },
+          {
+            cacheMode: "closed-candle",
+            strictSource: false,
+          },
         );
         if (market.dataStatus === "unavailable")
           throw new Error(
-            `${activeProvider === "mt5" ? "MT5" : "Twelve Data"} has no verified ${tf} candles for ${symbol}.`,
+            `Twelve Data has no verified ${tf} candles for ${symbol}.`,
           );
         if (market.dataStatus === "cached") sharedMarketCached = true;
         histories[tf] = market.candles
@@ -496,7 +614,15 @@ export async function runScannerJob(
           limit: "1",
         })
       )[0];
-      const old = previous && !terminal(previous.state) ? previous : undefined;
+      const sameDataScope = candidateDataScopeMatches(
+        previous,
+        activeProvider,
+        config.accountId,
+      );
+      const old =
+        previous && sameDataScope && !terminal(previous.state)
+          ? previous
+          : undefined;
       // Once a plan exists its direction, like its stop and target, is immutable.
       const analysis = analyzeCandidate(
         old?.plan
@@ -547,6 +673,7 @@ export async function runScannerJob(
       // A terminal setup is never resurrected on the same detection candle.
       if (
         previous &&
+        sameDataScope &&
         terminal(previous.state) &&
         previous.last_candle_at >= analysis.lastCandleAt
       )
@@ -626,7 +753,14 @@ export async function runScannerJob(
         plan: old?.plan ?? (state === "READY" ? analysis.risk : null),
         fingerprint:
           old?.fingerprint ??
-          fingerprint([job.id, version.id, symbol, analysis.lastCandleAt]),
+          scannerCandidateFingerprint({
+            configId: job.id,
+            versionId: version.id,
+            symbol,
+            lastCandleAt: analysis.lastCandleAt,
+            provider: activeProvider,
+            accountId: config.accountId,
+          }),
         last_candle_at: analysis.lastCandleAt,
         expires_at: old?.expires_at ?? analysis.expiresAt,
       };
@@ -676,6 +810,25 @@ export async function runScannerJob(
         ],
         p_alert: alert,
       });
+      if (mt5ScanProvenance)
+        await store.request(
+          "mt5_candidate_provenance",
+          { on_conflict: "candidate_id" },
+          "POST",
+          {
+            candidate_id: candidate.id,
+            candidate_last_candle_at: candidate.last_candle_at,
+            user_id: job.user_id,
+            config_id: job.id,
+            selected_account_id: mt5ScanProvenance.selectedAccountId,
+            account_fingerprint: mt5ScanProvenance.accountFingerprint,
+            broker_symbol: mt5ScanProvenance.brokerSymbol,
+            verified_before_at: mt5ScanProvenance.verifiedBeforeAt,
+            verified_after_at: mt5ScanProvenance.verifiedAfterAt,
+            updated_at: new Date().toISOString(),
+          },
+          "resolution=merge-duplicates,return=minimal",
+        );
       await new NotificationService(store)
         .candidate(candidate, event)
         .catch((notificationError) =>

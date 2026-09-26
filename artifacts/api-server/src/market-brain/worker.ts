@@ -1,7 +1,9 @@
 import { runNextJob } from "./scanner";
 import { ScannerStore } from "./store";
 import { logger } from "../lib/logger";
-import { runNextAutoExecution } from "./auto-execution";
+import { reconcileConfiguredAutoExecution } from "./auto-execution";
+import { syncConfiguredMT5Journal } from "../mt5/journal-sync";
+import { runNextExecution } from "./execution-router";
 
 let stopped = false;
 process.on("SIGTERM", () => {
@@ -18,12 +20,26 @@ async function main() {
     return;
   }
   ScannerStore.service(); // fail visibly at startup, not an unbounded configuration retry loop
+  const [reconciliation, journal] = await Promise.all([
+    reconcileConfiguredAutoExecution().catch((error) => ({
+      skipped: true,
+      reason: error instanceof Error ? error.message : "MT5 reconciliation failed",
+    })),
+    syncConfiguredMT5Journal().catch((error) => ({
+      skipped: true,
+      reason: error instanceof Error ? error.message : "MT5 journal sync failed",
+    })),
+  ]);
+  logger.info(
+    { event: "mt5_startup_reconciliation", reconciliation, journal },
+    "Existing MT5 broker state reconciled before scanner execution",
+  );
   let failures = 0,
     lastCleanup = 0;
   do {
     try {
       await runNextJob();
-      await runNextAutoExecution();
+      await runNextExecution();
       failures = 0;
       if (Date.now() - lastCleanup > 86400e3) {
         await ScannerStore.service().rpc("cleanup_scanner_cache", {});

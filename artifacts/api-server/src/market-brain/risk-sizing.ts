@@ -1,4 +1,7 @@
-import { getMT5SymbolSpec } from "../mt5/client";
+import {
+  getMT5SymbolSpec,
+  type MT5SymbolSpec,
+} from "../mt5/client";
 import { getMarketProvider } from "./providers";
 
 export type InstrumentSizing = {
@@ -188,6 +191,15 @@ export async function resolveMT5InstrumentSizing(
       ? `${normalized.slice(0, 3)}/${normalized.slice(3)}`
       : symbol;
   const spec = await getMT5SymbolSpec(brokerLookup);
+  return mt5InstrumentSizingFromSpec(symbol, accountCurrency, spec);
+}
+
+export function mt5InstrumentSizingFromSpec(
+  symbol: string,
+  accountCurrency: string,
+  spec: MT5SymbolSpec,
+): InstrumentSizing {
+  const normalized = normalize(symbol);
   const tickSize = spec.tickSize || spec.point;
   const tickValue =
     spec.tickValueLoss || spec.tickValue || spec.tickValueProfit;

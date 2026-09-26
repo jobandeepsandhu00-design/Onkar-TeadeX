@@ -9,6 +9,7 @@ import {
   masterAIRequestSchema,
   sharedChartSymbolSchema,
   sharedChartTimeframeSchema,
+  sharedChartProviderSchema,
   scannerRuntimeSchema,
   scannerRuntimeUpdateSchema,
   scannerControlSchema,
@@ -60,6 +61,8 @@ import {
 import { selectScannerMarketProvider } from "../market-brain/provider-selection";
 import { logger } from "../lib/logger";
 import { chooseOptionalCronStage } from "../market-brain/cron-scheduling";
+import { requireMT5BridgeOwner } from "../mt5/journal-sync";
+import { MT5BridgeError } from "../mt5/client";
 import {
   applyScannerControl,
   saveScannerConfig,
@@ -682,7 +685,7 @@ router.get(
 router.get(
   "/market-brain/shared-market",
   route(async (req, res) => {
-    const { user, config } = await context(req);
+    const { identity, user, config } = await context(req);
     const symbol = sharedChartSymbolSchema.safeParse(
       String(req.query.symbol || "")
         .toUpperCase()
@@ -691,11 +694,32 @@ router.get(
     const timeframe = sharedChartTimeframeSchema.safeParse(
       String(req.query.timeframe || "").toLowerCase(),
     );
-    if (!symbol.success || !timeframe.success)
+    const providerInput = String(req.query.provider || "").toLowerCase();
+    const provider = providerInput
+      ? sharedChartProviderSchema.safeParse(providerInput)
+      : null;
+    if (
+      !symbol.success ||
+      !timeframe.success ||
+      (provider && !provider.success)
+    )
       throw new ScannerError(
-        "Choose a supported watchlist symbol and a 15M, 30M, 1H or 4H timeframe.",
+        "Choose a supported watchlist symbol, timeframe and chart provider.",
         400,
       );
+    const requestedProvider =
+      provider?.data ??
+      (config?.config.provider === "mt5" ? "mt5" : "twelvedata");
+    if (requestedProvider === "mt5") {
+      try {
+        requireMT5BridgeOwner(identity.userId);
+      } catch (error) {
+        throw new ScannerError(
+          error instanceof Error ? error.message : "MT5 access is unavailable.",
+          error instanceof MT5BridgeError ? error.status : 503,
+        );
+      }
+    }
     rateLimit(`chart:${config?.user_id || "user"}`, 20);
     res.json(
       await getSharedMarketSnapshot({
@@ -703,6 +727,8 @@ router.get(
         config,
         symbol: symbol.data,
         timeframe: timeframe.data,
+        provider: provider?.data,
+        strictProvider: Boolean(provider),
       }),
     );
   }),
@@ -989,7 +1015,9 @@ router.get(
     if (candidate.payload.provider !== "twelvedata")
       paperBlockers.push("Candidate was not confirmed on Twelve Data");
     if (!candidate.plan || candidate.plan.accountId !== config.config.accountId)
-      paperBlockers.push("Frozen risk plan does not match the selected account");
+      paperBlockers.push(
+        "Frozen risk plan does not match the selected account",
+      );
     if (!candidate.plan?.allowed)
       paperBlockers.push("Frozen risk plan is not approved");
     if (Date.parse(candidate.expires_at) <= Date.now())

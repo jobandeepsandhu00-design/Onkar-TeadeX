@@ -1,6 +1,56 @@
-import { useCallback, useEffect, useState } from "react";
-import type { MT5Account, MT5Position } from "@workspace/api-zod";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  mt5PortfolioSnapshotSchema,
+  type MT5Account,
+  type MT5PendingOrder,
+  type MT5PortfolioSnapshot,
+  type MT5Position,
+} from "@workspace/api-zod";
 import { getAccessToken } from "../api";
+
+type SymbolMapping = {
+  internal: string;
+  broker: string | null;
+  confidence: number;
+  manual?: boolean;
+};
+
+type PreparedManualOrder = {
+  requestId: string;
+  message: string;
+  payload: Record<string, unknown>;
+  brokerSymbol: string;
+  expiresAt: string;
+  connectionSignature: string;
+};
+
+type ManualOrderState = {
+  state: "CLEAR" | "UNCERTAIN" | "RECONCILING" | "RESOLVED";
+  requestId: string | null;
+  message: string;
+  canReconcile: boolean;
+  outcome?: "SENT" | "REJECTED" | "FAILED";
+  reconciliationState?: "AWAITING_BROKER_HISTORY" | "MANUAL_REVIEW";
+};
+
+function connectionSignature(
+  account: MT5Account | null,
+  mappings: SymbolMapping[],
+) {
+  if (!account) return "DISCONNECTED";
+  return JSON.stringify({
+    broker: account.broker,
+    server: account.server,
+    account: account.account,
+    accountType: account.accountType,
+    connection: account.connection,
+    tradingEnabled: account.tradingEnabled,
+    tradeApiDisabled: account.tradeApiDisabled,
+    mappings: mappings
+      .map(({ internal, broker }) => [internal, broker])
+      .sort(([left], [right]) => String(left).localeCompare(String(right))),
+  });
+}
 
 export async function mt5Request<T>(
   path: string,
@@ -24,53 +74,78 @@ export async function mt5Request<T>(
 }
 
 export function MT5StatusPanel() {
-  type PendingOrder = {
-    ticket: number;
-    symbol: string;
-    type: number;
-    volume_current: number;
-    price_open: number;
-  };
-  type SymbolMapping = {
-    internal: string;
-    broker: string | null;
-    confidence: number;
-    manual?: boolean;
-  };
   const [account, setAccount] = useState<MT5Account | null>(null);
   const [positions, setPositions] = useState<MT5Position[]>([]);
-  const [orders, setOrders] = useState<PendingOrder[]>([]);
+  const [orders, setOrders] = useState<MT5PendingOrder[]>([]);
   const [mappings, setMappings] = useState<SymbolMapping[]>([]);
   const [error, setError] = useState("");
   const [symbol, setSymbol] = useState("XAU/USD");
-  const [action, setAction] = useState("MARKET_BUY");
+  const [action, setAction] = useState("CLOSE");
   const [volume, setVolume] = useState("0.01");
-  const [price, setPrice] = useState("");
   const [stopLoss, setStopLoss] = useState("");
   const [takeProfit, setTakeProfit] = useState("");
   const [positionTicket, setPositionTicket] = useState("");
   const [orderTicket, setOrderTicket] = useState("");
   const [mappingInternal, setMappingInternal] = useState("XAU/USD");
   const [mappingBroker, setMappingBroker] = useState("");
-  const [prepared, setPrepared] = useState<{
-    requestId: string;
-    message: string;
-    payload: Record<string, unknown>;
-  } | null>(null);
+  const [prepared, setPrepared] = useState<PreparedManualOrder | null>(null);
+  const preparedRef = useRef<PreparedManualOrder | null>(null);
   const [executionNotice, setExecutionNotice] = useState("");
+  const [manualState, setManualState] = useState<ManualOrderState>({
+    state: "CLEAR",
+    requestId: null,
+    message: "No unresolved manual MT5 order.",
+    canReconcile: false,
+  });
   const [busy, setBusy] = useState(false);
+  const refreshManualState = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const next = await mt5Request<ManualOrderState>(
+        "/orders/manual/state",
+        signal,
+      );
+      setManualState(next);
+      if (next.state !== "CLEAR") {
+        preparedRef.current = null;
+        setPrepared(null);
+        setExecutionNotice(next.message);
+      }
+      return next;
+    } catch (cause) {
+      if (!signal?.aborted)
+        setExecutionNotice(
+          cause instanceof Error
+            ? cause.message
+            : "Manual order reconciliation status is unavailable.",
+        );
+      return null;
+    }
+  }, []);
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      const [nextAccount, nextPositions, nextOrders, nextSymbols] = await Promise.all([
-        mt5Request<MT5Account>("/account", signal),
-        mt5Request<{ positions: MT5Position[] }>("/positions", signal),
-        mt5Request<{ orders: PendingOrder[] }>("/orders", signal),
+      const [rawPortfolio, nextSymbols] = await Promise.all([
+        mt5Request<MT5PortfolioSnapshot>("/portfolio", signal),
         mt5Request<{ watchlist: SymbolMapping[] }>("/symbols", signal),
       ]);
-      setAccount(nextAccount);
-      setPositions(nextPositions.positions);
-      setOrders(nextOrders.orders);
+      const nextPortfolio = mt5PortfolioSnapshotSchema.parse(rawPortfolio);
+      setAccount(nextPortfolio.account);
+      setPositions(nextPortfolio.positions);
+      setOrders(nextPortfolio.orders);
       setMappings(nextSymbols.watchlist);
+      const nextSignature = connectionSignature(
+        nextPortfolio.account,
+        nextSymbols.watchlist,
+      );
+      if (
+        preparedRef.current &&
+        preparedRef.current.connectionSignature !== nextSignature
+      ) {
+        preparedRef.current = null;
+        setPrepared(null);
+        setExecutionNotice(
+          "MT5 account or broker symbol mapping changed. Check the order again.",
+        );
+      }
       setError("");
     } catch (cause) {
       if (!signal?.aborted) {
@@ -78,6 +153,13 @@ export function MT5StatusPanel() {
         setPositions([]);
         setOrders([]);
         setMappings([]);
+        if (preparedRef.current) {
+          preparedRef.current = null;
+          setPrepared(null);
+          setExecutionNotice(
+            "MT5 connection changed. Check the order again after reconnecting.",
+          );
+        }
         setError(cause instanceof Error ? cause.message : "MT5 unavailable");
       }
     }
@@ -86,21 +168,24 @@ export function MT5StatusPanel() {
   useEffect(() => {
     const controller = new AbortController();
     void refresh(controller.signal);
+    void refreshManualState(controller.signal);
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") {
+        void refresh();
+        void refreshManualState();
+      }
     }, 15_000);
     return () => {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [refresh]);
+  }, [refresh, refreshManualState]);
 
   const orderBody = (confirmed: boolean, requestId: string) => ({
     requestId,
     symbol,
     action,
     volume: Number(volume),
-    ...(price ? { price: Number(price) } : {}),
     ...(stopLoss ? { stopLoss: Number(stopLoss) } : {}),
     ...(takeProfit ? { takeProfit: Number(takeProfit) } : {}),
     ...(positionTicket ? { positionTicket: Number(positionTicket) } : {}),
@@ -109,27 +194,45 @@ export function MT5StatusPanel() {
   });
 
   const checkOrder = async () => {
+    if (manualState.state !== "CLEAR") {
+      setExecutionNotice(manualState.message);
+      return;
+    }
     const requestId = crypto.randomUUID();
     const payload = orderBody(false, requestId);
     setBusy(true);
     setExecutionNotice("");
     try {
-      const result = await mt5Request<{ ok: boolean; comment?: string }>(
-        "/orders/check",
-        undefined,
-        { method: "POST", body: JSON.stringify(payload) },
-      );
-      if (!result.ok) throw new Error(result.comment || "Broker check rejected");
-      setPrepared({
-        requestId,
-        message: "Broker validation passed. Review every value before manual confirmation.",
-        payload,
+      const result = await mt5Request<{
+        ok: boolean;
+        comment?: string;
+        brokerSymbol?: string;
+        expiresAt?: string;
+      }>("/orders/check", undefined, {
+        method: "POST",
+        body: JSON.stringify(payload),
       });
+      if (!result.ok)
+        throw new Error(result.comment || "Broker check rejected");
+      if (!result.brokerSymbol || !result.expiresAt)
+        throw new Error("Broker check did not return an executable binding");
+      const nextPrepared = {
+        requestId,
+        message: `Broker validation passed for ${result.brokerSymbol}. Confirm within 60 seconds; account, mapping, or value changes require a new check.`,
+        payload,
+        brokerSymbol: result.brokerSymbol,
+        expiresAt: result.expiresAt,
+        connectionSignature: connectionSignature(account, mappings),
+      };
+      preparedRef.current = nextPrepared;
+      setPrepared(nextPrepared);
     } catch (cause) {
+      preparedRef.current = null;
       setPrepared(null);
       setExecutionNotice(
         cause instanceof Error ? cause.message : "Order check failed",
       );
+      await refreshManualState();
     } finally {
       setBusy(false);
     }
@@ -137,6 +240,22 @@ export function MT5StatusPanel() {
 
   const execute = async () => {
     if (!prepared) return;
+    if (Date.parse(prepared.expiresAt) <= Date.now()) {
+      preparedRef.current = null;
+      setPrepared(null);
+      setExecutionNotice("Broker check expired. Check the order again.");
+      return;
+    }
+    if (
+      prepared.connectionSignature !== connectionSignature(account, mappings)
+    ) {
+      preparedRef.current = null;
+      setPrepared(null);
+      setExecutionNotice(
+        "MT5 account or broker symbol mapping changed. Check the order again.",
+      );
+      return;
+    }
     if (
       !window.confirm(
         `Manually confirm ${action} ${volume} ${symbol}? This sends an order to the connected MT5 account.`,
@@ -159,12 +278,54 @@ export function MT5StatusPanel() {
           ? `MT5 accepted the manually confirmed order${result.order ? ` · ticket ${result.order}` : ""}.`
           : result.comment || "Broker rejected the order.",
       );
+      preparedRef.current = null;
       setPrepared(null);
       await refresh();
     } catch (cause) {
+      preparedRef.current = null;
+      setPrepared(null);
       setExecutionNotice(
         cause instanceof Error ? cause.message : "Execution failed",
       );
+      await refreshManualState();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reconcileManualOrder = async () => {
+    if (!manualState.requestId || !manualState.canReconcile) return;
+    setBusy(true);
+    setExecutionNotice(
+      "Reconciling the original request with MT5 broker history. No order will be resent.",
+    );
+    try {
+      const result = await mt5Request<ManualOrderState>(
+        "/orders/manual/reconcile",
+        undefined,
+        {
+          method: "POST",
+          body: JSON.stringify({ requestId: manualState.requestId }),
+        },
+      );
+      setManualState(
+        result.state === "RESOLVED"
+          ? {
+              state: "CLEAR",
+              requestId: null,
+              message: result.message,
+              canReconcile: false,
+              outcome: result.outcome,
+            }
+          : result,
+      );
+      setExecutionNotice(result.message);
+      await refresh();
+    } catch (cause) {
+      setExecutionNotice(
+        cause instanceof Error ? cause.message : "Reconciliation failed",
+      );
+      await refreshManualState();
     } finally {
       setBusy(false);
     }
@@ -172,18 +333,26 @@ export function MT5StatusPanel() {
 
   const saveMapping = async () => {
     if (!mappingBroker.trim()) return;
+    preparedRef.current = null;
+    setPrepared(null);
     setBusy(true);
     try {
-      await mt5Request(
-        `/symbols/mapping?internal=${encodeURIComponent(mappingInternal)}&broker=${encodeURIComponent(mappingBroker.trim())}`,
-        undefined,
-        { method: "PUT" },
+      await mt5Request("/symbols/mapping", undefined, {
+        method: "PUT",
+        body: JSON.stringify({
+          internal: mappingInternal,
+          broker: mappingBroker.trim(),
+        }),
+      });
+      setExecutionNotice(
+        `${mappingInternal} now maps to ${mappingBroker.trim()}.`,
       );
-      setExecutionNotice(`${mappingInternal} now maps to ${mappingBroker.trim()}.`);
       setMappingBroker("");
       await refresh();
     } catch (cause) {
-      setExecutionNotice(cause instanceof Error ? cause.message : "Symbol mapping failed");
+      setExecutionNotice(
+        cause instanceof Error ? cause.message : "Symbol mapping failed",
+      );
     } finally {
       setBusy(false);
     }
@@ -195,7 +364,8 @@ export function MT5StatusPanel() {
         <div>
           <h3>MetaTrader 5 bridge</h3>
           <p className="mb-muted">
-            Official MetaQuotes terminal connection · broker detected dynamically
+            Official MetaQuotes terminal connection · broker detected
+            dynamically
           </p>
         </div>
         <strong className="mb-value mb-status">
@@ -217,9 +387,12 @@ export function MT5StatusPanel() {
               "Execution",
               !account.tradingEnabled
                 ? "DISABLED"
-                : account.accountType === "LIVE" && !account.liveTradingAllowed
-                  ? "LIVE TRADING DISABLED"
-                  : "MANUAL CONFIRMATION",
+                : account.tradeApiDisabled
+                  ? "PYTHON TRADING DISABLED IN MT5"
+                  : account.accountType === "LIVE" &&
+                      !account.liveTradingAllowed
+                    ? "LIVE TRADING DISABLED"
+                    : "MANUAL CONFIRMATION",
             ],
           ].map(([label, value]) => (
             <div className="mb-panel" key={label}>
@@ -241,22 +414,29 @@ export function MT5StatusPanel() {
         <div className="mb-panel">
           <h3>Broker symbol mapping</h3>
           <p className="mb-muted">
-            Auto-detected from this terminal. Correct only uncertain or missing matches.
+            Auto-detected from this terminal. Correct only uncertain or missing
+            matches.
           </p>
           <div className="mb-grid">
             {mappings.map((item) => (
               <div key={item.internal}>
                 <span className="mb-muted">{item.internal}</span>
                 <strong className="mb-value">
-                  {item.broker || "UNMAPPED"} · {Math.round(item.confidence * 100)}%
+                  {item.broker || "UNMAPPED"} ·{" "}
+                  {Math.round(item.confidence * 100)}%
                   {item.manual ? " · MANUAL" : ""}
                 </strong>
               </div>
             ))}
           </div>
           <div className="mb-row mb-wrap">
-            <select value={mappingInternal} onChange={(event) => setMappingInternal(event.target.value)}>
-              {mappings.map((item) => <option key={item.internal}>{item.internal}</option>)}
+            <select
+              value={mappingInternal}
+              onChange={(event) => setMappingInternal(event.target.value)}
+            >
+              {mappings.map((item) => (
+                <option key={item.internal}>{item.internal}</option>
+              ))}
             </select>
             <input
               aria-label="Exact MT5 broker symbol"
@@ -264,7 +444,10 @@ export function MT5StatusPanel() {
               value={mappingBroker}
               onChange={(event) => setMappingBroker(event.target.value)}
             />
-            <button disabled={busy || !mappingBroker.trim()} onClick={() => void saveMapping()}>
+            <button
+              disabled={busy || !mappingBroker.trim()}
+              onClick={() => void saveMapping()}
+            >
               Verify and save mapping
             </button>
           </div>
@@ -276,24 +459,66 @@ export function MT5StatusPanel() {
           Execution AI prepares only. The broker check and a separate manual
           confirmation are required before order_send.
         </p>
+        {manualState.state !== "CLEAR" ? (
+          <div className="mb-panel" role="alert">
+            <strong>
+              {manualState.state === "RECONCILING"
+                ? "RECONCILING ORIGINAL REQUEST"
+                : "EXECUTION OUTCOME UNCERTAIN"}
+            </strong>
+            <p className="mb-muted">{manualState.message}</p>
+            {manualState.requestId ? (
+              <p className="mb-muted">Request: {manualState.requestId}</p>
+            ) : null}
+            <p className="mb-muted">
+              New manual checks and executions are locked. Reconciliation only
+              reads durable bridge state and broker history; it never resends.
+            </p>
+            <button
+              disabled={busy || !manualState.canReconcile}
+              onClick={() => void reconcileManualOrder()}
+            >
+              Reconcile original request
+            </button>
+          </div>
+        ) : null}
         <div className="mb-grid">
           <label>
             Symbol
-            <select value={symbol} onChange={(event) => { setSymbol(event.target.value); setPrepared(null); }}>
-              {["EUR/USD", "GBP/USD", "USD/JPY", "GBP/JPY", "EUR/JPY", "AUD/USD", "USD/CAD", "NZD/USD", "EUR/GBP", "XAU/USD"].map((item) => (
+            <select
+              value={symbol}
+              onChange={(event) => {
+                setSymbol(event.target.value);
+                preparedRef.current = null;
+                setPrepared(null);
+              }}
+            >
+              {[
+                "EUR/USD",
+                "GBP/USD",
+                "USD/JPY",
+                "GBP/JPY",
+                "EUR/JPY",
+                "AUD/USD",
+                "USD/CAD",
+                "NZD/USD",
+                "EUR/GBP",
+                "XAU/USD",
+              ].map((item) => (
                 <option key={item}>{item}</option>
               ))}
             </select>
           </label>
           <label>
             Order type
-            <select value={action} onChange={(event) => { setAction(event.target.value); setPrepared(null); }}>
-              <option value="MARKET_BUY">Market BUY</option>
-              <option value="MARKET_SELL">Market SELL</option>
-              <option value="BUY_LIMIT">Buy Limit</option>
-              <option value="SELL_LIMIT">Sell Limit</option>
-              <option value="BUY_STOP">Buy Stop</option>
-              <option value="SELL_STOP">Sell Stop</option>
+            <select
+              value={action}
+              onChange={(event) => {
+                setAction(event.target.value);
+                preparedRef.current = null;
+                setPrepared(null);
+              }}
+            >
               <option value="CLOSE">Close position</option>
               <option value="PARTIAL_CLOSE">Partial close</option>
               <option value="MODIFY">Modify SL / TP</option>
@@ -302,36 +527,71 @@ export function MT5StatusPanel() {
           </label>
           <label>
             Volume
-            <input type="number" min="0" step="any" value={volume} onChange={(event) => { setVolume(event.target.value); setPrepared(null); }} />
-          </label>
-          <label>
-            Pending price (pending orders only)
-            <input type="number" min="0" step="any" value={price} onChange={(event) => { setPrice(event.target.value); setPrepared(null); }} />
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={volume}
+              onChange={(event) => {
+                setVolume(event.target.value);
+                preparedRef.current = null;
+                setPrepared(null);
+              }}
+            />
           </label>
           <label>
             Stop loss
-            <input type="number" min="0" step="any" value={stopLoss} onChange={(event) => { setStopLoss(event.target.value); setPrepared(null); }} />
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={stopLoss}
+              onChange={(event) => {
+                setStopLoss(event.target.value);
+                preparedRef.current = null;
+                setPrepared(null);
+              }}
+            />
           </label>
           <label>
             Take profit
-            <input type="number" min="0" step="any" value={takeProfit} onChange={(event) => { setTakeProfit(event.target.value); setPrepared(null); }} />
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={takeProfit}
+              onChange={(event) => {
+                setTakeProfit(event.target.value);
+                preparedRef.current = null;
+                setPrepared(null);
+              }}
+            />
           </label>
-          {action === "CLOSE" || action === "PARTIAL_CLOSE" || action === "MODIFY" ? (
+          {action === "CLOSE" ||
+          action === "PARTIAL_CLOSE" ||
+          action === "MODIFY" ? (
             <label>
               Position
-              <select value={positionTicket} onChange={(event) => {
-                const next = positions.find((item) => String(item.ticket) === event.target.value);
-                setPositionTicket(event.target.value);
-                if (next) {
-                  setSymbol(next.symbol);
-                  setVolume(String(next.volume));
-                }
-                setPrepared(null);
-              }}>
+              <select
+                value={positionTicket}
+                onChange={(event) => {
+                  const next = positions.find(
+                    (item) => String(item.ticket) === event.target.value,
+                  );
+                  setPositionTicket(event.target.value);
+                  if (next) {
+                    setSymbol(next.symbol);
+                    setVolume(String(next.volume));
+                  }
+                  preparedRef.current = null;
+                  setPrepared(null);
+                }}
+              >
                 <option value="">Choose an open position</option>
                 {positions.map((item) => (
                   <option key={item.ticket} value={item.ticket}>
-                    #{item.ticket} · {item.symbol} · {item.direction} · {item.volume}
+                    #{item.ticket} · {item.symbol} · {item.direction} ·{" "}
+                    {item.volume}
                   </option>
                 ))}
               </select>
@@ -340,19 +600,26 @@ export function MT5StatusPanel() {
           {action === "CANCEL" ? (
             <label>
               Pending order
-              <select value={orderTicket} onChange={(event) => {
-                const next = orders.find((item) => String(item.ticket) === event.target.value);
-                setOrderTicket(event.target.value);
-                if (next) {
-                  setSymbol(next.symbol);
-                  setVolume(String(next.volume_current));
-                }
-                setPrepared(null);
-              }}>
+              <select
+                value={orderTicket}
+                onChange={(event) => {
+                  const next = orders.find(
+                    (item) => String(item.ticket) === event.target.value,
+                  );
+                  setOrderTicket(event.target.value);
+                  if (next) {
+                    setSymbol(next.symbol);
+                    setVolume(String(next.volume));
+                  }
+                  preparedRef.current = null;
+                  setPrepared(null);
+                }}
+              >
                 <option value="">Choose a pending order</option>
                 {orders.map((item) => (
                   <option key={item.ticket} value={item.ticket}>
-                    #{item.ticket} · {item.symbol} · {item.volume_current} @ {item.price_open}
+                    #{item.ticket} · {item.symbol} · {item.volume} @{" "}
+                    {item.price}
                   </option>
                 ))}
               </select>
@@ -360,10 +627,18 @@ export function MT5StatusPanel() {
           ) : null}
         </div>
         <div className="mb-row mb-wrap">
-          <button disabled={busy || !account?.tradingEnabled} onClick={() => void checkOrder()}>
+          <button
+            disabled={
+              busy || !account?.tradingEnabled || manualState.state !== "CLEAR"
+            }
+            onClick={() => void checkOrder()}
+          >
             Check with broker
           </button>
-          <button disabled={busy || !prepared} onClick={() => void execute()}>
+          <button
+            disabled={busy || !prepared || manualState.state !== "CLEAR"}
+            onClick={() => void execute()}
+          >
             Execute after confirmation
           </button>
         </div>
@@ -371,8 +646,10 @@ export function MT5StatusPanel() {
         {executionNotice ? <p role="status">{executionNotice}</p> : null}
       </div>
       <p className="mb-muted">
-        Orders always use the connected MT5 broker. Chart fallback data is never
-        used for execution.
+        New BUY/SELL and pending exposure must come from a READY setup through
+        Setup AI, News AI, Risk AI and Execution AI. This manual panel is only
+        for managing an existing broker position or pending order. Chart
+        fallback data is never used for execution.
       </p>
     </section>
   );

@@ -109,6 +109,36 @@
   opacity: 0.42;
 }
 
+.oxt-provider-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid rgba(84, 141, 204, 0.25);
+  border-radius: 12px;
+  background: rgba(3, 11, 24, 0.82);
+}
+
+.oxt-provider-switch button {
+  min-height: 28px;
+  border: 0;
+  padding: 6px 9px;
+  background: transparent;
+  color: #7189a6;
+}
+
+.oxt-provider-switch button.active {
+  background: rgba(20, 112, 181, 0.24);
+  color: #7fddff;
+  box-shadow: inset 0 0 0 1px rgba(75, 191, 238, 0.28);
+}
+
+.oxt-provider-switch button.active.is-mt5 {
+  background: rgba(18, 132, 97, 0.22);
+  color: #65efbe;
+  box-shadow: inset 0 0 0 1px rgba(46, 230, 166, 0.3);
+}
+
 .oxt-ai-toggle {
   display: none !important;
 }
@@ -906,6 +936,13 @@
   .oxt-head p {
     display: none;
   }
+  .oxt-provider-switch {
+    width: 100%;
+  }
+  .oxt-provider-switch button {
+    flex: 1;
+    justify-content: center;
+  }
   .oxt-mobile-close {
     width: 44px;
     height: 44px;
@@ -926,6 +963,10 @@
     height: 385px;
   }
   .oxt-chart-stage .oai-chart-detections {
+    grid-template-columns: 1fr;
+    padding: 8px 10px 10px;
+  }
+  .oxt-chart-stage .oai-chart-detections article:nth-child(n + 2) {
     display: none;
   }
   .oxt-tabs {

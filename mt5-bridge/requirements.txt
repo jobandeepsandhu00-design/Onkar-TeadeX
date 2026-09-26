@@ -1,4 +1,4 @@
-MetaTrader5>=5.0.45,<6; platform_system == "Windows"
+MetaTrader5==5.0.6180; platform_system == "Windows"
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
 pydantic==2.11.4

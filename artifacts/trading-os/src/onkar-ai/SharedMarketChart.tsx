@@ -17,6 +17,7 @@ import {
 } from "lightweight-charts";
 import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import type {
+  SharedChartProvider,
   SharedChartSymbol,
   SharedChartTimeframe,
   SharedMarketSnapshot,
@@ -45,6 +46,10 @@ const TIMEFRAMES: Array<{ value: SharedChartTimeframe; label: string }> = [
   { value: "1h", label: "1H" },
   { value: "4h", label: "4H" },
 ];
+const MT5_SYMBOLS = SYMBOLS.filter((item) =>
+  (["XAUUSD", "GBPJPY"] as SharedChartSymbol[]).includes(item.value),
+);
+const MT5_TIMEFRAMES = TIMEFRAMES;
 const detectionColors: Record<SetupDetection["status"], string> = {
   WATCHING: "#54b8ff",
   PARTIAL: "#f5bb55",
@@ -64,13 +69,20 @@ function ChartCandleClosure({ snapshot }: { snapshot: SharedMarketSnapshot }) {
     }, 1000);
     return () => window.clearInterval(timer);
   }, []);
-  const lastClosed = [...snapshot.candles].reverse().find((candle) => candle.closed);
-  return <CandleClosureReadout
-    timeframe={snapshot.timeframe}
-    lastClosedOpenTime={lastClosed?.t ?? null}
-    sourceAvailable={snapshot.dataStatus !== "cached" && snapshot.dataStatus !== "unavailable"}
-    now={now}
-  />;
+  const lastClosed = [...snapshot.candles]
+    .reverse()
+    .find((candle) => candle.closed);
+  return (
+    <CandleClosureReadout
+      timeframe={snapshot.timeframe}
+      lastClosedOpenTime={lastClosed?.t ?? null}
+      sourceAvailable={
+        snapshot.dataStatus !== "cached" &&
+        snapshot.dataStatus !== "unavailable"
+      }
+      now={now}
+    />
+  );
 }
 
 function chartTimeDate(time: Time) {
@@ -316,11 +328,12 @@ function markerTime(
 
 export type SharedChartTradeOverlay = {
   id: string;
+  label?: string;
   direction: "BUY" | "SELL";
   entry: number;
   stopLoss: number | null;
   takeProfit: number | null;
-  status: "OPEN" | "CLOSED" | "INVALIDATED";
+  status: "OPEN" | "PENDING" | "CLOSED" | "INVALIDATED";
   openedAt?: string | null;
   closedAt?: string | null;
   source: "PAPER" | "MT5";
@@ -330,6 +343,7 @@ const EMPTY_TRADE_OVERLAYS: SharedChartTradeOverlay[] = [];
 
 export type SharedMarketChartProps = {
   compact?: boolean;
+  providerMode?: SharedChartProvider;
   initialSymbol?: SharedChartSymbol;
   initialTimeframe?: SharedChartTimeframe;
   tradeOverlays?: SharedChartTradeOverlay[];
@@ -343,6 +357,7 @@ export type SharedMarketChartProps = {
 
 export function SharedMarketChart({
   compact = false,
+  providerMode,
   initialSymbol = "XAUUSD",
   initialTimeframe = "15m",
   tradeOverlays = EMPTY_TRADE_OVERLAYS,
@@ -350,6 +365,9 @@ export function SharedMarketChart({
   onUnavailable,
   onContextChange,
 }: SharedMarketChartProps) {
+  const availableSymbols = providerMode === "mt5" ? MT5_SYMBOLS : SYMBOLS;
+  const availableTimeframes =
+    providerMode === "mt5" ? MT5_TIMEFRAMES : TIMEFRAMES;
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const series = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -359,12 +377,19 @@ export function SharedMarketChart({
   const onSnapshotRef = useRef(onSnapshot);
   const onUnavailableRef = useRef(onUnavailable);
   const onContextChangeRef = useRef(onContextChange);
-  const [symbol, setSymbol] = useState<SharedChartSymbol>(
-    () => (getJarvisChart()?.symbol as SharedChartSymbol) || initialSymbol,
-  );
-  const [timeframe, setTimeframe] = useState<SharedChartTimeframe>(
-    () => getJarvisChart()?.timeframe || initialTimeframe,
-  );
+  const [symbol, setSymbol] = useState<SharedChartSymbol>(() => {
+    const requested =
+      (getJarvisChart()?.symbol as SharedChartSymbol) || initialSymbol;
+    return availableSymbols.some((item) => item.value === requested)
+      ? requested
+      : availableSymbols[0].value;
+  });
+  const [timeframe, setTimeframe] = useState<SharedChartTimeframe>(() => {
+    const requested = getJarvisChart()?.timeframe || initialTimeframe;
+    return availableTimeframes.some((item) => item.value === requested)
+      ? requested
+      : availableTimeframes[0].value;
+  });
   const [snapshot, setSnapshot] = useState<SharedMarketSnapshot | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -379,17 +404,31 @@ export function SharedMarketChart({
     onContextChangeRef.current = onContextChange;
   }, [onContextChange]);
   useEffect(() => {
-    onContextChangeRef.current?.(symbol, timeframe);
-  }, [symbol, timeframe]);
+    if (!availableSymbols.some((item) => item.value === symbol))
+      setSymbol(availableSymbols[0].value);
+    if (!availableTimeframes.some((item) => item.value === timeframe))
+      setTimeframe(availableTimeframes[0].value);
+  }, [providerMode, symbol, timeframe]);
+  useEffect(() => {
+    if (
+      availableSymbols.some((item) => item.value === symbol) &&
+      availableTimeframes.some((item) => item.value === timeframe)
+    )
+      onContextChangeRef.current?.(symbol, timeframe);
+  }, [providerMode, symbol, timeframe]);
   useEffect(
     () =>
       subscribeJarvisChart((command) => {
         if (
           command.symbol &&
-          SYMBOLS.some((item) => item.value === command.symbol)
+          availableSymbols.some((item) => item.value === command.symbol)
         )
           setSymbol(command.symbol as SharedChartSymbol);
-        if (command.timeframe) setTimeframe(command.timeframe);
+        if (
+          command.timeframe &&
+          availableTimeframes.some((item) => item.value === command.timeframe)
+        )
+          setTimeframe(command.timeframe);
         const scale = chart.current?.timeScale();
         if (command.zoom === "reset") scale?.fitContent();
         else if (command.zoom && scale) {
@@ -405,7 +444,7 @@ export function SharedMarketChart({
           }
         }
       }),
-    [],
+    [providerMode],
   );
 
   useEffect(() => {
@@ -493,18 +532,33 @@ export function SharedMarketChart({
   }, [compact, timezone]);
 
   useEffect(() => {
+    if (
+      !availableSymbols.some((item) => item.value === symbol) ||
+      !availableTimeframes.some((item) => item.value === timeframe)
+    )
+      return;
     const abort = new AbortController();
     let active = true;
     let timer: number | undefined;
     let inFlight = false;
-    const load = async (initial = false) => {
+    const load = async (initial = false, force = false) => {
       if (inFlight) return;
       inFlight = true;
       if (timer) window.clearTimeout(timer);
       if (initial) setLoading(true);
       try {
-        const next = await fetchSharedMarket(symbol, timeframe, abort.signal);
+        const next = await fetchSharedMarket(
+          symbol,
+          timeframe,
+          abort.signal,
+          providerMode,
+          force,
+        );
         if (!active) return;
+        if (providerMode && next.provider !== providerMode)
+          throw new Error(
+            `${providerMode === "mt5" ? "MT5" : "Twelve Data"} chart source isolation failed.`,
+          );
         setSnapshot(next);
         onSnapshotRef.current?.(next);
         setError("");
@@ -517,6 +571,14 @@ export function SharedMarketChart({
         const message =
           cause instanceof Error ? cause.message : "Market data unavailable.";
         setError(message);
+        setSnapshot(null);
+        series.current?.setData([]);
+        if (series.current)
+          for (const line of lines.current)
+            series.current.removePriceLine(line);
+        lines.current = [];
+        markers.current?.setMarkers([]);
+        lastKey.current = "";
         onUnavailableRef.current?.(message);
         timer = window.setTimeout(() => void load(), 60_000);
       } finally {
@@ -524,8 +586,16 @@ export function SharedMarketChart({
         if (active) setLoading(false);
       }
     };
+    setSnapshot(null);
+    setError("");
+    series.current?.setData([]);
+    if (series.current)
+      for (const line of lines.current) series.current.removePriceLine(line);
+    lines.current = [];
+    markers.current?.setMarkers([]);
+    lastKey.current = "";
     const refreshNow = () => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") void load(false, true);
     };
     void load(true);
     window.addEventListener(LIVE_REFRESH_EVENT, refreshNow);
@@ -535,7 +605,7 @@ export function SharedMarketChart({
       if (timer) window.clearTimeout(timer);
       window.removeEventListener(LIVE_REFRESH_EVENT, refreshNow);
     };
-  }, [symbol, timeframe]);
+  }, [providerMode, symbol, timeframe]);
 
   useEffect(() => {
     const candleSeries = series.current;
@@ -547,7 +617,7 @@ export function SharedMarketChart({
       low: candle.l,
       close: candle.c,
     }));
-    const key = `${snapshot.symbol}:${snapshot.timeframe}`;
+    const key = `${snapshot.provider}:${snapshot.symbol}:${snapshot.timeframe}`;
     // Reconcile the whole bounded series. Updating only the newest bar leaves
     // the previous forming candle with stale OHLC after it closes.
     candleSeries.setData(data);
@@ -653,21 +723,33 @@ export function SharedMarketChart({
         );
       }
     }
-    for (const trade of tradeOverlays.filter(
-      (item) => item.status === "OPEN",
+    for (const trade of tradeOverlays.filter((item) =>
+      ["OPEN", "PENDING"].includes(item.status),
     )) {
+      const pending = trade.status === "PENDING";
+      const tradeLabel = trade.label ? `${trade.label} · ` : "";
       const atBreakEven =
         trade.stopLoss !== null &&
         Math.abs(trade.stopLoss - trade.entry) <=
           Math.max(Math.abs(trade.entry) * 0.000001, Number.EPSILON);
       const levels = [
-        [trade.entry, `${trade.source} ${trade.direction} · Entry`, "#54b8ff"],
+        [
+          trade.entry,
+          `${trade.source} ${trade.direction} · ${tradeLabel}${pending ? "Pending entry" : "Entry"}`,
+          "#54b8ff",
+        ],
         [
           trade.stopLoss,
-          atBreakEven ? "Break-even" : "Active trade SL",
+          atBreakEven
+            ? `${tradeLabel}Break-even`
+            : `${tradeLabel}${pending ? "Pending" : "Active trade"} SL`,
           atBreakEven ? "#f5bb55" : "#ff647c",
         ],
-        [trade.takeProfit, "Active trade TP", "#2ee6a6"],
+        [
+          trade.takeProfit,
+          `${tradeLabel}${pending ? "Pending" : "Active trade"} TP`,
+          "#2ee6a6",
+        ],
       ] as const;
       for (const [value, title, color] of levels) {
         if (value === null) continue;
@@ -722,7 +804,7 @@ export function SharedMarketChart({
             position: trade.direction === "SELL" ? "aboveBar" : "belowBar",
             color: "#54b8ff",
             shape: trade.direction === "SELL" ? "arrowDown" : "arrowUp",
-            text: `${trade.source} ${trade.direction} · OPEN`,
+            text: `${trade.source} ${trade.direction}${trade.label ? ` ${trade.label}` : ""} · ${trade.status}`,
           });
         if (closeTime !== null)
           rows.push({
@@ -748,13 +830,13 @@ export function SharedMarketChart({
       <div className="oai-live-chart-head">
         <div>
           <small>
-            {snapshot?.provider === "mt5"
+            {(snapshot?.provider ?? providerMode) === "mt5"
               ? "MT5 BROKER FEED · SHARED MARKET CONTEXT"
               : `DATA SOURCE: ${snapshot?.dataSource === "fallback" ? "FALLBACK" : "PRIMARY"} · TWELVE DATA`}
           </small>
           <h3>
             {snapshot?.displaySymbol ||
-              SYMBOLS.find((item) => item.value === symbol)?.label}
+              availableSymbols.find((item) => item.value === symbol)?.label}
           </h3>
           <span
             className={`oai-market-state is-${snapshot?.dataStatus || "loading"}`}
@@ -782,14 +864,14 @@ export function SharedMarketChart({
               setSymbol(event.target.value as SharedChartSymbol)
             }
           >
-            {SYMBOLS.map((item) => (
+            {availableSymbols.map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
               </option>
             ))}
           </select>
           <div role="group" aria-label="Chart timeframe">
-            {TIMEFRAMES.map((item) => (
+            {availableTimeframes.map((item) => (
               <button
                 key={item.value}
                 className={timeframe === item.value ? "active" : ""}
@@ -812,7 +894,7 @@ export function SharedMarketChart({
         </div>
       </div>
       {snapshot?.quote && (
-        <div className="oai-live-ohlc" aria-label="MT5 live quote">
+        <div className="oai-live-ohlc" aria-label="Live provider quote">
           <span>
             Bid <b>{snapshot.quote.bid}</b>
           </span>
@@ -908,7 +990,11 @@ export function SharedMarketChart({
       )}
       {snapshot?.workflow && (
         <details className="oai-workflow-audit">
-          <summary>How Twelve Data becomes a trade decision</summary>
+          <summary>
+            How{" "}
+            {snapshot.provider === "mt5" ? "MT5 broker data" : "Twelve Data"}{" "}
+            becomes a trade decision
+          </summary>
           <p>
             The selected {timeframe.toUpperCase()} chart may contain a forming
             candle. Setup AI evaluates every approved setup against shared,
@@ -916,7 +1002,8 @@ export function SharedMarketChart({
           </p>
           <ol>
             <li>
-              Twelve Data candles are normalized and checked for freshness.
+              {snapshot.provider === "mt5" ? "MT5 broker" : "Twelve Data"}{" "}
+              candles are normalized and checked for freshness.
             </li>
             <li>4H bias and major structure are calculated.</li>
             <li>1H alignment, price location and setup zone are calculated.</li>
@@ -939,7 +1026,10 @@ export function SharedMarketChart({
           </div>
           {snapshot.workflow.gate.missing.length > 0 && (
             <div className="oai-workflow-audit__missing">
-              <b>Shared workflow missing (Paper Fast Entry can use a setup-specific closed-candle path):</b>
+              <b>
+                Shared workflow missing (Paper Fast Entry can use a
+                setup-specific closed-candle path):
+              </b>
               {snapshot.workflow.gate.missing.map((item) => (
                 <span key={item}>{item}</span>
               ))}
@@ -955,7 +1045,7 @@ export function SharedMarketChart({
       <div
         ref={container}
         className="oai-lightweight-chart"
-        aria-label={`${symbol} ${timeframe} candlestick chart`}
+        aria-label={`${snapshot?.provider ?? providerMode ?? "configured"} ${symbol} ${timeframe} candlestick chart`}
       />
       {error && (
         <div className="oai-chart-message" role="alert">

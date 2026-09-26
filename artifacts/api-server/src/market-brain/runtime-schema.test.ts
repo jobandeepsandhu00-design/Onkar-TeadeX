@@ -4,6 +4,9 @@ import {
   scannerConfigSchema,
   scannerConfigWithCurrentScorePolicy,
   scannerRuntimeSchema,
+  mt5HistoryTradeSchema,
+  mt5PendingOrderSchema,
+  mt5PositionSchema,
 } from "@workspace/api-zod";
 
 test("scanner runtime accepts Supabase timestamptz offsets", () => {
@@ -38,7 +41,10 @@ test("permission center defaults keep analysis and Paper safe while MT5 live is 
   assert.equal(config.permissions.mt5LiveExecution, false);
   assert.equal(config.permissions.autoTradeClose, false);
   assert.equal(config.paperFastEntry, false);
-  assert.equal(scannerConfigSchema.parse({ paperFastEntry: true }).paperFastEntry, true);
+  assert.equal(
+    scannerConfigSchema.parse({ paperFastEntry: true }).paperFastEntry,
+    true,
+  );
   assert.equal(config.tradeManagement.breakEvenTriggerR, 1);
   assert.equal(config.tradeManagement.partialClosePercent, 50);
   assert.equal(config.tradeManagement.stopModificationLockR, 0.5);
@@ -60,4 +66,51 @@ test("opportunity score policy defaults to 20 and upgrades the original profile"
   assert.equal(upgraded.minimumScore, 20);
   assert.equal(upgraded.aiThreshold, 20);
   assert.equal(upgraded.alertThreshold, 20);
+});
+
+test("MT5 broker position and pending-order responses retain chart fields", () => {
+  const position = mt5PositionSchema.parse({
+    ticket: 42,
+    symbol: "XAU/USD",
+    brokerSymbol: "XAUUSD.a",
+    direction: "BUY",
+    volume: 0.1,
+    entryPrice: 2300,
+    currentPrice: 2301,
+    stopLoss: 2290,
+    takeProfit: 2320,
+    profitLoss: 10,
+    openTime: Date.UTC(2026, 8, 21),
+  });
+  const order = mt5PendingOrderSchema.parse({
+    ticket: 43,
+    symbol: "GBP/JPY",
+    brokerSymbol: "GBPJPYm",
+    type: 2,
+    volume: 0.2,
+    price: 209.5,
+    stopLoss: 209,
+    takeProfit: 210.5,
+    createdAt: Date.UTC(2026, 8, 21),
+    comment: "OTX:test",
+    magic: 260923,
+  });
+
+  assert.equal(position.brokerSymbol, "XAUUSD.a");
+  assert.equal(order.price, 209.5);
+  assert.equal(order.volume, 0.2);
+  const history = mt5HistoryTradeSchema.parse({
+    positionTicket: 44,
+    symbol: "XAU/USD",
+    brokerSymbol: "XAUUSD.a",
+    direction: "SELL",
+    volume: 0.1,
+    entryPrice: 2301,
+    entryTime: Date.UTC(2026, 8, 21),
+    exitPrice: 2295,
+    exitTime: Date.UTC(2026, 8, 22),
+    profitLoss: 60,
+    status: "Closed",
+  });
+  assert.equal(history.status, "Closed");
 });

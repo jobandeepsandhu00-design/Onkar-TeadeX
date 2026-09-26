@@ -80,6 +80,8 @@ export const sharedChartSymbolSchema = z.enum([
 export const sharedChartTimeframeSchema = z.enum(["15m", "30m", "1h", "4h"]);
 export type SharedChartSymbol = z.infer<typeof sharedChartSymbolSchema>;
 export type SharedChartTimeframe = z.infer<typeof sharedChartTimeframeSchema>;
+export const sharedChartProviderSchema = z.enum(["mt5", "twelvedata"]);
+export type SharedChartProvider = z.infer<typeof sharedChartProviderSchema>;
 export const chartCandleSchema = z
   .object({
     t: z.number().int().nonnegative(),
@@ -245,13 +247,18 @@ export const sharedMarketSnapshotSchema = z.object({
   symbol: sharedChartSymbolSchema,
   displaySymbol: z.string(),
   timeframe: sharedChartTimeframeSchema,
-  provider: z.enum(["mt5", "twelvedata"]),
+  provider: sharedChartProviderSchema,
   dataSource: z.enum(["broker", "primary", "fallback"]),
   dataStatus: z.enum(["live", "delayed", "cached", "unavailable"]),
   fetchedAt: z.string().datetime(),
   broker: z.string().nullable().default(null),
   server: z.string().nullable().default(null),
   accountType: z.enum(["DEMO", "LIVE", "CONTEST"]).nullable().default(null),
+  // Browser-safe app account scope. The opaque MT5 HMAC fingerprint remains
+  // server-only; this id lets the UI fail closed when the selected account
+  // changes while an earlier chart response is still on screen.
+  scopeAccountId: z.string().nullable().default(null),
+  accountIdentityVerified: z.boolean().default(false),
   quote: z
     .object({
       bid: z.number().finite(),
@@ -274,13 +281,15 @@ export const sharedMarketSnapshotSchema = z.object({
 export type SharedMarketSnapshot = z.infer<typeof sharedMarketSnapshotSchema>;
 export const candleClosureSnapshotSchema = z.object({
   symbol: sharedChartSymbolSchema,
-  provider: z.enum(["mt5", "twelvedata"]),
+  provider: sharedChartProviderSchema,
   fetchedAt: z.string().datetime(),
-  candles: z.array(z.object({
-    timeframe: sharedChartTimeframeSchema,
-    lastClosedOpenTime: z.number().int().nonnegative().nullable(),
-    storedAt: z.string().datetime({ offset: true }).nullable(),
-  })),
+  candles: z.array(
+    z.object({
+      timeframe: sharedChartTimeframeSchema,
+      lastClosedOpenTime: z.number().int().nonnegative().nullable(),
+      storedAt: z.string().datetime({ offset: true }).nullable(),
+    }),
+  ),
 });
 export type CandleClosureSnapshot = z.infer<typeof candleClosureSnapshotSchema>;
 export const FEATURES = [
@@ -540,6 +549,7 @@ export type ScannerCandidate = {
   payload: {
     strategyName?: string;
     provider?: string;
+    scopeAccountId?: string | null;
     source: string;
     direction: "long" | "short";
     marketBias: string;
@@ -589,6 +599,38 @@ export type ScannerCandidate = {
     };
   };
 };
+
+/**
+ * Defense-in-depth for browser consumers. The server performs the authoritative
+ * HMAC binding check; the UI additionally refuses to reuse an MT5 snapshot or
+ * candidate after the selected app account changes.
+ */
+export function mt5SnapshotMatchesSelectedAccount(
+  snapshot: SharedMarketSnapshot | null | undefined,
+  selectedAccountId: string | null | undefined,
+) {
+  return Boolean(
+    snapshot &&
+    snapshot.provider === "mt5" &&
+    snapshot.accountIdentityVerified &&
+    selectedAccountId &&
+    snapshot.scopeAccountId === selectedAccountId,
+  );
+}
+
+export function candidateMatchesProviderAccount(
+  candidate: ScannerCandidate,
+  provider: SharedChartProvider,
+  selectedAccountId: string | null | undefined,
+) {
+  return provider !== "mt5"
+    ? candidate.payload.provider === provider
+    : Boolean(
+        selectedAccountId &&
+        candidate.payload.provider === "mt5" &&
+        candidate.payload.scopeAccountId === selectedAccountId,
+      );
+}
 export type RiskResult = {
   entry: number;
   stop: number;

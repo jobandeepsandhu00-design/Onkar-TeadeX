@@ -5,15 +5,31 @@ import {
   TWELVE_DATA_MIN_CYCLE_SECONDS,
   type Candle,
   type CandleClosureSnapshot,
+  type MT5Account,
+  type MT5CandleBundle,
+  type MT5CandleBundleTimeframe,
   type SharedChartSymbol,
   type SharedChartTimeframe,
+  type SharedChartProvider,
   type SharedMarketSnapshot,
   type SetupDetection,
   type Timeframe,
 } from "@workspace/api-zod";
 import { getMarketProvider } from "./providers";
-import { getMT5Account } from "../mt5/client";
-import { ScannerStore, type CandidateRow, type ConfigRow } from "./store";
+import { getMT5CandleBundle } from "../mt5/client";
+import {
+  mt5AccountBindingMatches,
+  mt5CandidateProvenanceMatches,
+  mt5ScanAccountMatches,
+  type MT5AccountBinding,
+  type MT5CandidateProvenance,
+} from "../mt5/account-identity";
+import {
+  ScannerError,
+  ScannerStore,
+  type CandidateRow,
+  type ConfigRow,
+} from "./store";
 import {
   buildGlobalTradingWorkflow,
   GLOBAL_WORKFLOW_TIMEFRAMES,
@@ -61,12 +77,14 @@ export async function getCandleClosureSnapshot(args: {
   const now = Date.now();
   const timeframes = ["15m", "30m", "1h", "4h"] as const;
   const service = args.store ?? ScannerStore.service();
-  const requestedProvider = args.config?.config.provider === "mt5" ? "mt5" : "twelvedata";
-  const read = (provider: "mt5" | "twelvedata") => Promise.all(
-    timeframes.map(async (timeframe) => {
-      const [row] = await service.request<Array<{ open_time: number; ingested_at: string }>>(
-        "market_candles",
-        {
+  const requestedProvider =
+    args.config?.config.provider === "mt5" ? "mt5" : "twelvedata";
+  const read = (provider: "mt5" | "twelvedata") =>
+    Promise.all(
+      timeframes.map(async (timeframe) => {
+        const [row] = await service.request<
+          Array<{ open_time: number; ingested_at: string }>
+        >("market_candles", {
           select: "open_time,ingested_at",
           provider: `eq.${provider}`,
           symbol: `eq.${args.symbol}`,
@@ -74,25 +92,19 @@ export async function getCandleClosureSnapshot(args: {
           open_time: `lte.${now - timeframeMs[timeframe]}`,
           order: "open_time.desc",
           limit: "1",
-        },
-      );
-      return {
-        timeframe,
-        lastClosedOpenTime: row ? Number(row.open_time) : null,
-        storedAt: row?.ingested_at ?? null,
-      };
-    }),
-  );
-  let provider: "mt5" | "twelvedata" = requestedProvider;
-  let candles = await read(provider);
-  if (
-    provider === "mt5" &&
-    candles.every((item) => item.lastClosedOpenTime === null) &&
-    process.env.MARKET_DATA_FALLBACK_ENABLED === "true"
-  ) {
-    provider = "twelvedata";
-    candles = await read(provider);
-  }
+        });
+        return {
+          timeframe,
+          lastClosedOpenTime: row ? Number(row.open_time) : null,
+          storedAt: row?.ingested_at ?? null,
+        };
+      }),
+    );
+  // Candle-clock cards must describe the configured provider only. An empty
+  // MT5 clock is an MT5 availability warning, never permission to display a
+  // Twelve Data timestamp under an MT5 label.
+  const provider = requestedProvider;
+  const candles = await read(provider);
   return candleClosureSnapshotSchema.parse({
     symbol: args.symbol,
     provider,
@@ -129,28 +141,90 @@ function uniqueBars(rows: ProviderBar[]) {
   );
 }
 
+export function mt5BundleMarketEntries(
+  bundle: MT5CandleBundle,
+  requestedTimeframes: ReadonlySet<Timeframe>,
+) {
+  return [...requestedTimeframes].map((timeframe) => {
+    if (!["15m", "30m", "1h", "4h"].includes(timeframe))
+      throw new ScannerError(
+        `MT5 does not support chart timeframe ${timeframe}.`,
+        400,
+      );
+    const rows =
+      bundle.timeframes[timeframe as MT5CandleBundleTimeframe] ?? [];
+    if (!rows.length)
+      throw new ScannerError(
+        `MT5 returned no ${timeframe} candles for ${bundle.symbol.internalSymbol}.`,
+        503,
+      );
+    const candles = rows.map((bar) => ({
+      t: bar.time * 1000,
+      o: bar.open,
+      h: bar.high,
+      l: bar.low,
+      c: bar.close,
+      v: bar.tick_volume,
+      closed: bar.isClosed,
+    }));
+    const hasForming = candles.some((bar) => !bar.closed);
+    return [
+      timeframe,
+      {
+        candles,
+        dataStatus: hasForming ? ("live" as const) : ("delayed" as const),
+        warnings: hasForming
+          ? []
+          : [
+              "MT5 did not return a forming candle; the broker's latest closed candles are shown.",
+            ],
+      },
+    ] as const;
+  });
+}
+
 export async function sharedProviderCandles(
   service: ScannerStore,
   providerName: "mt5" | "twelvedata",
   symbol: string,
   timeframe: Timeframe,
   now = Date.now(),
-  options: { cacheMode?: SharedMarketCacheMode } = {},
+  options: {
+    cacheMode?: SharedMarketCacheMode;
+    strictSource?: boolean;
+    providerFactory?: typeof getMarketProvider;
+  } = {},
 ) {
   const cacheMode = options.cacheMode ?? "live";
-  const cacheKey = `${providerName}:${symbol}:${timeframe}:${cacheMode}`;
-  const cachedPromise = snapshotPromises.get(cacheKey);
-  if (cachedPromise && cachedPromise.expiresAt > now)
-    return cachedPromise.promise;
+  const strictSource = options.strictSource === true;
+  // A strict MT5 request represents the terminal/account that is connected at
+  // the instant of the request. Reusing even a short-lived promise after the
+  // operator changes account or broker server can surface candles from the
+  // previous session. Keep the shared cache for Twelve Data and non-strict
+  // callers, but always ask the bridge again for explicit MT5 reads.
+  const bypassSnapshotCache = strictSource && providerName === "mt5";
+  const cacheKey = `${providerName}:${symbol}:${timeframe}:${cacheMode}:${strictSource ? "strict" : "shared"}`;
+  if (!bypassSnapshotCache) {
+    const cachedPromise = snapshotPromises.get(cacheKey);
+    if (cachedPromise && cachedPromise.expiresAt > now)
+      return cachedPromise.promise;
+  }
 
   const promise = (async () => {
-    const stored = await service.request<StoredBar[]>("market_candles", {
-      provider: `eq.${providerName}`,
-      symbol: `eq.${symbol}`,
-      timeframe: `eq.${timeframe}`,
-      order: "open_time.desc",
-      limit: "300",
-    });
+    // A dedicated MT5 chart must show the currently connected broker's exact
+    // series. It must not merge rows left by another terminal/account or use a
+    // Twelve Data fallback. The normal scanner path keeps its durable closed
+    // candle cache; strict MT5 reads come directly from the bridge.
+    const stored =
+      strictSource && providerName === "mt5"
+        ? []
+        : await service.request<StoredBar[]>("market_candles", {
+            provider: `eq.${providerName}`,
+            symbol: `eq.${symbol}`,
+            timeframe: `eq.${timeframe}`,
+            order: "open_time.desc",
+            limit: "300",
+          });
     const storedCandles = stored.reverse().map((row) => ({
       t: Number(row.open_time),
       o: row.o,
@@ -173,7 +247,9 @@ export async function sharedProviderCandles(
         warnings: [],
       };
     }
-    const provider = getMarketProvider(providerName);
+    const provider = (options.providerFactory ?? getMarketProvider)(
+      providerName,
+    );
     const from = storedCandles.at(-1)?.t
       ? Math.max(
           storedCandles.at(-1)!.t - timeframeMs[timeframe],
@@ -184,11 +260,15 @@ export async function sharedProviderCandles(
       const fetched = provider.getBarsIncludingOpen
         ? await provider.getBarsIncludingOpen(symbol, timeframe, from, now)
         : await provider.getHistoricalBars(symbol, timeframe, from, now);
-      const all = uniqueBars([...storedCandles, ...fetched]).slice(-300);
+      const all = uniqueBars(
+        strictSource && providerName === "mt5"
+          ? fetched
+          : [...storedCandles, ...fetched],
+      ).slice(-300);
       const isClosed = (bar: ProviderBar) =>
         bar.closed ?? bar.t + timeframeMs[timeframe] <= now;
       const closed = all.filter(isClosed);
-      if (closed.length) {
+      if (closed.length && !(strictSource && providerName === "mt5")) {
         await service.request(
           "market_candles",
           { on_conflict: "provider,symbol,timeframe,open_time" },
@@ -247,6 +327,8 @@ export async function sharedProviderCandles(
       : cacheMode === "closed-candle"
         ? closedCandleCacheMs(timeframe, now)
         : TWELVE_DATA_MIN_CYCLE_SECONDS * 1000;
+  if (bypassSnapshotCache) return promise;
+
   snapshotPromises.set(cacheKey, { expiresAt: now + cacheMs, promise });
   void promise.then((result) => {
     if (result.dataStatus !== "cached" && result.dataStatus !== "unavailable")
@@ -255,7 +337,9 @@ export async function sharedProviderCandles(
     if (current?.promise === promise)
       snapshotPromises.set(cacheKey, {
         ...current,
-        expiresAt: Date.now() + 60_000,
+        expiresAt:
+          Date.now() +
+          (strictSource && providerName === "mt5" ? 5_000 : 60_000),
       });
   });
   promise.catch(() => snapshotPromises.delete(cacheKey));
@@ -361,80 +445,209 @@ export function mapDetection(candidate: CandidateRow): SetupDetection {
   };
 }
 
+export type VerifiedMT5ChartContext = {
+  selectedAccountId: string;
+  accountFingerprint: string;
+  brokerSymbol: string;
+  binding: MT5AccountBinding;
+};
+
+/**
+ * Validate one complete MT5 chart read. This check intentionally uses the
+ * server-only account fingerprint and the resolved broker symbol; neither is
+ * exposed to the browser. Any account/server or symbol remap during the
+ * multi-timeframe fetch invalidates the entire response.
+ */
+export function mt5ChartContextMatches(args: {
+  binding: MT5AccountBinding | null | undefined;
+  selectedAccountId: string | null | undefined;
+  beforeFingerprint: string | null | undefined;
+  afterFingerprint: string | null | undefined;
+  beforeBrokerSymbol: string | null | undefined;
+  afterBrokerSymbol: string | null | undefined;
+  quoteBrokerSymbol?: string | null | undefined;
+}) {
+  return Boolean(
+    mt5ScanAccountMatches(
+      args.binding,
+      args.selectedAccountId,
+      args.beforeFingerprint,
+      args.afterFingerprint,
+    ) &&
+    args.beforeBrokerSymbol &&
+    args.afterBrokerSymbol &&
+    args.beforeBrokerSymbol === args.afterBrokerSymbol &&
+    (!args.quoteBrokerSymbol ||
+      args.quoteBrokerSymbol === args.beforeBrokerSymbol),
+  );
+}
+
+export function filterVerifiedMT5ChartCandidates(args: {
+  candidates: CandidateRow[];
+  provenances: MT5CandidateProvenance[];
+  context: VerifiedMT5ChartContext;
+}) {
+  const provenanceByCandidate = new Map(
+    args.provenances.map((row) => [row.candidate_id, row]),
+  );
+  return args.candidates.filter(
+    (candidate) =>
+      candidate.payload.provider === "mt5" &&
+      candidate.payload.scopeAccountId === args.context.selectedAccountId &&
+      mt5CandidateProvenanceMatches(
+        provenanceByCandidate.get(candidate.id),
+        args.context.binding,
+        candidate.id,
+        candidate.last_candle_at,
+        args.context.selectedAccountId,
+        args.context.accountFingerprint,
+        args.context.brokerSymbol,
+      ),
+  );
+}
+
 export async function getSharedMarketSnapshot(args: {
   user: ScannerStore;
   config?: ConfigRow;
   symbol: SharedChartSymbol;
   timeframe: SharedChartTimeframe;
+  provider?: SharedChartProvider;
+  strictProvider?: boolean;
 }): Promise<SharedMarketSnapshot> {
   const service = ScannerStore.service();
   const requestedProvider =
-    args.config?.config.provider === "mt5" ? "mt5" : "twelvedata";
-  let activeProvider: "mt5" | "twelvedata" = requestedProvider;
-  let fallbackWarning: string | null = null;
+    args.provider ??
+    (args.config?.config.provider === "mt5" ? "mt5" : "twelvedata");
+  const activeProvider: "mt5" | "twelvedata" = requestedProvider;
   const requestedTimeframes = new Set<Timeframe>([
     args.timeframe,
     ...GLOBAL_WORKFLOW_TIMEFRAMES,
   ]);
-  let marketEntries = await Promise.all(
-    [...requestedTimeframes].map(
-      async (timeframe) =>
-        [
-          timeframe,
-          await sharedProviderCandles(
-            service,
-            requestedProvider,
-            args.symbol,
-            timeframe,
-            Date.now(),
-            {
-              // The selected chart receives the provider's forming candle.
-              // The scanner contexts remain closed-candle-only.
-              cacheMode:
-                timeframe === args.timeframe ? "live" : "closed-candle",
-            },
-          ),
-        ] as const,
-    ),
-  );
-  if (
-    requestedProvider === "mt5" &&
-    marketEntries.every(([, market]) => market.dataStatus === "unavailable") &&
-    process.env.MARKET_DATA_FALLBACK_ENABLED === "true"
-  ) {
-    activeProvider = "twelvedata";
-    fallbackWarning =
-      "MT5 is disconnected. DATA SOURCE: FALLBACK (Twelve Data). Broker execution remains unavailable.";
-    marketEntries = await Promise.all(
-      [...requestedTimeframes].map(
-        async (timeframe) =>
-          [
-            timeframe,
-            await sharedProviderCandles(
-              service,
-              "twelvedata",
-              args.symbol,
-              timeframe,
-              Date.now(),
-              {
-                cacheMode:
-                  timeframe === args.timeframe ? "live" : "closed-candle",
-              },
-            ),
-          ] as const,
-      ),
+  let mt5Context: VerifiedMT5ChartContext | null = null;
+  let mt5Bundle: MT5CandleBundle | null = null;
+  let account: MT5Account | null = null;
+  let quote: Awaited<
+    ReturnType<ReturnType<typeof getMarketProvider>["getQuote"]>
+  > | null = null;
+  if (requestedProvider === "mt5") {
+    const selectedAccountId = args.config?.config.accountId;
+    if (!args.config?.user_id || !selectedAccountId)
+      throw new ScannerError(
+        "Select and sync the exact imported MT5 account before opening the MT5 chart.",
+        409,
+      );
+    const bindings = await service.request<MT5AccountBinding[]>(
+      "mt5_account_bindings",
+      {
+        user_id: `eq.${args.config.user_id}`,
+        selected_account_id: `eq.${selectedAccountId}`,
+        select: "selected_account_id,account_fingerprint",
+        limit: "1",
+      },
     );
+    const binding = bindings[0] ?? null;
+    if (!binding)
+      throw new ScannerError(
+        "The selected account has no verified MT5 identity binding. Sync MT5 again before viewing broker candles.",
+        409,
+      );
+    mt5Bundle = await getMT5CandleBundle(
+      binding.account_fingerprint,
+      args.symbol,
+      [...requestedTimeframes] as MT5CandleBundleTimeframe[],
+      300,
+    );
+    if (
+      !mt5AccountBindingMatches(
+        binding,
+        selectedAccountId,
+        mt5Bundle.account.accountFingerprint,
+      )
+    )
+      throw new ScannerError(
+        "The selected account does not match the connected MT5 terminal. Sync MT5 again before viewing broker candles.",
+        409,
+      );
+    if (!mt5Bundle.symbol.brokerSymbol)
+      throw new ScannerError(
+        `${args.symbol} has no verified broker symbol mapping for the connected MT5 terminal.`,
+        409,
+      );
+    mt5Context = {
+      selectedAccountId,
+      accountFingerprint: mt5Bundle.account.accountFingerprint,
+      brokerSymbol: mt5Bundle.symbol.brokerSymbol,
+      binding,
+    };
+    const { accountFingerprint: _serverOnlyFingerprint, ...browserAccount } =
+      mt5Bundle.account;
+    account = browserAccount;
+    const tick = mt5Bundle.symbol.tick;
+    quote = {
+      price: tick.last > 0 ? tick.last : (tick.bid + tick.ask) / 2,
+      timestamp: new Date(tick.timestamp).toISOString(),
+      bid: tick.bid,
+      ask: tick.ask,
+      spread: tick.spread,
+      brokerSymbol: tick.brokerSymbol,
+      state: tick.state,
+      approximateLatencyMs: tick.approximateLatencyMs,
+    };
   }
-  const [candidates] = await Promise.all([
-    args.user.request<CandidateRow[]>("setup_candidates", {
-      ...(args.config ? { config_id: `eq.${args.config.id}` } : {}),
-      symbol: `eq.${args.symbol}`,
-      "payload->>provider": `eq.${activeProvider}`,
-      state: "in.(SCANNING,DEVELOPING,WATCH,READY,TRIGGERED)",
-      order: "updated_at.desc",
-      limit: "100",
-    }),
-  ]);
+  const marketEntries =
+    requestedProvider === "mt5"
+      ? mt5BundleMarketEntries(mt5Bundle!, requestedTimeframes)
+      : await Promise.all(
+          [...requestedTimeframes].map(
+            async (timeframe) =>
+              [
+                timeframe,
+                await sharedProviderCandles(
+                  service,
+                  "twelvedata",
+                  args.symbol,
+                  timeframe,
+                  Date.now(),
+                  {
+                    cacheMode:
+                      timeframe === args.timeframe ? "live" : "closed-candle",
+                    strictSource: args.strictProvider === true,
+                  },
+                ),
+              ] as const,
+          ),
+        );
+
+  let candidates = await args.user.request<CandidateRow[]>("setup_candidates", {
+    ...(args.config ? { config_id: `eq.${args.config.id}` } : {}),
+    symbol: `eq.${args.symbol}`,
+    "payload->>provider": `eq.${activeProvider}`,
+    ...(activeProvider === "mt5" && mt5Context
+      ? {
+          "payload->>scopeAccountId": `eq.${mt5Context.selectedAccountId}`,
+        }
+      : {}),
+    state: "in.(SCANNING,DEVELOPING,WATCH,READY,TRIGGERED)",
+    order: "updated_at.desc",
+    limit: "100",
+  });
+  const accountScopedCandidateCount = candidates.length;
+  if (activeProvider === "mt5" && mt5Context && candidates.length) {
+    const provenances = await service.request<MT5CandidateProvenance[]>(
+      "mt5_candidate_provenance",
+      {
+        candidate_id: `in.(${candidates.map((candidate) => candidate.id).join(",")})`,
+        selected_account_id: `eq.${mt5Context.selectedAccountId}`,
+        select:
+          "candidate_id,candidate_last_candle_at,selected_account_id,account_fingerprint,broker_symbol",
+      },
+    );
+    candidates = filterVerifiedMT5ChartCandidates({
+      candidates,
+      provenances,
+      context: mt5Context,
+    });
+  }
   const marketByTimeframe = new Map(marketEntries);
   const selected = marketByTimeframe.get(args.timeframe)!;
   const histories: Partial<Record<Timeframe, Candle[]>> = {};
@@ -464,23 +677,10 @@ export async function getSharedMarketSnapshot(args: {
         priority[a.status] - priority[b.status] ||
         Date.parse(b.timestamp) - Date.parse(a.timestamp),
     );
-  let account: Awaited<ReturnType<typeof getMT5Account>> | null = null;
-  let quote: Awaited<
-    ReturnType<ReturnType<typeof getMarketProvider>["getQuote"]>
-  > | null = null;
-  if (activeProvider === "mt5") {
-    try {
-      [account, quote] = await Promise.all([
-        getMT5Account(),
-        getMarketProvider("mt5").getQuote(args.symbol),
-      ]);
-    } catch {
-      // Candles may still be cached. Never label cached broker data as live.
-    }
-  }
   const quoteState = quote?.state;
   const dataStatus =
-    activeProvider === "mt5" && quoteState !== "CONNECTED"
+    activeProvider === "mt5" &&
+    (quoteState === "STALE" || quoteState === "DISCONNECTED")
       ? selected.candles.length
         ? "cached"
         : "unavailable"
@@ -490,17 +690,14 @@ export async function getSharedMarketSnapshot(args: {
     displaySymbol: DISPLAY_SYMBOLS[args.symbol],
     timeframe: args.timeframe,
     provider: activeProvider,
-    dataSource:
-      activeProvider === "mt5"
-        ? "broker"
-        : fallbackWarning
-          ? "fallback"
-          : "primary",
+    dataSource: activeProvider === "mt5" ? "broker" : "primary",
     dataStatus,
     fetchedAt: new Date().toISOString(),
     broker: account?.broker ?? null,
     server: account?.server ?? null,
     accountType: account?.accountType ?? null,
+    scopeAccountId: mt5Context?.selectedAccountId ?? null,
+    accountIdentityVerified: Boolean(mt5Context),
     quote: quote
       ? {
           bid: quote.bid ?? quote.price,
@@ -518,10 +715,15 @@ export async function getSharedMarketSnapshot(args: {
     workflow,
     warnings: [
       ...selected.warnings,
-      ...(fallbackWarning ? [fallbackWarning] : []),
       ...(requestedProvider === "mt5" && !quote
         ? [
             "MT5 bridge is disconnected or not configured. No broker price is being invented.",
+          ]
+        : []),
+      ...(activeProvider === "mt5" &&
+      accountScopedCandidateCount > candidates.length
+        ? [
+            `${accountScopedCandidateCount - candidates.length} MT5 setup overlay${accountScopedCandidateCount - candidates.length === 1 ? " was" : "s were"} hidden because its account, candle, or broker-symbol provenance did not match this chart snapshot.`,
           ]
         : []),
       ...(!workflow
@@ -543,10 +745,10 @@ export async function getSharedMarketSnapshot(args: {
     source: [
       activeProvider === "mt5"
         ? "Connected MT5 broker"
-        : fallbackWarning
-          ? "Twelve Data fallback"
-          : "Twelve Data primary feed",
-      "market_candles",
+        : "Twelve Data primary feed",
+      activeProvider === "mt5"
+        ? "official MT5 Python bridge atomic candle bundle"
+        : "market_candles",
       "approved strategy versions",
       "trade journal learning",
     ],

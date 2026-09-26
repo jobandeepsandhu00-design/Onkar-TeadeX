@@ -22,9 +22,6 @@ export const configuredPrimary = (saved?: string): ScannerMarketProvider =>
       ? process.env.PRIMARY_MARKET_PROVIDER
       : "twelvedata";
 
-const fallbackEnabled = () =>
-  process.env.MARKET_DATA_FALLBACK_ENABLED === "true";
-
 /**
  * Resolve the feed once per scanner run. Every chart, deterministic agent and
  * setup evaluation consumes candles stored under the returned provider name.
@@ -32,6 +29,7 @@ const fallbackEnabled = () =>
  */
 export async function selectScannerMarketProvider(
   savedProvider: string,
+  providerFactory: typeof getMarketProvider = getMarketProvider,
 ): Promise<ProviderSelection> {
   const requested = configuredPrimary(savedProvider);
   // Non-broker feeds are verified by the actual candle request immediately
@@ -52,7 +50,7 @@ export async function selectScannerMarketProvider(
       warning: null,
     };
   }
-  const requestedHealth = await getMarketProvider(requested).healthCheck();
+  const requestedHealth = await providerFactory(requested).healthCheck();
   if (requestedHealth.status === "connected")
     return {
       requested,
@@ -63,23 +61,9 @@ export async function selectScannerMarketProvider(
       warning: null,
     };
 
-  if (requested === "mt5" && fallbackEnabled()) {
-    const activeHealth = await getMarketProvider("twelvedata").healthCheck();
-    if (activeHealth.status === "connected")
-      return {
-        requested,
-        active: "twelvedata",
-        fallback: true,
-        requestedHealth,
-        activeHealth,
-        warning:
-          "MT5 is unavailable. Scanner is using Twelve Data fallback; broker execution remains locked.",
-      };
-  }
-
   throw new Error(
     requested === "mt5"
-      ? `MT5 market feed is ${requestedHealth.status}; Twelve Data fallback is unavailable or disabled.`
+      ? `MT5 market feed is ${requestedHealth.status}; MT5 mode never falls back to Twelve Data.`
       : `Twelve Data market feed is ${requestedHealth.status}.`,
   );
 }

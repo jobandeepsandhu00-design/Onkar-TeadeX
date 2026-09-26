@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ScannerSnapshot } from "@workspace/api-zod";
+import type { ScannerSnapshot, SharedChartProvider } from "@workspace/api-zod";
 import {
   Activity,
   ArrowLeft,
@@ -151,6 +151,7 @@ export default function OnkarAIWorkspace({
   const cleanPath = path.split("?")[0];
   const segment =
     cleanPath.replace(/^\/onkar-ai\/?/, "").split("/")[0] || "dashboard";
+  const chartProviderRoute = cleanPath.split("/")[3];
   const detailId = segment === "setup" ? path.split("/")[3] : null;
   const validSection =
     groups.some((g) => g.items.some(([key]) => key === segment)) ||
@@ -168,6 +169,14 @@ export default function OnkarAIWorkspace({
   });
   const [scannerSnapshot, setScannerSnapshot] =
     useState<ScannerSnapshot | null>(null);
+  const chartProvider: SharedChartProvider =
+    chartProviderRoute === "mt5"
+      ? "mt5"
+      : chartProviderRoute === "twelve-data"
+        ? "twelvedata"
+        : scannerSnapshot?.config?.config.provider === "mt5"
+          ? "mt5"
+          : "twelvedata";
   const [scannerLoading, setScannerLoading] = useState(true);
   const [scannerError, setScannerError] = useState("");
   const [scannerSaving, setScannerSaving] = useState(false);
@@ -689,7 +698,9 @@ export default function OnkarAIWorkspace({
                       onOpenJournal={() => onExit("journal")}
                       onOpenControls={() => navigate("/onkar-ai/settings")}
                     />
-                    <MarketCandleCards onOpenChart={() => navigate("/onkar-ai/charts")} />
+                    <MarketCandleCards
+                      onOpenChart={() => navigate("/onkar-ai/charts")}
+                    />
                     <MasterAIOrbitalHub
                       onOpen={(agentId) => {
                         const agent = AGENT_DEFINITIONS.find(
@@ -862,7 +873,9 @@ export default function OnkarAIWorkspace({
                         }
                       />
                     </Panel>
-                    <CandleClosureCard onOpenChart={() => navigate("/onkar-ai/charts")} />
+                    <CandleClosureCard
+                      onOpenChart={() => navigate("/onkar-ai/charts")}
+                    />
                     <SharedMarketChart compact />
                     {dashboardSelected ? (
                       <SetupAnalysis
@@ -1001,6 +1014,14 @@ export default function OnkarAIWorkspace({
             connectedPanel("Watchlist")
           ) : segment === "charts" ? (
             <OnkarTerminal
+              chartProvider={chartProvider}
+              onChartProviderChange={(provider) =>
+                navigate(
+                  provider === "mt5"
+                    ? "/onkar-ai/charts/mt5"
+                    : "/onkar-ai/charts/twelve-data",
+                )
+              }
               scannerSnapshot={scannerSnapshot}
               scannerLoading={scannerLoading}
               scannerError={scannerError}
