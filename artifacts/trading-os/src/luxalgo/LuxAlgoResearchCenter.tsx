@@ -5,6 +5,7 @@ import {
   Search, Settings2, ShieldCheck, Sparkles, Square, TriangleAlert, Wifi, WifiOff, X,
 } from "lucide-react";
 import { luxRequest } from "./api";
+import { LuxAlgoPremiumView } from "./LuxAlgoPremiumView";
 import "./luxalgo.css";
 
 type Json = Record<string, any>;
@@ -121,6 +122,7 @@ export default function LuxAlgoResearchCenter({ onBack, onAskMaster }: { onBack:
     const preset = tabQuery[tab];
     if (preset) { setQuery(preset); void search(preset, "concepts", false); }
     else if (tab === "INDICATORS") { setKind("indicators"); void browse(0, "indicators"); }
+    else if (tab === "SOURCE CODE") { setKind("indicators"); void browse(0, "indicators"); }
     else if (tab === "LIBRARY" && !results.length) void browse(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
@@ -169,6 +171,25 @@ export default function LuxAlgoResearchCenter({ onBack, onAskMaster }: { onBack:
   const syncRunning = sync?.status === "RUNNING" || syncing;
   const importedCount = (databaseKey: string, counterKey: string) => Math.max(Number(database[databaseKey] ?? 0), Number(syncCounters[counterKey] ?? 0));
 
+  return <LuxAlgoPremiumView model={{
+    tab, setTab, onBack, onAskMaster, status, loading, error, setError,
+    overview, health, sync, database, results, families, tags, selected, selectedType,
+    setSelected, query, setQuery, family, setFamily, tag, setTag, kind, setKind,
+    sourceOnly, setSourceOnly, savedOnly, setSavedOnly, platform, setPlatform, tier,
+    setTier, sort, setSort, page, hasMore, source, sourceSearch, setSourceSearch,
+    sourceFullscreen, setSourceFullscreen, saved, history, edge, settings, syncCounters,
+    syncRunning, code, codeLines, matchingLines, importedCount, search, browse, openItem,
+    saveItem, loadSource, compare, updateSettings, loadShell, startSync, resumeSync,
+    retrySync, cancelSync, edgeReport,
+    removeSaved: async (id: string) => {
+      await run(() => luxRequest(`/saved/${id}`, { method: "DELETE" }));
+      setSaved((rows) => rows.filter((row) => row.id !== id));
+    },
+  }} />;
+
+  /* Legacy LuxAlgo presentation retained temporarily for reference while the
+     premium view above owns rendering. Keeping it commented avoids shipping a
+     second active UI or duplicating any data/service behavior.
   return <section className="lux-shell">
     <header className="lux-header"><button className="lux-icon" onClick={onBack} aria-label="Back to Onkar AI"><ChevronLeft /></button><div><span>ONKARTRADEX / EXTERNAL RESEARCH</span><h1>LUXALGO RESEARCH CENTER</h1><p>Synchronized official MCP research, isolated from live signals and execution.</p></div><button className={`lux-health ${status.toLowerCase()}`} onClick={() => void loadShell()}>{status === "CONNECTED" ? <Wifi /> : <WifiOff />}<span>{status}</span></button></header>
     <div className="lux-safety"><ShieldCheck /><span><strong>Research only.</strong> Imported LuxAlgo content cannot override Onkar setup rules, risk checks, Emergency Stop, or execute trades.</span></div>
@@ -197,4 +218,5 @@ export default function LuxAlgoResearchCenter({ onBack, onAskMaster }: { onBack:
 
     {tab === "SETTINGS" && <div className="lux-panel lux-settings"><div className="lux-panel-head"><div><span>ISOLATED RESEARCH CONTROLS</span><h2>LuxAlgo settings</h2></div><Settings2 /></div>{[["enabled", "Enable LuxAlgo MCP"], ["cache_enabled", "Enable local Supabase cache"], ["manual_sync_enabled", "Enable manual sync"], ["allow_master_ai", "Allow Master AI access"], ["allow_trend_ai", "Allow Trend AI access"], ["allow_zone_ai", "Allow Zone AI access"], ["allow_setup_ai", "Allow Setup AI access"], ["allow_backtest_ai", "Allow Backtest AI access"], ["allow_insight_ai", "Allow Insight AI access"], ["edge_stats_enabled", "Edge Stats enabled"], ["saved_research_enabled", "Saved Research enabled"], ["save_raw_responses", "Save raw MCP responses"], ["save_public_source_code", "Save public source code"], ["preserve_attribution", "Preserve attribution"], ["preserve_license_metadata", "Preserve license metadata"]].map(([key, label]) => <label key={key}><span>{label}</span><input type="checkbox" checked={settings[key] !== false} onChange={(event) => void updateSettings({ ...settings, [key]: event.target.checked })} /></label>)}<label><span>Cache duration (minutes)</span><input type="number" min={5} max={10080} value={settings.cache_duration_minutes || 360} onChange={(event) => setSettings({ ...settings, cache_duration_minutes: Number(event.target.value) })} onBlur={() => void updateSettings(settings)} /></label><div className="lux-connection"><Database /><span><strong>Official MCP endpoint</strong>https://mcp.luxalgo.com/mcp</span><button onClick={() => void loadShell()}><RefreshCw /> Test Connection</button></div></div>}
   </section>;
+  */
 }

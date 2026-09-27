@@ -57,3 +57,16 @@ After deployment, sign in normally and verify the Settings tab at iPhone width a
 final result: blocked
 
 Blocker: authenticated browser state is required to capture and compare the rendered Risk AI page.
+
+## LuxAlgo premium redesign — 2026-09-27
+
+- Reference set: `A9D76870-9B64-4EAD-BFAC-DBC4456C5413/1-Photo-1.jpg` through `10-Photo-10.jpg`.
+- Implementation: `artifacts/trading-os/src/luxalgo/LuxAlgoPremiumView.tsx`.
+- Target viewports: desktop 1536 × 864 and mobile 393 × 852.
+- Production build: PASS (`pnpm --filter @workspace/trading-os build`).
+- Data integrity: production rendering uses existing LuxAlgo API/cache state and explicit empty/error states; reference-only counts and research records are not hardcoded.
+- Automated visual comparison: BLOCKED because the available computer-use browser failed to initialize, so no trustworthy implementation screenshot or pixel-diff score could be produced.
+
+### Remaining LuxAlgo visual check
+
+After deployment, sign in and verify the desktop three-column layouts, source viewer, Connections view, and the mobile collapsed navigation. Confirm that real synchronized records populate cards and that empty/error states remain readable when the MCP or cache is unavailable.
