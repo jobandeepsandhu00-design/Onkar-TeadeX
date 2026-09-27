@@ -13,6 +13,7 @@ import {
 import { ROBOT_PROFILES } from "../robot-profiles";
 import { AGENT_DEFINITIONS } from "../agent-data";
 import {
+  groupLearningDashboardCards,
   mergeDashboardSections,
   moveDashboardSection,
 } from "../../market-brain/dashboard-order";
@@ -69,6 +70,26 @@ test("the multi-agent command center migrates below account overview and remains
       "accountOverview",
       "marketBrain",
       "onkarAICommandCenter",
+    ],
+  );
+});
+test("learning research and shared candle cards stay below Video Strategy Learning", () => {
+  assert.deepEqual(
+    groupLearningDashboardCards([
+      "candleClosures",
+      "marketOverview",
+      "marketCandles",
+      "videoLearning",
+      "performanceLearning",
+      "luxAlgoResearch",
+    ]),
+    [
+      "marketOverview",
+      "videoLearning",
+      "luxAlgoResearch",
+      "candleClosures",
+      "marketCandles",
+      "performanceLearning",
     ],
   );
 });

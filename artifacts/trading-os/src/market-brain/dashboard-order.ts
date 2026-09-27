@@ -36,3 +36,14 @@ export function moveDashboardSection(
   [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
   return next;
 }
+
+/** Keep the live research/data cards immediately below Video Strategy Learning. */
+export function groupLearningDashboardCards(order: string[]): string[] {
+  const anchor = "videoLearning";
+  const grouped = ["luxAlgoResearch", "candleClosures", "marketCandles"];
+  if (!order.includes(anchor)) return [...order];
+  const present = grouped.filter((key) => order.includes(key));
+  const next = order.filter((key) => !present.includes(key));
+  next.splice(next.indexOf(anchor) + 1, 0, ...present);
+  return next;
+}

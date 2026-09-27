@@ -23,7 +23,7 @@ import { createDefaultTradeSetups, migrateLegacySetupImages, normalizeTradeSetup
 import { SetupLibrary } from "./trade-setups/SetupLibrary";
 import { TradeSetupDashboard } from "./trade-setups/TradeSetupBoard";
 import { DashboardVideoSection, VideoLearningHub, VideoLessonPage } from "./video-lessons";
-import { mergeDashboardSections, moveDashboardSection } from "./market-brain/dashboard-order";
+import { groupLearningDashboardCards, mergeDashboardSections, moveDashboardSection } from "./market-brain/dashboard-order";
 import { AccountCommandCarousel } from "./market-brain/AccountCommandCarousel";
 import { CandleClosureCard } from "./market-brain/CandleClosureCard";
 import { MarketCandleCards } from "./market-brain/MarketCandleCards";
@@ -877,6 +877,7 @@ const DEFAULT_SETTINGS = () => ({
     marketSessions:  true,
     accountOverview: true,
     videoLearning: true,
+    luxAlgoResearch: true,
     marketBrain: true,
     performanceLearning: true,
     todaysFocus:     true,
@@ -895,7 +896,7 @@ const DEFAULT_SETTINGS = () => ({
     onkarAICommandCenter: true,
     knowledgeBrain: true,
   },
-  dashSectionOrder: ["moolMantar","marketOverview","candleClosures","marketCandles","liveTicker","activeTrades","accountOverview","onkarAICommandCenter","knowledgeBrain","marketBrain","videoLearning","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
+  dashSectionOrder: ["moolMantar","marketOverview","liveTicker","activeTrades","accountOverview","onkarAICommandCenter","knowledgeBrain","marketBrain","videoLearning","luxAlgoResearch","candleClosures","marketCandles","performanceLearning","marketSessions","todaysFocus","riskTools","propChallenges","thisWeek","equityCurve","recentTrades","insightsEdge","tvChart","setupLibrary","marketCalendar","statistics","reference"],
   /* ── Theme ── */
   accentColor: "#f59e0b",
   cardBg: "#0f172a",
@@ -980,6 +981,12 @@ const DEFAULT_SETTINGS = () => ({
     bestSetupAlert:        true,
   },
 });
+
+const FIXED_LEARNING_DASHBOARD_CARDS = new Set([
+  "luxAlgoResearch",
+  "candleClosures",
+  "marketCandles",
+]);
 
 const DEFAULT_DATA = () => ({
   trades: [],
@@ -6224,7 +6231,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
     }
     return merged;
   })();
-  const dashboardDisplayOrder = ["moolMantar", ...sectionOrder.filter((key) => key !== "moolMantar")];
+  const dashboardDisplayOrder = groupLearningDashboardCards(["moolMantar", ...sectionOrder.filter((key) => key !== "moolMantar")]);
 
   const moveSection = (key: string, dir: -1 | 1) => {
     setData((d: any) => {
@@ -6332,6 +6339,7 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
     ),
     performanceLearning: <PerformanceLearning data={data} setData={setData} embedded />,
     videoLearning: <DashboardVideoSection onOpenLesson={onOpenLesson} onManage={() => goTo("academy", "Video Lessons")} />,
+    luxAlgoResearch: <LuxAlgoDashboardCard surface="tradex" onOpen={() => goTo("luxalgo", undefined)} />,
     marketBrain: <React.Suspense fallback={<div className="p-6 text-slate-400">Loading ONKAR AI…</div>}><OnkarAIRecentSlider onNavigate={(path) => goTo("onkar-ai", path)} insights={dashboardInsights} connectionState={dashboardScannerState} /></React.Suspense>,
     todaysFocus: (
       <>
@@ -6487,11 +6495,6 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
         </div>
       </div>
 
-      <LuxAlgoDashboardCard
-        surface="tradex"
-        onOpen={() => goTo("luxalgo", undefined)}
-      />
-
       {/* ── ORDERED SECTIONS ── */}
       {dashboardDisplayOrder.map((key, i) => {
         const meta = DASH_SECTION_META.find((m: any) => m.key === key);
@@ -6502,8 +6505,8 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
               visible={vis[key]}
               onToggle={!editLayout ? () => toggle(key) : undefined}
               editMode={editLayout}
-              onMoveUp={key === "moolMantar" ? undefined : () => moveSection(key, -1)}
-              onMoveDown={key === "moolMantar" ? undefined : () => moveSection(key, 1)}
+              onMoveUp={key === "moolMantar" || FIXED_LEARNING_DASHBOARD_CARDS.has(key) ? undefined : () => moveSection(key, -1)}
+              onMoveDown={key === "moolMantar" || FIXED_LEARNING_DASHBOARD_CARDS.has(key) ? undefined : () => moveSection(key, 1)}
               isFirst={i === 0}
               isLast={i === dashboardDisplayOrder.length - 1}
             >
@@ -13155,6 +13158,7 @@ const DASH_SECTION_META = [
   { key: "knowledgeBrain", label: "Onkar AI Library Brain", icon: "🧠" },
   { key: "marketBrain",     label: "ONKAR AI Market Brain",    icon: "🧠" },
   { key: "videoLearning",  label: "Featured Strategy Videos", icon: "🎬" },
+  { key: "luxAlgoResearch", label: "LuxAlgo Research Center", icon: "🔎" },
   { key: "performanceLearning", label: "Performance & Learning", icon: "📊" },
   { key: "setupLibrary",    label: "Trade Setup Board",       icon: "📚" },
   { key: "marketSessions",  label: "Forex Market Sessions",  icon: "🌍" },
@@ -13358,8 +13362,9 @@ function SettingsPanel({ data, setData }) {
                 {(() => {
                   const allKeys = DASH_SECTION_META.map((m) => m.key);
                   const stored = (settings.dashSectionOrder as string[] | undefined);
-                  const order = mergeDashboardSections(stored, allKeys);
+                  const order = groupLearningDashboardCards(mergeDashboardSections(stored, allKeys));
                   const moveFn = (key: string, dir: -1 | 1) => {
+                    if (FIXED_LEARNING_DASHBOARD_CARDS.has(key)) return;
                     upd({ dashSectionOrder: moveDashboardSection(order, allKeys, key, dir) });
                   };
                   return order.map((key, i) => {
@@ -13371,11 +13376,11 @@ function SettingsPanel({ data, setData }) {
                         <span className="text-sm shrink-0">{meta.icon}</span>
                         <span className="text-sm text-slate-300 flex-1 min-w-0">{meta.label}</span>
                         <div className="flex flex-col gap-0.5 shrink-0">
-                          <button onClick={() => moveFn(key, -1)} disabled={i === 0}
+                          <button onClick={() => moveFn(key, -1)} disabled={i === 0 || FIXED_LEARNING_DASHBOARD_CARDS.has(key)}
                             className="p-1 rounded text-slate-600 hover:text-amber-400 disabled:opacity-20 transition">
                             <ChevronUp size={13} />
                           </button>
-                          <button onClick={() => moveFn(key, 1)} disabled={i === order.length - 1}
+                          <button onClick={() => moveFn(key, 1)} disabled={i === order.length - 1 || FIXED_LEARNING_DASHBOARD_CARDS.has(key)}
                             className="p-1 rounded text-slate-600 hover:text-amber-400 disabled:opacity-20 transition">
                             <ChevronDown size={13} />
                           </button>
