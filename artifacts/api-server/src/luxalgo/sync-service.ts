@@ -154,8 +154,8 @@ async function syncConceptDetail(slug: string, options: SyncOptions) {
   const current = await existing("luxalgo_concepts", "slug", [actualSlug], "slug,content_hash");
   const hash = digest(raw), changed = current.get(actualSlug)?.content_hash !== hash;
   const attribution = sourceFields(raw, content);
-  await upsert("luxalgo_concepts", "slug", [{
-    slug: actualSlug, name: maybeText(raw.name) ?? actualSlug, family: maybeText(raw.family),
+  await ScannerStore.service().request("luxalgo_concepts", { slug: `eq.${actualSlug}` }, "PATCH", {
+    name: maybeText(raw.name) ?? actualSlug, family: maybeText(raw.family),
     cluster: maybeText(raw.cluster), aliases: Array.isArray(raw.aliases) ? raw.aliases.map((item) => text(item, 200)).filter(Boolean) : [],
     short_description: content.split(/\n\s*\n/).find((part) => part && !part.startsWith("#"))?.slice(0, 600) ?? null,
     content_markdown: content || null, official_url: maybeText(raw.url), markdown_url: maybeText(raw.md_url),
@@ -164,7 +164,7 @@ async function syncConceptDetail(slug: string, options: SyncOptions) {
     license_metadata: options.preserveLicense ? attribution.licenseMetadata : {},
     raw_response: options.saveRaw ? raw : {}, content_hash: hash, detail_sync_needed: false,
     last_synced_at: now(), updated_at: now(),
-  }]);
+  }, "return=minimal");
   await replaceRelationships("CONCEPT", actualSlug, options.saveRaw ? raw : {}, markdownRelationships(content));
   return changed;
 }
@@ -179,8 +179,8 @@ async function syncIndicatorDetail(slug: string, options: SyncOptions) {
   const attribution = sourceFields(raw, body);
   const concepts = list(raw.concepts);
   const tags = Array.isArray(raw.tags) ? raw.tags : [];
-  await upsert("luxalgo_indicators", "slug", [{
-    slug: actualSlug, name: maybeText(raw.name) ?? actualSlug, author: maybeText(raw.author),
+  await ScannerStore.service().request("luxalgo_indicators", { slug: `eq.${actualSlug}` }, "PATCH", {
+    name: maybeText(raw.name) ?? actualSlug, author: maybeText(raw.author),
     family: maybeText(raw.family), description: maybeText(raw.description, 20_000), body_markdown: body || null,
     tags, platforms: Array.isArray(raw.platforms) ? raw.platforms.map((item) => text(item, 80)).filter(Boolean) : [],
     tier: maybeText(raw.tier, 80), image_url: maybeText(raw.image_url, 1000), date_displayed: maybeText(raw.date_displayed, 10),
@@ -191,7 +191,7 @@ async function syncIndicatorDetail(slug: string, options: SyncOptions) {
     raw_response: options.saveRaw ? raw : {}, content_hash: hash, detail_sync_needed: false,
     source_sync_needed: options.saveSource && codeAvailable && (options.full === true || changed || current.get(actualSlug)?.source_sync_needed === true),
     last_synced_at: now(), updated_at: now(),
-  }]);
+  }, "return=minimal");
   const relationships: Array<{ relationship: string; targetType: string; targetId: string; metadata?: Json }> = concepts.map((item) => ({ relationship: item.primary === true ? "PRIMARY_CONCEPT" : "RELATED_CONCEPT", targetType: "CONCEPT", targetId: safeId(item.slug), metadata: { name: maybeText(item.name), primary: item.primary === true } }));
   for (const item of tags) {
     const tag = typeof item === "string" ? { id: item } : record(item);
@@ -413,6 +413,7 @@ export async function luxAlgoSyncStatus() {
 }
 
 export async function luxAlgoLocalOverview() {
+  await luxAlgoMCP.discoverTools().catch(() => null);
   const status = await luxAlgoSyncStatus();
   return { ...status, health: luxAlgoMCP.health() };
 }
