@@ -5386,7 +5386,7 @@
     bottom: 0;
     left: 0;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     min-height: 66px;
     padding: 5px 7px calc(6px + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid rgba(66, 118, 171, 0.36);

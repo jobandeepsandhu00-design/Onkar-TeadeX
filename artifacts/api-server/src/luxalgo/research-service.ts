@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { SupabaseIdentity } from "../lib/supabase-auth";
 import { ScannerStore } from "../market-brain/store";
 import { luxAlgoMCP } from "./mcp-service";
+import { searchLocalLuxAlgo } from "./library-store";
 
 type CacheRow = { payload: unknown; expires_at: string };
 const inflight = new Map<string, Promise<unknown>>();
@@ -56,12 +57,14 @@ export const getLuxAlgoEdgeStats = (preset: string, symbol: string, force = fals
   cachedLuxAlgoCall("edge_report", { preset, symbol }, { force, ttlMinutes: 720 });
 
 export type LuxAlgoAgent = "master" | "trend" | "zone" | "setup" | "backtest" | "insight";
-export async function agentLuxAlgoResearch(identity: SupabaseIdentity, agent: LuxAlgoAgent, query: string) {
-  const rows = await ScannerStore.user(identity).request<Array<Record<string, unknown>>>("luxalgo_user_settings", {
+export async function agentLuxAlgoResearch(identity: Pick<SupabaseIdentity, "userId">, agent: LuxAlgoAgent, query: string) {
+  const rows = await ScannerStore.service().request<Array<Record<string, unknown>>>("luxalgo_user_settings", {
     user_id: `eq.${identity.userId}`, select: "*", limit: "1",
   }).catch(() => []);
   const settings = rows[0] ?? {};
   if (settings.enabled === false || settings[`allow_${agent}_ai`] === false) return null;
+  const savedResults = await searchLocalLuxAlgo(identity, query, "all").catch(() => []);
+  if (savedResults.length) return { sourceType: "LUXALGO_REFERENCE" as const, source: "SUPABASE_SYNC" as const, data: { results: savedResults }, cache: "HIT" as const };
   const result = await searchLuxAlgoConcept(query);
-  return { sourceType: "LUXALGO_REFERENCE" as const, ...result };
+  return { sourceType: "LUXALGO_REFERENCE" as const, source: "MCP_FALLBACK" as const, ...result };
 }

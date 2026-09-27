@@ -84,6 +84,7 @@ import { agentRuntime } from "./agent-runtime";
 import "./onkar-ai.css";
 import { NotificationCenterBell } from "../notifications/NotificationCenter";
 import { JARVIS_ENABLED } from "../jarvis/app-bridge";
+import { LuxAlgoDashboardCard } from "../luxalgo/LuxAlgoDashboardCard";
 import {
   Dialog,
   DialogContent,
@@ -670,6 +671,10 @@ export default function OnkarAIWorkspace({
           {segment !== "charts" && <AgentWorkspacePresence section={segment} />}
           {segment === "dashboard" ? (
             <>
+              <LuxAlgoDashboardCard
+                surface="onkar"
+                onOpen={() => navigate("/onkar-ai/luxalgo")}
+              />
               {scannerSnapshot ? (
                 <>
                   <div className="market-brain oai-account-command mb-stack">
@@ -1299,6 +1304,15 @@ export default function OnkarAIWorkspace({
         >
           <LayoutDashboard size={20} />
           <span>TradeX</span>
+        </button>
+        <button
+          className={segment === "luxalgo" ? "active" : ""}
+          aria-current={segment === "luxalgo" ? "page" : undefined}
+          aria-label="Open LuxAlgo Research Center"
+          onClick={() => navigate("/onkar-ai/luxalgo")}
+        >
+          <Search size={20} />
+          <span>LuxAlgo</span>
         </button>
         <button
           className={

@@ -44,6 +44,7 @@ const OnkarAIWorkspace = React.lazy(loadOnkarAIWorkspace);
 import "./onkar-ai/onkar-ai.css";
 import { NotificationCenterBell } from "./notifications/NotificationCenter";
 import { installJarvisBridge, JARVIS_ENABLED } from "./jarvis/app-bridge";
+import { LuxAlgoDashboardCard } from "./luxalgo/LuxAlgoDashboardCard";
 
 /* ============================================================
    UTILITIES
@@ -6485,6 +6486,11 @@ function Dashboard({ data, allTrades = [], setData, goTo, onQuickLog, onOpenLess
           </div>
         </div>
       </div>
+
+      <LuxAlgoDashboardCard
+        surface="tradex"
+        onOpen={() => goTo("luxalgo", undefined)}
+      />
 
       {/* ── ORDERED SECTIONS ── */}
       {dashboardDisplayOrder.map((key, i) => {
