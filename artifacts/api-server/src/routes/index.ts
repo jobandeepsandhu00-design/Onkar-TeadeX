@@ -11,6 +11,7 @@ import marketBrainRouter from "./market-brain";
 import mt5Router from "./mt5";
 import knowledgeRouter from "./knowledge";
 import jarvisRouter from "./jarvis";
+import luxalgoRouter from "./luxalgo";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(marketBrainRouter);
 router.use(mt5Router);
 router.use(knowledgeRouter);
 router.use(jarvisRouter);
+router.use(luxalgoRouter);
 
 export default router;

@@ -15648,6 +15648,7 @@ const NAV_ITEMS = [
   { key: "journal",   label: "Journal",  icon: BookOpen      },
   { key: "backtest",  label: "Backtest", icon: BarChart3     },
   { key: "onkar-ai",  label: "Onkar AI", icon: Brain         },
+  { key: "luxalgo",   label: "LuxAlgo",  icon: Search        },
   { key: "library",   label: "Library",  icon: Layers        },
   { key: "more",      label: "More",     icon: MoreHorizontal },
 ];
@@ -15983,6 +15984,13 @@ export default function App({ onLogout }: { onLogout?: () => void | Promise<void
   };
 
   const goTo = (tab, sub) => {
+    if (tab === "luxalgo") {
+      window.history.pushState({}, "", "/onkar-ai/luxalgo");
+      setOnkarAIPath("/onkar-ai/luxalgo");
+      setVideoLessonId(null);
+      window.scrollTo({ top: 0, behavior: "instant" });
+      return;
+    }
     if (tab === "onkar-ai") {
       const path = typeof sub === "string" && /^\/onkar-ai(?:\/|$)/.test(sub) ? sub : "/onkar-ai";
       window.history.pushState({}, "", path);

@@ -33,6 +33,7 @@ import {
 import type { AgentId } from "../onkar-ai/agent-data";
 import { latestApprovedVersions } from "./strategy-versions";
 import { LIVE_REFRESH_EVENT } from "../live-refresh";
+import { luxRequest } from "../luxalgo/api";
 import "./market-brain.css";
 
 export type MarketBrainTab =
@@ -68,6 +69,7 @@ export default function MarketBrain({
     [filter, setFilter] = useState(""),
     [status, setStatus] = useState("All"),
     [direction, setDirection] = useState("All");
+  const [luxHealth, setLuxHealth] = useState<Record<string, any> | null>(null);
   const root = useRef<HTMLElement>(null),
     visible = useRef(false),
     request = useRef<AbortController | null>(null),
@@ -746,6 +748,26 @@ export default function MarketBrain({
                   }
                 />
                 <MT5StatusPanel />
+                <section className="mb-panel">
+                  <div className="mb-row mb-between">
+                    <div>
+                      <span className="mb-kicker">ISOLATED RESEARCH PROVIDER</span>
+                      <h3>LuxAlgo MCP</h3>
+                    </div>
+                    <strong className="mb-status">{luxHealth?.status ?? "NOT CHECKED"}</strong>
+                  </div>
+                  <div className="mb-connection-grid">
+                    <div className="mb-connection-card"><span className="mb-muted">Endpoint</span><strong>mcp.luxalgo.com</strong></div>
+                    <div className="mb-connection-card"><span className="mb-muted">Authentication</span><strong>{luxHealth?.authenticationState ?? "Public tools are keyless"}</strong></div>
+                    <div className="mb-connection-card"><span className="mb-muted">Available research tools</span><strong>{luxHealth?.availableTools?.length ?? "—"}</strong></div>
+                    <div className="mb-connection-card"><span className="mb-muted">Last successful request</span><strong>{luxHealth?.lastSuccessfulRequest ? new Date(luxHealth.lastSuccessfulRequest).toLocaleString() : "—"}</strong></div>
+                  </div>
+                  {luxHealth?.lastError && <p className="mb-warning">{luxHealth.lastError}</p>}
+                  <button onClick={() => void luxRequest<Record<string, any>>("/test-connection", { method: "POST" }).then((value) => { setLuxHealth(value); setNotice(`LuxAlgo MCP: ${value.status}`); }).catch((cause) => setError(cause instanceof Error ? cause.message : "LuxAlgo connection test failed"))}>
+                    Test LuxAlgo MCP connection
+                  </button>
+                  <p className="mb-muted">Research only. This connection is not part of scanner, risk, or order execution availability.</p>
+                </section>
                 <h3>Data & integrations</h3>
                 <div className="mb-connection-grid">
                   {Object.entries(snapshot.connection).map(([label, value]) => (
@@ -810,8 +832,8 @@ export default function MarketBrain({
                 <p className="mb-warning">{snapshot.config?.last_error}</p>
                 <p className="mb-muted">
                   Shared candle-close scanning; the Windows MT5 bridge owns the
-                  terminal WebSocket/tick stream. MCP and vision are optional
-                  adapters, not connected services. R2/video playback and the
+                  terminal WebSocket/tick stream. LuxAlgo MCP is an isolated
+                  research adapter and never an execution dependency. R2/video playback and the
                   existing chart remain unchanged. No “connected” badge is
                   inferred from an API key alone.
                 </p>

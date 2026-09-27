@@ -461,6 +461,12 @@ export function AssistantPage({ onNavigate }: { onNavigate: Navigate }) {
     [],
   );
   const [question, setQuestion] = useState("");
+  useEffect(() => {
+    const draft = sessionStorage.getItem("onkar-master-draft");
+    if (!draft) return;
+    sessionStorage.removeItem("onkar-master-draft");
+    setQuestion(draft.slice(0, 1000));
+  }, []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [lastRun, setLastRun] = useState<MasterAIResponse | null>(null);

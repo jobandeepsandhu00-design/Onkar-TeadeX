@@ -95,6 +95,9 @@ const EvolutionLab = lazy(() => import("../knowledge/EvolutionLab"));
 const KnowledgeDashboardBridge = lazy(
   () => import("../knowledge/KnowledgeDashboardBridge"),
 );
+const LuxAlgoResearchCenter = lazy(
+  () => import("../luxalgo/LuxAlgoResearchCenter"),
+);
 const groups: Array<{
   label: string;
   items: Array<[AISection, string, LucideIcon]>;
@@ -119,6 +122,7 @@ const groups: Array<{
       ["analytics", "Analytics", ChartNoAxesCombined],
       ["knowledge", "Knowledge Center", Database],
       ["evolution", "Evolution Lab", GitBranch],
+      ["luxalgo", "LuxAlgo Research", Search],
     ],
   },
   {
@@ -1173,6 +1177,16 @@ export default function OnkarAIWorkspace({
               <EvolutionLab
                 mode={segment === "knowledge" ? "knowledge" : "evolution"}
                 onOpenLibrary={() => onExit("library")}
+              />
+            </Suspense>
+          ) : segment === "luxalgo" ? (
+            <Suspense fallback={<section className="oai-command-loading" role="status"><div className="oai-command-loading-orb"><Search size={34} /></div><h2>Connecting LuxAlgo Research</h2><p>Discovering official public MCP tools.</p></section>}>
+              <LuxAlgoResearchCenter
+                onBack={() => navigate("/onkar-ai")}
+                onAskMaster={(prompt) => {
+                  if (prompt) sessionStorage.setItem("onkar-master-draft", prompt);
+                  navigate("/onkar-ai/assistant");
+                }}
               />
             </Suspense>
           ) : segment === "assistant" ? (

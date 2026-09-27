@@ -12,6 +12,7 @@ export type AISection =
   | "analytics"
   | "knowledge"
   | "evolution"
+  | "luxalgo"
   | "assistant"
   | "news"
   | "risk"
