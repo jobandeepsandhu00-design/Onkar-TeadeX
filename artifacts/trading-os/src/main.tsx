@@ -12,8 +12,10 @@ import {
   supabase,
   updatePassword,
 } from "./api";
-import { Mail, Lock, Eye, EyeOff, ShieldCheck, ArrowRight, Check } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, ShieldCheck, ArrowRight, Move3d } from "lucide-react";
 import "./index.css";
+import "./auth/login.css";
+import { useLoginMotion } from "./auth/use-login-motion";
 import { NotificationCenterProvider } from "./notifications/NotificationCenter";
 import Jarvis from "./jarvis/Jarvis";
 import { JARVIS_ENABLED } from "./jarvis/app-bridge";
@@ -54,321 +56,102 @@ if (typeof window !== "undefined") {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Live Candlestick + Moving Average Canvas Background
+   Decorative Candlestick + Moving Average Canvas Background
 ───────────────────────────────────────────────────────────── */
 function CandlestickBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const ctx = canvas?.getContext("2d", { alpha: true });
+    if (!canvas || !ctx) return;
+    let resizeFrame = 0;
 
-    const CANDLE_W = 10;
-    const CANDLE_GAP = 5;
-    const TOTAL_W = CANDLE_W + CANDLE_GAP;
-    const MA_PERIOD = 20;
-    const EMA_PERIOD = 9;
-    const SCROLL_SPEED = 0.35;
-
-    // Resize canvas to fill window
-    const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-    resize();
-    window.addEventListener("resize", resize);
-
-    // Generate initial candle series (random walk)
-    let price = 1.2800;
-    const candles: Array<{ o: number; h: number; l: number; c: number }> = [];
-
-    const addCandle = () => {
-      const last = candles.length ? candles[candles.length - 1].c : price;
-      const drift = (Math.random() - 0.485) * 0.0028;
-      const o = last;
-      const c = o + drift;
-      const wick = Math.random() * 0.0014;
-      const h = Math.max(o, c) + wick + Math.random() * 0.0006;
-      const l = Math.min(o, c) - wick - Math.random() * 0.0006;
-      candles.push({ o, h, l, c });
-    };
-
-    const initCount = Math.ceil(window.innerWidth / TOTAL_W) + MA_PERIOD + 10;
-    for (let i = 0; i < initCount; i++) addCandle();
-
-    let offset = 0;
-    let animId: number | null = null;
-    let lastDrawAt = 0;
-
-    const draw = (time: number) => {
-      if (document.hidden) {
-        animId = null;
-        return;
+    const draw = () => {
+      const width = window.innerWidth * 1.1;
+      const height = window.innerHeight * 1.1;
+      // Keep even large desktop textures within a four-megapixel budget.
+      const ratio = Math.min(window.devicePixelRatio || 1, 1.5, Math.sqrt(4_000_000 / (width * height)));
+      canvas.width = Math.ceil(width * ratio);
+      canvas.height = Math.ceil(height * ratio);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      ctx.lineWidth = 0.7;
+      ctx.strokeStyle = "rgba(133, 162, 198, 0.13)";
+      for (let x = 0; x < width; x += 70) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
       }
-      if (time - lastDrawAt < 50) {
-        animId = requestAnimationFrame(draw);
-        return;
-      }
-      lastDrawAt = time;
-      const W = canvas.width;
-      const H = canvas.height;
-
-      ctx.clearRect(0, 0, W, H);
-
-      // Background
-      const bg = ctx.createLinearGradient(0, 0, W * 0.3, H);
-      bg.addColorStop(0, "#050b17");
-      bg.addColorStop(0.5, "#080f1e");
-      bg.addColorStop(1, "#03080f");
-      ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, W, H);
-
-      // Subtle grid
-      ctx.strokeStyle = "rgba(255,255,255,0.025)";
-      ctx.lineWidth = 1;
-      const gridRows = 8;
-      for (let r = 0; r <= gridRows; r++) {
-        const y = (H / gridRows) * r;
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-      }
-      const gridCols = Math.ceil(W / 80);
-      for (let c = 0; c <= gridCols; c++) {
-        const x = (W / gridCols) * c;
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+      for (let y = 0; y < height; y += 70) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
       }
 
-      // Which candles are visible
-      const startIdx = Math.max(0, Math.floor(offset / TOTAL_W) - 1);
-      const visCount = Math.ceil(W / TOTAL_W) + 3;
-      const visible = candles.slice(startIdx, startIdx + visCount);
-      if (visible.length < 2) { animId = requestAnimationFrame(draw); return; }
-
-      // Price range from visible candles (plus context for MA)
-      const contextStart = Math.max(0, startIdx - MA_PERIOD);
-      const contextCandles = candles.slice(contextStart, startIdx + visCount);
-      const prices = contextCandles.flatMap(c => [c.h, c.l]);
-      const maxP = Math.max(...prices);
-      const minP = Math.min(...prices);
-      const range = maxP - minP || 0.001;
-      const PAD_TOP = H * 0.12;
-      const PAD_BOT = H * 0.12;
-      const chartH = H - PAD_TOP - PAD_BOT;
-
-      const toY = (p: number) => PAD_TOP + ((maxP - p) / range) * chartH;
-
-      // Helper: candle screen X
-      const candleX = (idx: number) => (idx - startIdx) * TOTAL_W - (offset % TOTAL_W);
-
-      // ── Draw 20-period SMA ──
-      const smaPoints: { x: number; y: number }[] = [];
-      for (let i = 0; i < visible.length; i++) {
-        const ci = startIdx + i;
-        if (ci < MA_PERIOD - 1) continue;
-        const slice = candles.slice(ci - MA_PERIOD + 1, ci + 1);
-        const sma = slice.reduce((s, c) => s + c.c, 0) / MA_PERIOD;
-        smaPoints.push({ x: candleX(ci) + CANDLE_W / 2, y: toY(sma) });
-      }
-
-      if (smaPoints.length > 1) {
-        ctx.beginPath();
-        ctx.strokeStyle = "rgba(245,158,11,0.75)";
-        ctx.lineWidth = 1.8;
-        ctx.lineJoin = "round";
-        ctx.moveTo(smaPoints[0].x, smaPoints[0].y);
-        for (let i = 1; i < smaPoints.length; i++) {
-          const prev = smaPoints[i - 1];
-          const curr = smaPoints[i];
-          const mx = (prev.x + curr.x) / 2;
-          ctx.bezierCurveTo(mx, prev.y, mx, curr.y, curr.x, curr.y);
-        }
-        ctx.stroke();
-
-        // Glow under MA line
-        ctx.beginPath();
-        ctx.strokeStyle = "rgba(245,158,11,0.2)";
-        ctx.lineWidth = 5;
-        ctx.lineJoin = "round";
-        ctx.moveTo(smaPoints[0].x, smaPoints[0].y);
-        for (let i = 1; i < smaPoints.length; i++) {
-          const prev = smaPoints[i - 1];
-          const curr = smaPoints[i];
-          const mx = (prev.x + curr.x) / 2;
-          ctx.bezierCurveTo(mx, prev.y, mx, curr.y, curr.x, curr.y);
-        }
-        ctx.stroke();
-      }
-
-      // ── Draw 9-period EMA ──
-      const emaPoints: { x: number; y: number }[] = [];
-      const k = 2 / (EMA_PERIOD + 1);
-      let ema = candles[0].c;
-      for (let i = 1; i < startIdx + visCount && i < candles.length; i++) {
-        ema = candles[i].c * k + ema * (1 - k);
-        if (i >= startIdx) {
-          emaPoints.push({ x: candleX(i) + CANDLE_W / 2, y: toY(ema) });
-        }
-      }
-
-      if (emaPoints.length > 1) {
-        ctx.beginPath();
-        ctx.strokeStyle = "rgba(99,102,241,0.65)";
-        ctx.lineWidth = 1.5;
-        ctx.lineJoin = "round";
-        ctx.moveTo(emaPoints[0].x, emaPoints[0].y);
-        for (let i = 1; i < emaPoints.length; i++) {
-          const prev = emaPoints[i - 1];
-          const curr = emaPoints[i];
-          const mx = (prev.x + curr.x) / 2;
-          ctx.bezierCurveTo(mx, prev.y, mx, curr.y, curr.x, curr.y);
-        }
-        ctx.stroke();
-      }
-
-      // ── Draw candles ──
-      visible.forEach((c, i) => {
-        const ci = startIdx + i;
-        const x = candleX(ci);
-        const bull = c.c >= c.o;
-        const bullColor = "rgba(34,197,94,";
-        const bearColor = "rgba(239,68,68,";
-        const baseColor = bull ? bullColor : bearColor;
-
-        const bodyTop = toY(Math.max(c.o, c.c));
-        const bodyBot = toY(Math.min(c.o, c.c));
-        const bodyH = Math.max(1.5, bodyBot - bodyTop);
-        const cx = x + CANDLE_W / 2;
-
-        // Wick
-        ctx.strokeStyle = baseColor + "0.55)";
-        ctx.lineWidth = 1.5;
-        ctx.lineCap = "round";
-        ctx.beginPath();
-        ctx.moveTo(cx, toY(c.h));
-        ctx.lineTo(cx, toY(c.l));
-        ctx.stroke();
-
-        // Body
-        const grad = ctx.createLinearGradient(x, bodyTop, x, bodyBot);
-        if (bull) {
-          grad.addColorStop(0, "rgba(74,222,128,0.95)");
-          grad.addColorStop(1, "rgba(22,163,74,0.95)");
-        } else {
-          grad.addColorStop(0, "rgba(248,113,113,0.95)");
-          grad.addColorStop(1, "rgba(220,38,38,0.95)");
-        }
-        ctx.fillStyle = grad;
-
-        // Glow
-        ctx.shadowColor = bull ? "rgba(34,197,94,0.5)" : "rgba(239,68,68,0.5)";
-        ctx.shadowBlur = 6;
-
-        const radius = Math.min(2, bodyH / 2);
-        ctx.beginPath();
-        ctx.roundRect(x, bodyTop, CANDLE_W, bodyH, radius);
-        ctx.fill();
-        ctx.shadowBlur = 0;
+      // Decorative geometry, never presented as a live price feed. The
+      // bounded canvas is painted only on resize; CSS moves its texture.
+      const count = Math.min(96, Math.ceil(width / 18) + 4);
+      const gap = width / (count - 1);
+      const candles = Array.from({ length: count }, (_, i) => {
+        const open = 0.52 + Math.sin(i * 0.15) * 0.15 + Math.sin(i * 0.47) * 0.065;
+        const close = open + Math.sin(i * 1.83 + 0.7) * 0.036;
+        return {
+          open, close,
+          high: Math.max(open, close) + 0.019 + (i % 3) * 0.008,
+          low: Math.min(open, close) - 0.018 - (i % 4) * 0.004,
+        };
       });
-
-      // ── Price label on last candle ──
-      const lastCandle = candles[candles.length - 1];
-      const lastX = candleX(candles.length - 1);
-      if (lastX > 0 && lastX < W) {
-        const ly = toY(lastCandle.c);
-        // dashed line
-        ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = "rgba(245,158,11,0.45)";
+      const toY = (price: number) => height * (1 - price);
+      candles.forEach((candle, i) => {
+        const x = i * gap;
+        const rising = candle.close >= candle.open;
+        const top = toY(Math.max(candle.open, candle.close));
+        const bodyHeight = Math.max(2, Math.abs(candle.close - candle.open) * height);
+        ctx.strokeStyle = rising ? "rgba(117, 194, 184, 0.7)" : "rgba(158, 170, 198, 0.46)";
         ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, toY(candle.high)); ctx.lineTo(x, toY(candle.low)); ctx.stroke();
+        ctx.fillStyle = rising ? "rgba(117, 194, 184, 0.42)" : "rgba(158, 170, 198, 0.25)";
+        ctx.fillRect(x - 3.5, top, 7, bodyHeight);
+      });
+      const movingAverage = (period: number, color: string) => {
         ctx.beginPath();
-        ctx.moveTo(0, ly);
-        ctx.lineTo(lastX, ly);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        for (let i = period - 1; i < candles.length; i++) {
+          const average = candles.slice(i - period + 1, i + 1)
+            .reduce((sum, candle) => sum + candle.close, 0) / period;
+          if (i === period - 1) ctx.moveTo(i * gap, toY(average));
+          else ctx.lineTo(i * gap, toY(average));
+        }
         ctx.stroke();
-        ctx.setLineDash([]);
-        // pill
-        const label = lastCandle.c.toFixed(4);
-        ctx.font = "bold 10px monospace";
-        const tw = ctx.measureText(label).width;
-        const pw = tw + 10;
-        ctx.fillStyle = "rgba(245,158,11,0.18)";
-        ctx.strokeStyle = "rgba(245,158,11,0.5)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(4, ly - 9, pw, 18, 4);
-        ctx.fill(); ctx.stroke();
-        ctx.fillStyle = "#fbbf24";
-        ctx.fillText(label, 9, ly + 3.5);
-      }
-
-      // ── Edge vignettes ──
-      const vigL = ctx.createLinearGradient(0, 0, W * 0.12, 0);
-      vigL.addColorStop(0, "rgba(5,11,23,0.95)");
-      vigL.addColorStop(1, "rgba(5,11,23,0)");
-      ctx.fillStyle = vigL;
-      ctx.fillRect(0, 0, W * 0.12, H);
-
-      const vigR = ctx.createLinearGradient(W * 0.88, 0, W, 0);
-      vigR.addColorStop(0, "rgba(5,11,23,0)");
-      vigR.addColorStop(1, "rgba(5,11,23,0.95)");
-      ctx.fillStyle = vigR;
-      ctx.fillRect(W * 0.88, 0, W * 0.12, H);
-
-      // ── Top & bottom darkening (for readability) ──
-      const vigTop = ctx.createLinearGradient(0, 0, 0, H * 0.2);
-      vigTop.addColorStop(0, "rgba(5,11,23,0.7)");
-      vigTop.addColorStop(1, "rgba(5,11,23,0)");
-      ctx.fillStyle = vigTop;
-      ctx.fillRect(0, 0, W, H * 0.2);
-
-      const vigBot = ctx.createLinearGradient(0, H * 0.8, 0, H);
-      vigBot.addColorStop(0, "rgba(5,11,23,0)");
-      vigBot.addColorStop(1, "rgba(5,11,23,0.7)");
-      ctx.fillStyle = vigBot;
-      ctx.fillRect(0, H * 0.8, W, H * 0.2);
-
-      // Advance scroll
-      offset += SCROLL_SPEED;
-
-      // Generate new candles ahead of scroll
-      while ((candles.length * TOTAL_W) - offset < W + TOTAL_W * 5) {
-        addCandle();
-      }
-
-      // Keep only the visible window and moving-average context. Without
-      // pruning, an open login tab grows this array for as long as it runs.
-      const maxCandles = Math.ceil(W / TOTAL_W) + MA_PERIOD + 32;
-      if (candles.length > maxCandles) {
-        const removed = candles.length - maxCandles;
-        candles.splice(0, removed);
-        offset = Math.max(0, offset - removed * TOTAL_W);
-      }
-
-      animId = requestAnimationFrame(draw);
+      };
+      movingAverage(9, "rgba(233, 188, 103, 0.65)");
+      movingAverage(20, "rgba(136, 163, 195, 0.3)");
     };
-
-    const syncAnimation = () => {
-      if (document.hidden) {
-        if (animId !== null) cancelAnimationFrame(animId);
-        animId = null;
-      } else if (animId === null) {
-        animId = requestAnimationFrame(draw);
-      }
+    const resize = () => {
+      if (resizeFrame) cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(draw);
     };
-    document.addEventListener("visibilitychange", syncAnimation);
-    syncAnimation();
-
+    draw();
+    window.addEventListener("resize", resize, { passive: true });
     return () => {
-      if (animId !== null) cancelAnimationFrame(animId);
-      document.removeEventListener("visibilitychange", syncAnimation);
+      if (resizeFrame) cancelAnimationFrame(resizeFrame);
       window.removeEventListener("resize", resize);
     };
   }, []);
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{ position: "fixed", inset: 0, width: "100%", height: "100%", zIndex: 0, display: "block" }}
-    />
+    <div className="otx-login-atmosphere" aria-hidden="true">
+      <div className="otx-login-hologram-depth">
+        <canvas ref={canvasRef} className="otx-login-hologram" />
+      </div>
+      <div className="otx-login-vignette" />
+      {Array.from({ length: 12 }, (_, i) => (
+        <span key={i} className="otx-login-particle" style={{
+          "--particle-x": `${8 + ((i * 29) % 84)}%`,
+          "--particle-y": `${10 + ((i * 17) % 78)}%`,
+          "--particle-duration": `${14 + (i % 5) * 3}s`,
+          "--particle-delay": `${-i * 2.4}s`,
+        } as React.CSSProperties} />
+      ))}
+    </div>
   );
 }
 
@@ -539,6 +322,8 @@ function OwnerLoginPanel({ onAuthed, onClose }: { onAuthed: () => void; onClose:
    Auth Screen
 ───────────────────────────────────────────────────────────── */
 function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
+  const sceneRef = useRef<HTMLDivElement>(null);
+  const { deviceMotion, toggleDeviceMotion } = useLoginMotion(sceneRef);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -597,309 +382,131 @@ function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
   };
 
   return (
-    <div style={{ position: "relative", minHeight: "100dvh", width: "100%", fontFamily: "'Inter', sans-serif" }}>
-      {/* Live chart background */}
+    <div ref={sceneRef} className="otx-login">
       <CandlestickBackground />
 
-      {/* Dark overlay so the form pops */}
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 1,
-        background: "radial-gradient(ellipse at 50% 50%, rgba(5,11,23,0.65) 0%, rgba(5,11,23,0.9) 100%)",
-      }} />
+      <div className="otx-login-corner otx-login-corner--left" aria-hidden="true">
+        <strong>ONKAR TRADEX</strong><br />TRADE SMARTER<br />GROW FURTHER<i />
+      </div>
+      <div className="otx-login-corner otx-login-corner--right" aria-hidden="true">
+        DISCIPLINE<br />BUILDS WEALTH<i />
+      </div>
+      <div className="otx-login-corner otx-login-corner--left otx-login-corner--bottom" aria-hidden="true">
+        MARKETS · IDEAS<br />EXECUTION · RESULTS
+      </div>
+      <div className="otx-login-corner otx-login-corner--right otx-login-corner--bottom" aria-hidden="true">
+        A BETTER TRADER<br />TOMORROW
+      </div>
 
-      {/* Background Typography Deco */}
-      <div className="hidden md:flex flex-col gap-4 pointer-events-none" style={{
-        position: "fixed", top: 40, left: 32, zIndex: 1,
-        color: "rgba(251,191,36,0.2)", fontSize: 10, fontWeight: 700, letterSpacing: "0.2em",
-        lineHeight: 1.8
-      }}>
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <span>TRADE</span>
-          <span>SMARTER</span>
-          <span>GROW</span>
-          <span>FURTHER</span>
+      <main className="otx-login-content">
+        <div className="otx-login-card-reveal">
+          <section className="otx-login-card" aria-labelledby="otx-login-title">
+            <div className="otx-login-lighting" aria-hidden="true">
+              <span className="otx-login-edge" />
+              <span className="otx-login-edge otx-login-edge--bottom" />
+              <span className="otx-login-sweep" />
+            </div>
+            <header className="otx-login-heading">
+              <span className="otx-login-eyebrow">Your personal trading OS</span>
+              <div className="otx-login-logo-depth" aria-hidden="true">
+                <div className="otx-login-aura" />
+                <div className="otx-login-logo-shadow" />
+                <div className="otx-login-logo-float">
+                  <div className="otx-login-logo-face">
+                    <img src="/onkar-tradex-logo.png" alt="" width="102" height="102" fetchPriority="high" />
+                    <span className="otx-login-sweep" />
+                  </div>
+                </div>
+              </div>
+              <div className="otx-login-brand">Onkar <span>TradeX</span></div>
+              <div className="otx-login-tagline">Trade smarter · Grow further</div>
+              <h1 id="otx-login-title">
+                {mode === "login" ? "Welcome back." : "Your next chapter."}
+              </h1>
+              <p>{mode === "login" ? "Sign in to your private trading workspace." : "Create your private trading workspace."}</p>
+            </header>
+
+            <form className="otx-login-form" onSubmit={(event) => { event.preventDefault(); submit(); }} aria-busy={busy}>
+              <div className="otx-login-tabs" role="group" aria-label="Account access">
+                {(["login", "register"] as const).map((m) => (
+                  <button type="button" key={m} aria-pressed={mode === m}
+                    onClick={() => { setMode(m); setErr(null); }}>
+                    {m === "login" ? "Log in" : "Sign up"}
+                  </button>
+                ))}
+              </div>
+
+              <div className="otx-login-field">
+                <label htmlFor="otx-login-email">Email</label>
+                <div className="otx-login-input-wrap">
+                  <span className="otx-login-input-icon" aria-hidden="true"><Mail size={17} strokeWidth={1.7} /></span>
+                  <input id="otx-login-email" name="email" type="email" value={email}
+                    onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com"
+                    autoComplete="email" autoCapitalize="none" spellCheck={false}
+                    aria-invalid={Boolean(err)} aria-describedby={err ? "otx-auth-error" : undefined} />
+                </div>
+              </div>
+
+              <div className="otx-login-field">
+                <label htmlFor="otx-login-password">Password</label>
+                <div className="otx-login-input-wrap otx-login-input-wrap--password">
+                  <span className="otx-login-input-icon" aria-hidden="true"><Lock size={17} strokeWidth={1.7} /></span>
+                  <input id="otx-login-password" name="password" type={showPassword ? "text" : "password"}
+                    value={password} onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    autoComplete={mode === "login" ? "current-password" : "new-password"}
+                    aria-invalid={Boolean(err)} aria-describedby={err ? "otx-auth-error" : undefined} />
+                  <button type="button" className="otx-login-password-toggle" onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}>
+                    {showPassword ? <EyeOff size={17} strokeWidth={1.7} /> : <Eye size={17} strokeWidth={1.7} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="otx-login-options">
+                <label className="otx-login-remember">
+                  <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
+                  <span>Remember me</span>
+                </label>
+                {mode === "login" && (
+                  <button type="button" className="otx-login-text-button" onClick={forgotPassword} disabled={busy}>
+                    Forgot password?
+                  </button>
+                )}
+              </div>
+
+              {err && <div id="otx-auth-error" className="otx-login-message otx-login-message--error" role="alert">{err}</div>}
+              {notice && <div className="otx-login-message otx-login-message--notice" role="status">{notice}</div>}
+
+              <button type="submit" disabled={busy} className="otx-login-button otx-login-button--primary">
+                {busy ? "Please wait…" : (mode === "login" ? "Log In" : "Sign Up")}
+                {!busy && <ArrowRight size={17} strokeWidth={2} aria-hidden="true" />}
+              </button>
+              {mode === "login" && (
+                <button type="button" className="otx-login-button otx-login-button--secondary"
+                  onClick={() => { setMode("register"); setErr(null); }} disabled={busy}>
+                  Create Account
+                </button>
+              )}
+            </form>
+
+            <div className="otx-login-security">
+              <ShieldCheck size={14} strokeWidth={1.7} aria-hidden="true" />
+              <span>Secure<span>·</span>Fast<span>·</span>Reliable</span>
+            </div>
+          </section>
         </div>
-        <div style={{ width: 24, height: 2, background: "rgba(251,191,36,0.3)" }} />
-      </div>
-
-      <div className="hidden md:flex flex-col gap-4 pointer-events-none items-end text-right" style={{
-        position: "fixed", top: 40, right: 32, zIndex: 1,
-        color: "rgba(251,191,36,0.2)", fontSize: 10, fontWeight: 700, letterSpacing: "0.2em",
-        lineHeight: 1.8
-      }}>
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <span>DISCIPLINE</span>
-          <span>BUILDS</span>
-          <span>WEALTH</span>
-        </div>
-        <div style={{ width: 24, height: 2, background: "rgba(251,191,36,0.3)" }} />
-      </div>
-
-      <div className="hidden md:flex flex-col pointer-events-none" style={{
-        position: "fixed", bottom: 40, left: 32, zIndex: 1,
-        color: "rgba(148,163,184,0.3)", fontSize: 9, fontWeight: 600, letterSpacing: "0.25em",
-        lineHeight: 1.8
-      }}>
-        <span>MARKETS</span>
-        <span>IDEAS</span>
-        <span>EXECUTION</span>
-        <span>RESULTS</span>
-      </div>
-
-      <div className="hidden md:flex flex-col pointer-events-none text-right" style={{
-        position: "fixed", bottom: 40, right: 32, zIndex: 1,
-        color: "rgba(148,163,184,0.3)", fontSize: 9, fontWeight: 600, letterSpacing: "0.25em",
-        lineHeight: 1.8
-      }}>
-        <span>A BETTER</span>
-        <span>TRADER</span>
-        <span>TOMORROW</span>
-      </div>
-
-      {/* Content */}
-      <div style={{
-        position: "relative", zIndex: 2,
-        minHeight: "100dvh", display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center", padding: "24px 16px",
-      }}>
-
-        {/* Card */}
-        <div style={{
-          width: "100%", maxWidth: 420,
-          background: "linear-gradient(180deg, rgba(10,18,35,0.7) 0%, rgba(5,11,23,0.85) 100%)",
-          borderTop: "1px solid rgba(251, 191, 36, 0.4)",
-          borderBottom: "1px solid rgba(251, 191, 36, 0.4)",
-          borderLeft: "1px solid rgba(255,255,255,0.05)",
-          borderRight: "1px solid rgba(255,255,255,0.05)",
-          borderRadius: 24,
-          backdropFilter: "blur(24px)",
-          WebkitBackdropFilter: "blur(24px)",
-          boxShadow: "0 25px 60px rgba(0,0,0,0.8), 0 0 30px rgba(251, 191, 36, 0.1) inset",
-          padding: "40px 32px 32px",
-          position: "relative",
-          overflow: "hidden"
-        }}>
-
-          {/* Subtle top glow */}
-          <div style={{
-            position: "absolute", top: 0, left: "20%", right: "20%", height: 1,
-            background: "linear-gradient(90deg, transparent, #fbbf24, transparent)",
-            boxShadow: "0 0 20px 2px rgba(251,191,36,0.5)"
-          }} />
-
-          {/* Logo + title */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, marginBottom: 32 }}>
-            <div style={{ position: "relative" }}>
-              <div style={{
-                position: "absolute", inset: -12, borderRadius: "50%",
-                background: "rgba(245,158,11,0.15)", filter: "blur(16px)",
-              }} />
-              <img src="/onkar-tradex-lockup.webp" alt="Onkar TradeX — Trade smarter, grow further"
-                style={{ width: 210, height: 145, objectFit: "contain", position: "relative",
-                  filter: "drop-shadow(0 0 20px rgba(245,158,11,0.5))" }} />
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 4, letterSpacing: "0.02em" }}>
-                {mode === "login" ? "Welcome back to your trading workspace" : "Create your private trading workspace"}
-              </div>
-            </div>
-          </div>
-
-          <form onSubmit={(event) => { event.preventDefault(); submit(); }}>
-          {/* Mode tabs */}
-          <div style={{
-            display: "flex", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: 14, padding: 4, marginBottom: 28,
-          }}>
-            {(["login", "register"] as const).map((m) => (
-              <button
-                type="button"
-                key={m}
-                onClick={() => { setMode(m); setErr(null); }}
-                style={{
-                  flex: 1, padding: "10px 0", borderRadius: 10,
-                  fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer",
-                  transition: "all 0.2s ease-in-out",
-                  background: mode === m ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "transparent",
-                  color: mode === m ? "#020617" : "#64748b",
-                  boxShadow: mode === m ? "0 2px 12px rgba(245,158,11,0.3)" : "none",
-                }}
-              >
-                {m === "login" ? "Log in" : "Sign up"}
-              </button>
-            ))}
-          </div>
-
-          {/* Fields */}
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#cbd5e1", marginBottom: 8 }}>
-              Email
-            </label>
-            <div style={{ position: "relative" }}>
-              <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#64748b" }}>
-                <Mail size={18} strokeWidth={2} />
-              </div>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                autoComplete="email"
-                style={{
-                  width: "100%", background: "rgba(15, 23, 42, 0.6)",
-                  border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12,
-                  padding: "12px 16px 12px 42px", fontSize: 14, color: "#f1f5f9",
-                  outline: "none", transition: "all 0.2s"
-                }}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = "rgba(251,191,36,0.5)";
-                  e.currentTarget.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.1)";
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#cbd5e1", marginBottom: 8 }}>
-              Password
-            </label>
-            <div style={{ position: "relative" }}>
-              <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#64748b" }}>
-                <Lock size={18} strokeWidth={2} />
-              </div>
-              <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && submit()}
-                placeholder="Enter your password"
-                autoComplete={mode === "login" ? "current-password" : "new-password"}
-                style={{
-                  width: "100%", background: "rgba(15, 23, 42, 0.6)",
-                  border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12,
-                  padding: "12px 42px 12px 42px", fontSize: 14, color: "#f1f5f9",
-                  outline: "none", transition: "all 0.2s"
-                }}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = "rgba(251,191,36,0.5)";
-                  e.currentTarget.style.boxShadow = "0 0 0 2px rgba(251,191,36,0.1)";
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
-              />
-              <button
-                onClick={() => setShowPassword(!showPassword)}
-                type="button"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                style={{
-                  position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)",
-                  color: "#64748b", background: "none", border: "none", cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center", padding: 4
-                }}
-              >
-                {showPassword ? <EyeOff size={18} strokeWidth={2} /> : <Eye size={18} strokeWidth={2} />}
-              </button>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-              <div style={{
-                width: 18, height: 18, borderRadius: 4,
-                border: rememberMe ? "none" : "1px solid rgba(255,255,255,0.2)",
-                background: rememberMe ? "#fbbf24" : "rgba(0,0,0,0.2)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                transition: "all 0.2s"
-              }}>
-                {rememberMe && <Check size={12} strokeWidth={3} color="#020617" />}
-              </div>
-              <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="sr-only" />
-              <span style={{ fontSize: 13, color: "#e2e8f0" }}>Remember me</span>
-            </label>
-
-            {mode === "login" && (
-              <button type="button" onClick={forgotPassword} disabled={busy}
-                style={{ background: "none", border: "none", color: "#fbbf24", fontSize: 13, cursor: "pointer", transition: "color 0.2s" }}
-                onMouseEnter={(e) => e.currentTarget.style.color = "#fcd34d"}
-                onMouseLeave={(e) => e.currentTarget.style.color = "#fbbf24"}
-              >
-                Forgot password?
-              </button>
-            )}
-          </div>
-
-          {err && (
-            <div style={{
-              marginBottom: 20, padding: "12px 16px", borderRadius: 12,
-              background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)",
-              color: "#fca5a5", fontSize: 13, display: "flex", alignItems: "center", gap: 8
-            }}>
-              {err}
-            </div>
-          )}
-          {notice && (
-            <div style={{
-              marginBottom: 20, padding: "12px 16px", borderRadius: 12,
-              background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.25)",
-              color: "#6ee7b7", fontSize: 13
-            }}>
-              {notice}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={busy}
-            style={{
-              width: "100%", padding: "14px 0", borderRadius: 12,
-              background: busy ? "rgba(245,158,11,0.4)" : "linear-gradient(135deg, #fbbf24, #f59e0b)",
-              border: "none", cursor: busy ? "not-allowed" : "pointer",
-              color: "#020617", fontWeight: 700, fontSize: 15,
-              boxShadow: busy ? "none" : "0 4px 20px rgba(245,158,11,0.4)",
-              transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", gap: 8
-            }}
-            onMouseEnter={(e) => !busy && (e.currentTarget.style.transform = "translateY(-1px)")}
-            onMouseLeave={(e) => !busy && (e.currentTarget.style.transform = "translateY(0)")}
-          >
-            {busy ? "Please wait…" : (mode === "login" ? "Log In" : "Sign Up")}
-            {!busy && <ArrowRight size={18} strokeWidth={2.5} />}
-          </button>
-
-          {mode === "login" && (
-            <button
-              type="button"
-              onClick={() => { setMode("register"); setErr(null); }}
-              disabled={busy}
-              style={{
-                width: "100%", marginTop: 16, padding: "14px 0", borderRadius: 12,
-                background: "transparent",
-                border: "1px solid rgba(251,191,36,0.3)", cursor: busy ? "not-allowed" : "pointer",
-                color: "#fbbf24", fontWeight: 600, fontSize: 15,
-                transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", gap: 8
-              }}
-              onMouseEnter={(e) => !busy && (e.currentTarget.style.background = "rgba(251,191,36,0.05)")}
-              onMouseLeave={(e) => !busy && (e.currentTarget.style.background = "transparent")}
-            >
-              Create Account
+        <footer className="otx-login-footer">
+          <span>Built for focus. Designed for your next move.</span>
+          {deviceMotion !== "unavailable" && deviceMotion !== "denied" && (
+            <button type="button" className="otx-login-motion-control"
+              onClick={() => void toggleDeviceMotion()} aria-pressed={deviceMotion === "enabled"}
+              aria-label={deviceMotion === "enabled" ? "Disable device tilt" : "Enable device tilt"}>
+              <Move3d size={12} aria-hidden="true" /> Device tilt
             </button>
           )}
-
-          </form>
-
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 28 }}>
-            <ShieldCheck size={16} color="#fbbf24" strokeWidth={2} />
-            <div style={{ color: "#64748b", fontSize: 12, letterSpacing: "0.05em", fontWeight: 500 }}>
-              Secure <span style={{ margin: "0 6px", color: "#475569" }}>•</span> Fast <span style={{ margin: "0 6px", color: "#475569" }}>•</span> Reliable
-            </div>
-          </div>
-        </div>
-      </div>
+        </footer>
+      </main>
     </div>
   );
 }
@@ -937,6 +544,20 @@ function PasswordRecoveryScreen({ onDone }: { onDone: () => void }) {
 ───────────────────────────────────────────────────────────── */
 function Root() {
   const [status, setStatus] = useState<"checking" | "out" | "in" | "recovery">("checking");
+  const previousStatus = useRef(status);
+  const [loginArrival, setLoginArrival] = useState(false);
+
+  // Presentation follows the existing auth listener. It never waits for an
+  // animation before accepting a session or mounting the dashboard.
+  useEffect(() => {
+    const fromLogin = previousStatus.current === "out" && status === "in";
+    previousStatus.current = status;
+    if (status !== "in") { setLoginArrival(false); return; }
+    if (!fromLogin) return;
+    setLoginArrival(true);
+    const timer = window.setTimeout(() => setLoginArrival(false), 700);
+    return () => window.clearTimeout(timer);
+  }, [status]);
 
   useEffect(() => {
     let active = true;
@@ -1061,7 +682,7 @@ function Root() {
 
   if (status === "out") return <AuthScreen onAuthed={() => setStatus("in")} />;
   if (status === "recovery") return <PasswordRecoveryScreen onDone={() => setStatus("in")} />;
-  return <><App onLogout={async () => {
+  return <div className={loginArrival ? "otx-dashboard-arrival" : undefined}><App onLogout={async () => {
     try {
       await logout();
     } catch {
@@ -1069,7 +690,11 @@ function Root() {
     } finally {
       setStatus("out");
     }
-  }} />{JARVIS_ENABLED && <Jarvis />}</>;
+  }} />{JARVIS_ENABLED && <Jarvis />}{loginArrival && (
+    <div className="otx-login-arrival" aria-hidden="true">
+      <img src="/onkar-tradex-logo.png" alt="" width="80" height="80" />
+    </div>
+  )}</div>;
 }
 
 createRoot(document.getElementById("root")!).render(
